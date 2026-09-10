@@ -1,0 +1,188 @@
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import os
+import platform
+import shutil
+import socket
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+from core.registry import register_cmd
+from core.database import Database
+from core.errors import CommandError
+from core.registry import COMMANDS
+from helpers.hud import render
+from helpers.shell import run
+from helpers.net import get_session
+from config import config
+
+logger = logging.getLogger("astra.doctor")
+PATTERN = rf"^{__import__('re').escape(config.PREFIX)}(doctor|cleancache|update)$"
+
+
+def _redact(text: str) -> str:
+    import re
+    return re.sub(r"(?i)(api[_-]?hash|api[_-]?id|token|secret|password|authorization|session)[^\n:=]*[:=]\s*[^\n]+", "[REDACTED]", text)
+
+
+def _report_path(prefix: str = "doctor") -> Path:
+    log_dir = Path("data/logs")
+    log_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return log_dir / f"{prefix}_{stamp}.json"
+
+
+async def _cmd(command: list[str], timeout: int = 5) -> tuple[bool, str]:
+    try:
+        rc, out, err = await run(command, timeout=timeout)
+        text = (out.strip() or err.strip()).strip()
+        return rc == 0, _redact(text[-1000:])
+    except Exception as exc:
+        return False, f"{type(exc).__name__}: {_redact(str(exc))}"
+
+
+async def _network_checks(client) -> list[dict]:
+    checks = []
+    started = time.perf_counter()
+    try:
+        if not client.is_connected():
+            await client.connect()
+        me = await client.get_me()
+        checks.append({"name": "Telegram MTProto", "ok": me is not None, "detail": "connected + identity lookup"})
+    except Exception as exc:
+        checks.append({"name": "Telegram MTProto", "ok": False, "detail": f"{type(exc).__name__}: {_redact(str(exc))}"})
+
+    for host in ("api.telegram.org", "1.1.1.1"):
+        try:
+            socket.gethostbyname(host)
+            checks.append({"name": f"DNS {host}", "ok": True, "detail": "resolved"})
+        except Exception as exc:
+            checks.append({"name": f"DNS {host}", "ok": False, "detail": type(exc).__name__})
+
+    try:
+        session = get_session()
+        async with session.get("https://www.google.com/generate_204", timeout=5) as resp:
+            checks.append({"name": "HTTPS", "ok": resp.status < 500, "detail": f"HTTP {resp.status}"})
+    except Exception as exc:
+        checks.append({"name": "HTTPS", "ok": False, "detail": f"{type(exc).__name__}: {_redact(str(exc))}"})
+
+    checks.append({"name": "Network probe time", "ok": True, "detail": f"{time.perf_counter() - started:.2f}s"})
+    return checks
+
+
+async def _doctor_report(event) -> dict:
+    root = Path(__file__).resolve().parents[2]
+    cache = root / "data" / "cache"
+    logs = root / "data" / "logs"
+    data = root / "data"
+    cache.mkdir(parents=True, exist_ok=True)
+    logs.mkdir(parents=True, exist_ok=True)
+
+    report: dict = {
+        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        "status": "healthy",
+        "python": {"version": sys.version, "executable": sys.executable},
+        "platform": {"system": platform.system(), "release": platform.release(), "machine": platform.machine()},
+        "paths": {"root": str(root), "data": str(data), "cache": str(cache), "logs": str(logs)},
+        "registry": {"patterns": len(COMMANDS), "commands": sum(1 for _ in COMMANDS)},
+        "filesystem": {},
+        "binaries": {},
+        "network": [],
+    }
+
+    for name, path in (("root", root), ("data", data), ("cache", cache), ("logs", logs)):
+        report["filesystem"][name] = {"exists": path.exists(), "writable": os.access(path, os.W_OK)}
+
+    for binary in ("git", "ffmpeg", "ffprobe", "tesseract", "rclone", "aria2c", "yt-dlp", "systemctl"):
+        report["binaries"][binary] = shutil.which(binary) is not None
+
+    ok_uname, uname = await _cmd(["uname", "-a"])
+    ok_uptime, uptime = await _cmd(["uptime", "-p"])
+    ok_mem, memory = await _cmd(["free", "-m"])
+    ok_disk, disk = await _cmd(["df", "-h", str(root)])
+    report["host"] = {"uname": uname if ok_uname else None, "uptime": uptime if ok_uptime else None, "memory": memory if ok_mem else None, "disk": disk if ok_disk else None}
+    report["network"] = await _network_checks(event.client)
+
+    report["session"] = {
+        "configured": bool(config.SESSION_NAME),
+        "path_exists": (root / "data" / config.SESSION_NAME).exists(),
+    }
+
+    report["cache"] = {"files": sum(1 for p in cache.iterdir() if p.is_file())}
+    log_files = [p for p in logs.iterdir() if p.is_file()]
+    report["logs"] = {"files": len(log_files), "total_bytes": sum(p.stat().st_size for p in log_files), "main_log": str(logs / "astra.log") if (logs / "astra.log").exists() else None}
+
+    failures = []
+    for group in (report["filesystem"], report["binaries"]):
+        failures.extend(k for k, v in group.items() if isinstance(v, dict) and not v.get("exists", v.get("writable", False)) or v is False)
+    failures.extend(x["name"] for x in report["network"] if not x["ok"])
+    report["failures"] = failures
+    report["status"] = "healthy" if not failures else "attention"
+    return report
+
+
+async def setup(client):
+    register_cmd(client, PATTERN, handle_doctor, "system_ops", "Detailed Astra health audit, cache maintenance, and updater.")
+
+
+async def handle_doctor(event):
+    cmd = event.pattern_match.group(1).lower()
+
+    if cmd == "doctor":
+        await event.edit(render("DOCTOR // SCANNING", [
+            "Checking Telegram session...",
+            "Checking DNS + HTTPS reachability...",
+            "Checking Python, filesystem and host tools...",
+            "Building persistent diagnostic report...",
+        ], footer="system_ops | doctor"))
+        started = time.perf_counter()
+        report = await _doctor_report(event)
+        path = _report_path("doctor")
+        path.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+
+        net_ok = sum(1 for x in report["network"] if x["ok"])
+        net_total = len(report["network"])
+        missing = [name for name, present in report["binaries"].items() if not present]
+        rows = [
+            f"Status: {'HEALTHY ✓' if report['status'] == 'healthy' else 'ATTENTION ⚠'}",
+            f"Telegram/network: {net_ok}/{net_total} checks passed",
+            f"Registry: {report['registry']['patterns']} registered patterns",
+            f"Python: {platform.python_version()}",
+            f"Platform: {platform.system()} {platform.release()} / {platform.machine()}",
+            f"Session file: {'present ✓' if report['session']['path_exists'] else 'missing ⚠'}",
+            f"Cache: {report['cache']['files']} files · Logs: {report['logs']['files']} files",
+            f"Log size: {report['logs']['total_bytes'] / 1024:.1f} KiB",
+            f"Diagnostic log: {path}",
+        ]
+        if missing:
+            rows.append("Optional tools missing: " + ", ".join(missing))
+        if report["failures"]:
+            rows.append("Failed: " + ", ".join(report["failures"][:6]))
+        await event.edit(render("DOCTOR // REPORT", rows, footer=f"{time.perf_counter() - started:.2f}s | system_ops"))
+        return
+
+    if cmd == "cleancache":
+        cache_dir = Path("data/cache")
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        count = 0
+        for path in cache_dir.iterdir():
+            try:
+                if path.is_file() or path.is_symlink():
+                    path.unlink()
+                    count += 1
+                elif path.is_dir():
+                    import shutil as _shutil
+                    _shutil.rmtree(path)
+                    count += 1
+            except Exception as exc:
+                logger.warning("Could not remove cache item %s: %s", path, exc)
+        await event.edit(render("CACHE // CLEAN", [f"Purged {count} staging items.", "Persistent databases and Telegram session were left untouched."], footer="system_ops | cleancache"))
+        return
+
+    if cmd == "update":
+        raise CommandError("Updater is intentionally disabled in this build. Update Astra from the project directory, review the diff, then restart the service.")

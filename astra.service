@@ -1,0 +1,28 @@
+[Unit]
+Description=Astra Telegram Userbot
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=thakuralok
+WorkingDirectory=/home/thakuralok/AstraUserbot
+EnvironmentFile=-/home/thakuralok/AstraUserbot/.env
+ExecStart=/home/thakuralok/AstraUserbot/venv/bin/python main.py
+Restart=on-failure
+RestartSec=5
+
+CPUWeight=150
+MemoryHigh=450M
+MemoryMax=600M
+TasksMax=100
+Nice=5
+IOWeight=100
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/home/thakuralok/AstraUserbot/data
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

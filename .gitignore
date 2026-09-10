@@ -1,0 +1,25 @@
+.env
+.env.*
+!.env.example
+*.session
+*.session-journal
+*.session-shm
+*.session-wal
+*.sqlite
+*.sqlite3
+*.db
+*.db-*
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+node_modules/
+.DS_Store
+
+# Runtime data / logs
+data/logs/
+data/cache/
