@@ -1,85 +1,88 @@
-# AstraUserbot — Data Model
+# AstraUserbot — Detailed Data Model
 
-**Status:** Mandatory architectural contract  
-**Scope:** Userbot runtime state, plugin metadata, jobs, cache, audit, security metadata, and derived search state
+**Status:** Mandatory data contract  
+**Version:** 2.0  
+**Scope:** Platform SQLite state, plugin metadata, commands, jobs, cache, media, audit, search, settings, migrations, retention
 
 ## 1. Purpose
 
-AstraUserbot already contains multiple plugin-specific SQLite databases. The platform needs a canonical data model for durable infrastructure without forcing an immediate destructive migration of working plugins.
+Astra maintains local operational state while Telegram, external providers, the source repository, and user-controlled files remain authoritative for their own domains.
 
-The model distinguishes authoritative external state from Astra's observations and operational state.
-
-```text
-Telegram / external systems / filesystem
-            ↓
-       observed state
-            ↓
-      Astra local state
-            ↓
- jobs / cache / search / audit / diagnostics
-```
-
-Astra's local databases are not authoritative for Telegram content or external provider state.
-
-## 2. Runtime Locations
-
-Repository source remains separate from runtime state.
-
-Recommended runtime layout:
+The central distinction is:
 
 ```text
-~/AstraUserbot/
-  source code + migrations + tests
-
-~/AstraUserbot/data/
-  existing plugin/runtime data during migration
-
-~/.local/share/astra-userbot/
-  future consolidated platform database and durable state
-
-~/.cache/astra-userbot/
-  disposable cache, media, downloads, thumbnails, temporary artifacts
+AUTHORITATIVE EXTERNAL STATE
+        ↓ observation
+DERIVED LOCAL STATE
+        ↓ orchestration
+DURABLE ASTRA OPERATIONAL STATE
 ```
 
-Existing working plugin databases must remain intact until each consumer is migrated and verified.
+A local record must never silently become authoritative merely because it is persistent.
 
-## 3. Authority Classes
-
-Every persistent record should conceptually belong to one of these classes:
+## 2. Authority Classes
 
 ### AUTHORITATIVE_EXTERNAL
-
-Facts owned by Telegram, an external API, the filesystem, or another external system.
+Telegram state, external API state, source files, user-owned files, and other external systems.
 
 ### OBSERVED_DERIVED
-
-Astra's cached/indexed observation of external state. It can become stale and must be refreshable.
+Entity records, message indexes, HTTP responses, search indexes, OCR/transcripts, and similar observations.
 
 ### DURABLE_OPERATIONAL
-
-Astra-owned state required to survive restarts, such as jobs, leases, retry schedules, migrations, and audit events.
+Jobs, leases, migrations, audit records, plugin state, command registry metadata, health snapshots.
 
 ### CACHE
-
-Disposable derived data with an expiry or invalidation policy.
+Disposable data governed by TTL/capacity/invalidation.
 
 ### CONFIGURATION
+Non-secret user-controlled settings and policy.
 
-User-controlled policy and non-secret configuration.
+### SECRET_REFERENCE
+A pointer to secret material without embedding the secret itself.
 
-The distinction must never be lost merely because records live in the same SQLite database.
+## 3. Database Layout
 
-## 4. Platform Database
+Target shared platform database:
 
-The long-term platform database should be SQLite with WAL where appropriate.
+```text
+~/.local/share/astra-userbot/astra.db
+```
 
-Conceptual tables include:
+During migration, existing repository-local databases remain under `data/databases/`.
+
+The platform database is introduced without destructive conversion. A plugin database moves only after:
+
+1. schema is understood;
+2. migration exists;
+3. data backup exists;
+4. consumer is migrated;
+5. regression tests pass;
+6. rollback is possible.
+
+## 4. SQLite Baseline
+
+Use:
+
+```sql
+PRAGMA foreign_keys = ON;
+PRAGMA journal_mode = WAL;
+PRAGMA busy_timeout = <bounded value>;
+```
+
+WAL is appropriate for concurrent readers/writers but does not remove the need for short transactions and bounded contention.
+
+Transactions must contain local database work only. Do not hold a transaction while waiting on Telegram, HTTP, FFmpeg, AI, or another external system.
+
+## 5. Canonical Tables
+
+Initial platform schema:
 
 ```text
 schema_migrations
 plugins
 plugin_dependencies
 commands
+command_aliases
 jobs
 job_attempts
 job_events
@@ -92,59 +95,71 @@ media_artifacts
 settings
 feature_flags
 health_snapshots
+search metadata / FTS tables
 ```
 
-Individual plugin databases may continue to exist until migration is justified.
+Tables may be split when scale or ownership requires it; the logical contracts remain stable.
 
-## 5. Plugin Record
+## 6. Plugin Metadata
 
-Canonical fields:
+```text
+plugin_id TEXT PRIMARY KEY
+name TEXT NOT NULL
+version TEXT NOT NULL
+api_version TEXT NOT NULL
+source_path TEXT NOT NULL
+state TEXT NOT NULL
+description TEXT
+loaded_at INTEGER
+failed_at INTEGER
+error_code TEXT
+error_summary TEXT
+created_at INTEGER NOT NULL
+updated_at INTEGER NOT NULL
+```
 
-| Field | Meaning |
-|---|---|
-| `plugin_id` | Stable internal identifier |
-| `name` | Human-readable plugin name |
-| `version` | Plugin version |
-| `api_version` | Supported plugin API |
-| `state` | Lifecycle state |
-| `source_path` | Repository module path |
-| `description` | Human-readable purpose |
-| `dependencies` | Required plugin IDs |
-| `optional_dependencies` | Optional plugin IDs |
-| `permissions` | Declared capabilities |
-| `loaded_at` | Last successful load time |
-| `failed_at` | Last failure time |
-| `error_code` | Classified failure |
-| `error_summary` | Safe diagnostic summary |
+Dependencies are separate rows so they can be queried and validated.
 
-Plugin records are operational metadata, not executable authority.
+Constraints:
 
-## 6. Command Record
+- plugin ID is stable;
+- source path is unique for active registration;
+- lifecycle state is an explicit enum;
+- failure summaries are safe and bounded;
+- metadata is not executable authority.
 
-Canonical fields:
+## 7. Command Model
 
-| Field | Meaning |
-|---|---|
-| `command_id` | Stable command registration ID |
-| `name` | Canonical command name |
-| `plugin_id` | Owning plugin |
-| `aliases` | Registered aliases |
-| `description` | Help text |
-| `permission` | Required authorization level/capability |
-| `state` | Active/disabled/conflicted |
-| `registered_at` | Registration time |
+Command definition:
 
-Command identity must be unique across the active plugin set. Duplicate aliases are conflicts, not two normal handlers.
+```text
+command_id TEXT PRIMARY KEY
+plugin_id TEXT NOT NULL
+canonical_name TEXT NOT NULL UNIQUE
+description TEXT
+permission TEXT NOT NULL
+side_effect_class TEXT NOT NULL
+state TEXT NOT NULL
+registered_at INTEGER NOT NULL
+updated_at INTEGER NOT NULL
+```
 
-## 7. Job Record
+Aliases:
 
-The Job Model is authoritative for durable work.
+```text
+command_id TEXT NOT NULL
+alias TEXT NOT NULL UNIQUE
+```
 
-Required logical fields:
+A canonical command and any aliases share one handler/ownership definition. Duplicate aliases are conflicts.
+
+## 8. Job Schema
+
+Logical fields:
 
 ```text
 job_id
-type
+job_type
 priority
 state
 created_at
@@ -154,25 +169,53 @@ completed_at
 attempts
 max_attempts
 retry_at
-source
-destination
-scope
-progress
+payload_ref
+scope_json
+progress_json
 error_code
 error_message
 worker_id
 lease_until
+heartbeat_at
 parent_job_id
 idempotency_key
 verification_required
 verification_state
 ```
 
-Secrets, raw credentials, session strings, authorization headers, and private tokens are forbidden in job payloads.
+Indexes should support:
 
-## 8. Job Event Record
+```text
+(state, retry_at, priority)
+(worker_id, lease_until)
+(parent_job_id)
+(idempotency_key)
+(created_at)
+```
 
-Each material lifecycle transition can have an event:
+Job payloads contain intent and bounded references, never raw credentials or arbitrary executable Python.
+
+## 9. Job Attempts
+
+Each execution attempt may record:
+
+```text
+attempt_id
+job_id
+attempt_number
+worker_id
+started_at
+finished_at
+outcome
+error_code
+error_summary
+external_effect_state
+verification_state
+```
+
+This allows a job to distinguish current state from historical attempts.
+
+## 10. Job Events
 
 ```text
 event_id
@@ -186,14 +229,27 @@ summary
 metadata_json
 ```
 
-Metadata is structured and redacted. It must not become an uncontrolled dump of command output.
+Event metadata is structured, bounded, and redacted.
 
-## 9. Audit Record
+## 11. Lease Model
 
-Audit records explain meaningful actions:
+A worker lease contains:
+
+```text
+job_id
+worker_id
+leased_at
+lease_until
+heartbeat_at
+```
+
+Only the current owner may renew/update a leased job. Expiry creates an uncertain/recovery state rather than success.
+
+## 12. Audit Model
 
 ```text
 audit_id
+correlation_id
 timestamp
 actor
 operation
@@ -206,14 +262,12 @@ authorization_result
 verification_result
 outcome
 error_code
-correlation_id
+metadata_json
 ```
 
-Secrets are never stored in audit metadata.
+Audit records answer: **who/what/when/scope/result** without storing secrets.
 
-## 10. Cache Record
-
-Persistent cache entries should contain:
+## 13. Cache Schema
 
 ```text
 namespace
@@ -228,36 +282,33 @@ source
 etag
 last_modified
 status
-payload_reference
+payload_ref
 ```
 
-Large binary content should normally live in the filesystem cache and be referenced by metadata.
+Primary key is `(namespace, key, version)` or an equivalent stable hash.
 
-Cache state is disposable. Cache corruption must never corrupt authoritative external state.
+Cache entries require explicit expiration or invalidation semantics.
 
-## 11. Entity Cache
+## 14. Entity Cache
 
-Frequently resolved Telegram entities can be cached with fields such as:
+Telegram entity observations may contain:
 
 ```text
 entity_id
 entity_type
 username
-phone_hash_or_redacted_identifier
 title
-access_hash_when_required
+access_hash
 observed_at
 expires_at
 source
 ```
 
-Sensitive identifiers should not be logged unnecessarily. Entity cache entries are observations, not permission grants.
+Sensitive identifiers are minimized. Cache membership never grants permission.
 
-## 12. Message Cache
+## 15. Message Cache
 
-Features such as deleted/edited message reconstruction require bounded message state.
-
-Logical fields:
+For deleted/edited reconstruction:
 
 ```text
 message_id
@@ -265,198 +316,266 @@ chat_id
 sender_id
 received_at
 edited_at
-text_reference
-media_reference
+text_ref
+media_ref
 message_hash
 expires_at
-source
 ```
 
-The cache must have explicit capacity/retention. A fixed in-memory cache alone is not a durable message history.
+Capacity and retention are mandatory. A 500-entry volatile cache is not an acceptable universal persistence strategy for features that promise reconstruction beyond that window.
 
-## 13. Media Artifact
-
-Media processing produces derived artifacts:
+## 16. Media Artifacts
 
 ```text
 artifact_id
 job_id
-source_reference
+kind
+source_ref
 path
 mime_type
 size_bytes
 checksum
 created_at
 expires_at
-kind
 status
 ```
 
-Artifacts are disposable unless explicitly promoted into a user-controlled location.
+Artifacts are derived unless explicitly promoted. Each job owns a workspace and artifact namespace.
 
-Each media job gets an isolated workspace to prevent concurrent output collisions.
+## 17. Settings
 
-## 14. Settings
-
-Settings should distinguish:
-
-- ordinary configuration;
-- feature toggles;
-- policy;
-- secret references.
-
-Secrets themselves remain outside normal settings records where possible and are loaded from environment/secure local configuration.
-
-## 15. Migration Model
-
-Schema migrations are numbered and deterministic:
+Settings are typed conceptually as:
 
 ```text
-0001_initial_platform
-0002_jobs
-0003_cache
-0004_audit
-...
+configuration
+policy
+feature_flag
+secret_reference
 ```
 
-Every migration has tests and documents compatibility assumptions.
+Secrets themselves are not normal settings values. Environment/configuration or the SecretStore provides secret material at runtime.
 
-Plugin-specific schemas remain versioned independently until migrated.
+## 18. Health Snapshots
 
-## 16. Time Semantics
-
-All persisted timestamps use timezone-safe UTC representation.
-
-Different concepts must not be conflated:
+Operational snapshots may include:
 
 ```text
-created_at       = object/record creation
-observed_at      = external observation
-updated_at       = local record update
-expires_at       = cache validity
-started_at       = execution start
-completed_at     = verified terminal completion
+timestamp
+process_uptime
+telegram_state
+plugin_summary
+job_summary
+cache_summary
+db_summary
+resource_summary
+recent_error_count
 ```
 
-## 17. Unknown Values
+Snapshots must be bounded and must not include secrets.
 
-Unknown remains unknown.
+## 19. Search State
 
-Do not fabricate:
+FTS/index tables are derived.
 
-- timestamps;
-- MIME types;
-- Telegram identifiers;
-- checksums;
-- provider metadata;
-- verification results.
+For example:
 
-Use `NULL`, explicit unknown states, or equivalent typed representations.
+```text
+messages_fts
+notes_fts
+documents_fts
+plugins_fts
+commands_fts
+```
 
-## 18. Search State
+The authoritative record remains the source table/file. Search indexes must be rebuildable.
 
-Search indexes are derived state.
+## 20. Migration System
 
-The initial search stack should use SQLite indexes and FTS5 where justified.
+Migration files are numbered and deterministic:
 
-Potential indexed data:
+```text
+0001_platform_base
+0002_plugins_commands
+0003_jobs
+0004_cache
+0005_audit
+0006_media
+0007_search
+```
 
-- command metadata;
-- plugin metadata;
-- cached message text;
-- notes;
-- document text;
-- OCR output;
-- transcripts.
+Migration runner rules:
 
-Search indexes can be rebuilt and must never be treated as the authoritative source of the underlying content.
+1. open transaction where SQLite semantics allow;
+2. check current version;
+3. apply exactly next migration;
+4. record checksum/version;
+5. commit;
+6. stop on failure;
+7. never silently skip a migration.
 
-## 19. Security Metadata
+Each migration has an upgrade test and, where feasible, rollback/recovery documentation.
 
-Security-sensitive state should include enough information for audit without storing secrets.
+## 21. Time Semantics
+
+Persist UTC timestamps as a consistent representation. Keep concepts separate:
+
+```text
+created_at
+observed_at
+updated_at
+started_at
+completed_at
+expires_at
+retry_at
+lease_until
+```
+
+`completed_at` means the job contract reached its terminal verified state, not merely that a subprocess exited 0.
+
+## 22. Unknown and Nullable State
+
+Unknown remains explicit:
+
+```text
+NULL
+UNKNOWN
+NOT_AVAILABLE
+UNVERIFIED
+```
+
+Never invent checksums, provider metadata, timestamps, message IDs, MIME types, or verification results.
+
+## 23. Referential Integrity
+
+Foreign keys are enabled for platform relations. Deletion behavior is explicit.
 
 Examples:
 
+- deleting a plugin metadata row must not silently delete unrelated audit history;
+- job children reference parents;
+- command rows reference owners;
+- artifacts reference jobs where applicable.
+
+Audit/history tables use retention rather than accidental cascading deletion.
+
+## 24. Retention
+
+Every unbounded table or artifact class has a policy:
+
+| Data | Required control |
+|---|---|
+| account archive | age/size retention |
+| message cache | TTL + capacity |
+| HTTP cache | TTL + byte cap |
+| media artifacts | expiry + orphan cleanup |
+| job history | age/count policy |
+| audit | documented retention |
+| logs | rotation + size |
+| search indexes | rebuild/cleanup |
+
+Retention must be resource-aware and observable.
+
+## 25. Reconciliation
+
+When derived state conflicts with external state:
+
 ```text
-permission checks
-command ownership
-authorization decisions
-rate-limit observations
-security events
-credential-provider names
+observe discrepancy
+      ↓
+classify
+      ↓
+invalidate/refresh
+      ↓
+reconcile side effects if needed
+      ↓
+audit material discrepancy
 ```
 
-Do not persist raw session strings, API hashes, tokens, passwords, private keys, or cookies.
+Never mutate Telegram or an external provider solely to make local cache state look consistent.
 
-## 20. Referential Integrity
+## 26. Backup and Restore
 
-Where relational relationships exist, use foreign keys and explicit deletion behavior.
+The platform database must have a tested backup/restore path before being treated as the sole home of durable state.
 
-A plugin cannot silently delete platform records belonging to another plugin.
+Backup must define:
 
-Job history and audit history should be retained according to documented retention policy rather than opportunistic deletion.
+- source database;
+- consistency method;
+- destination;
+- retention;
+- integrity check;
+- restore procedure;
+- verification result.
 
-## 21. Reconciliation
+A backup command that merely copies a file is not automatically a verified backup system.
 
-External observations can become stale.
+## 27. Security Rules
 
-When a cache/index conflicts with Telegram or another authoritative source:
+Never persist:
 
-1. record the discrepancy;
-2. invalidate or refresh derived state;
-3. preserve audit evidence when material;
-4. never mutate the authoritative source merely to make local state match.
+```text
+Telegram session strings
+API keys
+bot tokens
+passwords
+private keys
+raw authorization headers
+cookies containing credentials
+```
 
-## 22. Data Retention
+If a job needs a credential, store a provider/reference identifier and resolve the secret at execution time under authorization.
 
-Every unbounded data source requires retention policy.
+## 28. Plugin Database Migration
 
-This applies especially to:
+Existing databases are treated as independent bounded domains during transition. Migration sequence:
 
-- account archiver data;
-- message reconstruction caches;
-- logs;
-- audit records;
-- media artifacts;
-- HTTP response caches;
-- job history.
+```text
+inventory
+→ schema capture
+→ backup
+→ repository adapter
+→ shared-service migration
+→ dual/read verification where useful
+→ cutover
+→ regression tests
+→ old schema retirement
+```
 
-Retention must be configurable and resource-aware.
+Do not force every plugin into the shared database merely for visual uniformity.
 
-## 23. Integrity Invariants
+## 29. Data Integrity Invariants
 
-1. Telegram/external systems remain authoritative for external state.
-2. Local indexes and caches are derived.
-3. Durable jobs are platform-owned operational state.
-4. Unknown data remains unknown.
-5. Secrets never enter normal persistent records.
-6. Schema changes are versioned.
-7. Cache loss cannot become data loss.
-8. Job state cannot be reconstructed from volatile memory alone.
-9. Audit data is structured and redacted.
-10. Existing plugin databases are migrated incrementally.
-11. Search state is rebuildable.
-12. Retention exists for every unbounded data source.
-13. Media artifacts have explicit ownership and cleanup semantics.
-14. Verification state is distinct from execution state.
-15. Derived state must never silently gain authority over the external system.
+1. External systems remain authoritative.
+2. Derived records are refreshable.
+3. Durable jobs are persisted.
+4. Job attempts are distinguishable.
+5. Verification is separate from execution.
+6. Secrets are excluded.
+7. Migrations are numbered.
+8. Foreign keys protect platform relations.
+9. Every unbounded store has retention.
+10. Search indexes are rebuildable.
+11. Media artifacts have ownership.
+12. Cache loss cannot become source-data loss.
+13. Unknown values remain explicit.
+14. Audit data is structured and redacted.
+15. Existing plugin data is migrated incrementally.
 
-## 24. Minimum Initial Implementation
+## 30. Implementation Acceptance Criteria
 
-The platform data foundation should begin with:
+The data foundation is ready when tests prove:
 
-- migration table;
-- plugin registry metadata;
-- command registry metadata;
-- durable jobs;
-- job events;
-- audit events;
-- persistent cache metadata;
-- health/runtime snapshots;
-- repositories and tests.
+- migrations create the expected schema;
+- migrations are idempotent at the runner level;
+- foreign-key violations are rejected;
+- duplicate commands are rejected;
+- job state is persisted across process recreation;
+- leases expire predictably;
+- cache entries expire;
+- retention removes only eligible records;
+- audit metadata is redacted;
+- search indexes can be rebuilt;
+- media artifacts can be orphan-cleaned;
+- backup/restore preserves required platform state.
 
-Do not block the platform on a complete migration of all existing plugin databases.
-
-## Operational Principle
-
-> **Astra's database records what Astra must remember; it does not become the authority for what Telegram, the filesystem, or an external provider actually contains.**
+> **Astra stores what it must remember, derives what it can rebuild, and never mistakes persistence for authority.**
