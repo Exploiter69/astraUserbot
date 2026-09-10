@@ -1,34 +1,30 @@
-# AstraUserbot — Safety Contract
+# AstraUserbot — Detailed Safety Contract
 
-**Status:** Mandatory  
-**Version:** 1.0  
-**Scope:** All plugins, commands, event handlers, jobs, subprocesses, HTTP calls, media operations, AI integrations, and future interfaces
-
-This is an engineering contract. A feature is incorrect if it violates these rules even when the resulting command technically succeeds.
+**Status:** Mandatory engineering contract  
+**Version:** 2.0  
+**Applies to:** Core, plugins, commands, events, jobs, HTTP, subprocesses, media, AI, storage, diagnostics
 
 ## 1. Fundamental Rule
 
-AstraUserbot has broad Telegram-account capabilities and may execute local programs, access files, call external services, and act asynchronously.
+Astra can act on a Telegram account and a local Linux environment. Therefore safety is an engineering property, not a UI feature.
 
-> **When scope, authorization, ownership, or safe completion cannot be established, stop rather than guess.**
+> **When scope, authorization, ownership, or completion cannot be established, stop, surface uncertainty, and reconcile rather than guess.**
 
-## 2. Side-Effect Classification
+## 2. Side-Effect Classes
 
-Every operation must be classified as:
+Every capability is classified as:
 
 ```text
 READ_ONLY
 REVERSIBLE_WRITE
+EXTERNAL_SIDE_EFFECT
 HIGH_IMPACT
 DESTRUCTIVE
-EXTERNAL_SIDE_EFFECT
 ```
 
-The classification determines required authorization, verification, audit, and retry behavior.
+Classification controls authorization, retry, verification, audit, and resource limits.
 
-## 3. Controlled Lifecycle
-
-Operations with meaningful side effects follow, as applicable:
+## 3. Standard Operation Contract
 
 ```text
 REQUEST
@@ -37,6 +33,8 @@ VALIDATE
   ↓
 AUTHORIZE
   ↓
+SCOPE
+  ↓
 PLAN
   ↓
 EXECUTE
@@ -44,45 +42,15 @@ EXECUTE
 VERIFY
   ↓
 AUDIT
+  ↓
+REPORT
 ```
 
-Read-only inspection may omit authorization and mutation stages.
+Read-only operations may collapse stages but may not skip validation of untrusted input.
 
-## 4. Telegram Account Protection
+## 4. Authorization
 
-The userbot's Telegram account/session is protected state.
-
-The system must not silently:
-
-- expose session material;
-- rotate or invalidate credentials;
-- send uncontrolled message floods;
-- mass-delete or mass-edit messages without explicit command scope;
-- add/remove administrators without authorization;
-- join/leave groups or channels as a hidden side effect;
-- perform account-wide actions from a narrowly scoped command;
-- bypass Telegram rate limits.
-
-## 5. Secrets
-
-Secrets include:
-
-- `API_ID`/`API_HASH` where sensitive handling applies;
-- session strings/files;
-- bot tokens;
-- provider API keys;
-- passwords;
-- private keys;
-- cookies/auth headers;
-- database credentials.
-
-Secrets must never be committed, emitted into ordinary logs, included in audit records, sent to AI providers unnecessarily, or returned as command output.
-
-## 6. Command Authorization
-
-Authorization must be centralized.
-
-Initial conceptual levels:
+Initial levels:
 
 ```text
 OWNER
@@ -91,317 +59,398 @@ TRUSTED
 PUBLIC
 ```
 
-Commands declare required permissions/capabilities.
-
-The current convention that userbot self/outgoing commands are owner-scoped is useful compatibility behavior, but it must not be the only long-term authorization mechanism.
-
-## 7. Scope Binding
-
-Authorization applies to the operation that was reviewed.
-
-A handler cannot silently expand:
+Capabilities refine access:
 
 ```text
-one message → entire chat
-one chat → all chats
-one file → filesystem
-one target → every target
-read → write
+telegram.read
+telegram.write
+telegram.moderate
+account.control
+filesystem.read
+filesystem.write
+subprocess.execute
+network.request
+media.process
+ai.inference
+security.manage
 ```
 
-A materially changed scope requires a new authorization decision.
+Authorization is centralized. A plugin declaring a capability does not automatically receive it.
 
-## 8. No Hidden Side Effects
+## 5. Scope Binding
 
-Commands advertised as status, inspect, search, help, test, or dry-run must not silently mutate state.
+Every privileged operation binds authorization to a concrete scope:
 
-Examples:
+```text
+actor
+operation
+target
+chat/account/filesystem scope
+resource limits
+```
 
-- health checks do not restart services unless explicitly requested;
-- search does not edit messages;
-- indexing does not reorganize files;
-- duplicate detection does not delete content;
-- dry-run does not execute;
-- diagnostics do not leak secrets.
+The handler may not silently widen:
+
+```text
+message → chat
+chat → all chats
+file → directory tree
+read → write
+single target → bulk target set
+```
+
+## 6. Telegram Account Protection
+
+Telegram is external authoritative state. Astra must not expose session material or silently change account authentication.
+
+Broad operations such as mass deletion, permission changes, joins/leaves, posting, or account configuration require explicit scope and authorization.
+
+Telegram rate limits are hard operational constraints. FloodWait must be respected; concurrency must be bounded.
+
+## 7. Secrets
+
+Never persist or emit:
+
+```text
+session strings/files
+API keys
+bot tokens
+passwords
+private keys
+cookies with credentials
+authorization headers
+```
+
+Secrets must not appear in source, normal logs, audit records, diagnostics, cache keys, job payloads, or AI prompts unless explicitly required and protected.
+
+## 8. Command Safety
+
+Every command has:
+
+```text
+owner
+canonical name
+aliases
+permission
+side-effect class
+scope rules
+```
+
+Duplicate names/aliases are rejected.
+
+Status/help/search/test commands are read-only unless their contract explicitly says otherwise.
 
 ## 9. Destructive Operations
 
-Operations that can delete, overwrite, mass-edit, mass-delete, revoke, promote, demote, purge, or otherwise create difficult-to-reverse effects require:
+Delete, purge, revoke, overwrite, promote, demote, mass-edit, mass-send, and similar actions require:
 
-1. explicit command scope;
-2. authorization;
-3. deterministic target resolution;
-4. bounded execution;
+1. explicit authorization;
+2. deterministic target resolution;
+3. bounded execution;
+4. appropriate rate limits;
 5. verification where possible;
 6. audit information.
 
-For bulk destructive operations, provide a dry-run/preview before apply whenever practical.
+Bulk destructive operations should support preview/dry-run where practical.
 
-## 10. Telegram Rate Limits
+## 10. Dry Run
 
-Telegram limits are part of the system contract.
+A dry run means:
 
-The userbot must:
+```text
+parse → validate → resolve → report
+```
 
-- respect FloodWait responses;
-- bound concurrency;
-- avoid request storms;
-- use retries only when safe;
-- avoid repeated scans when cached state is sufficient;
-- apply sender/chat cooldowns where automatic replies could become noisy.
-
-The system must never attempt to bypass platform limits.
+It must not perform the external mutation it previews.
 
 ## 11. Retry Safety
 
-Retries are classified:
+Retries use stable classes:
 
 ```text
 TRANSIENT
 RATE_LIMITED
-PERMANENT
+TIMEOUT
+RESOURCE_LIMIT
 INTEGRITY
+PERMANENT
 INTERNAL
 ```
 
-Never retry indefinitely.
+Never retry indefinitely. Before replaying an external mutation, determine whether the previous attempt may have succeeded.
 
-Before retrying an externally visible mutation, determine whether the previous attempt may have succeeded.
+## 12. Durable Work
 
-## 12. Job Durability
+Restart-sensitive work belongs to the Job Engine. The engine persists intent before execution and uses leases, retry limits, cancellation, verification, and recovery.
 
-Long-running work uses the durable Job Engine.
-
-A process crash must not silently erase accepted work or mark it complete.
-
-Worker lease expiry requires reconciliation before retrying an operation with external side effects.
+Lease expiry means uncertain outcome, not success or failure by assumption.
 
 ## 13. Filesystem Safety
 
-Filesystem operations must:
+Filesystem access uses canonical paths and configured roots:
 
-- canonicalize paths;
-- enforce allowed roots;
-- reject traversal/ambiguous paths;
-- avoid accidental writes outside configured workspaces;
-- use unique temporary directories;
-- clean temporary artifacts in success and failure paths;
-- enforce file/size limits where appropriate.
+```text
+READ_ALLOWED
+WRITE_ALLOWED
+TEMP
+PROTECTED
+```
 
-A user-provided filename is data, not a trusted path.
+Reject traversal, ambiguous paths, symlink escapes where relevant, and writes outside policy roots.
+
+User filenames are data, not trusted paths.
+
+Temporary directories are unique per job and cleaned on success, failure, and cancellation. Startup orphan cleanup is required.
 
 ## 14. Subprocess Safety
 
-External commands must use argv-based execution through the shared SubprocessService.
+Use argv-based execution through SubprocessService.
 
-Requirements:
+Required:
 
-- no `shell=True` for user-controlled input;
+- no unsafe shell interpolation;
 - timeout;
-- cancellation cleanup;
-- output limits;
-- resource limits;
-- safe logging;
-- explicit capability/policy checks.
+- cancellation;
+- bounded stdout/stderr;
+- explicit cwd;
+- environment policy;
+- executable/resource policy;
+- safe logging.
 
-Powerful tools such as FFmpeg, rclone, aria2c, OCR, transcription binaries, and system utilities must not become unrestricted command execution surfaces.
+FFmpeg, rclone, aria2c, OCR, transcription binaries, and system utilities are privileged capabilities, not generic user-controlled command execution.
 
-## 15. Python Evaluation
+## 15. Eval Boundary
 
-The existing eval capability is intentionally powerful and therefore must be treated as a privileged operation.
+Python eval is inherently privileged because plugins share one interpreter.
 
-It must:
+The implementation must:
 
-- remain owner-restricted;
-- serialize concurrent evaluation/output capture;
-- have execution/output limits where practical;
-- never claim to be a security sandbox;
-- audit failures safely;
-- avoid leaking secrets through returned globals or tracebacks.
+- restrict invocation;
+- serialize global stdout/stderr capture;
+- enforce practical time/output limits;
+- avoid claiming sandboxing;
+- prevent secret leakage in returned values/errors;
+- record failures safely.
 
-Arbitrary Python execution cannot be made safe merely by changing the UI.
+A Python module boundary is not a security sandbox.
 
 ## 16. HTTP Safety
 
-Network features must use controlled HTTP clients.
+Shared HTTP service enforces:
 
-The system should enforce:
+```text
+allowed schemes
+URL policy
+connect/total/read timeouts
+redirect policy
+response-size cap
+per-host concurrency
+retry rules
+```
 
-- URL validation;
-- HTTP/HTTPS policy;
-- timeouts;
-- response-size limits;
-- redirect policy where appropriate;
-- per-host concurrency;
-- retry classification;
-- secret redaction.
-
-Features accepting arbitrary URLs must not accidentally become unbounded downloaders or internal-network access paths without an explicit policy decision.
+Arbitrary URLs require explicit policy. Internal/private targets and unbounded downloads must not be accidental behavior.
 
 ## 17. Media Safety
 
-Media processing must use isolated per-job workspaces.
+Every media job gets an isolated workspace.
 
-Requirements:
+Validate:
 
-- unique input/output paths;
-- bounded downloads;
-- MIME/format validation;
-- subprocess timeout;
-- cleanup on failure;
-- output size limits;
-- cancellation support.
+- source type;
+- size;
+- output type;
+- output size;
+- process lifetime.
 
-Selecting "the newest file" from a shared directory is not a valid job-output identity mechanism.
+Never select output by scanning a shared directory for the newest file.
+
+Originals are not overwritten by default.
 
 ## 18. Cryptography
 
 Encoding is not encryption.
 
-Secret storage must use an authenticated encryption design such as AES-GCM or another reviewed authenticated-encryption primitive with appropriate key derivation.
+SecretStore must use authenticated encryption such as AES-GCM or another reviewed primitive with appropriate key derivation, parameter storage, versioning, and integrity failure handling.
 
-A plaintext/base64 vault must never be presented as encrypted storage.
+Cryptographic parameters must be centralized. Password handling must avoid retaining plaintext longer than necessary.
 
-Cryptographic parameters must be centralized and documented.
+## 19. AI Boundary
 
-## 19. AI Safety Boundary
+AI output is untrusted data.
 
-AI output is untrusted input.
+AI can assist with:
 
-AI may:
+```text
+summaries
+classification
+translation
+search interpretation
+tagging
+planning
+suggestions
+```
 
-- summarize;
-- classify;
-- suggest tags;
-- propose commands;
-- translate natural-language requests;
-- assist search;
-- recommend actions.
+AI cannot independently authorize:
 
-AI may not independently authorize:
+```text
+mass deletion
+account control
+credential changes
+arbitrary filesystem writes
+unrestricted subprocesses
+security bypass
+secret disclosure
+```
 
-- mass deletion;
-- account permission changes;
-- credential changes;
-- arbitrary filesystem mutation;
-- unrestricted subprocess execution;
-- security-policy bypass;
-- secret disclosure.
-
-AI suggestions must pass deterministic validation and authorization before execution.
+Natural-language intent must become a typed deterministic request before execution.
 
 ## 20. Cache Safety
 
-Cache data is derived and disposable.
+Cache is disposable. It must have:
 
-A cache must have:
-
-- bounded size;
-- expiry/invalidation;
-- namespace isolation;
+- namespace;
+- TTL/invalidation;
+- capacity/size limits;
 - safe serialization;
-- stampede protection for expensive refreshes where necessary.
+- stampede protection where needed.
 
-Cache loss must not be treated as data loss.
+Deleting cache must never delete authoritative data.
 
-## 21. Logging and Diagnostics
+## 21. Database Safety
 
-Logs must be useful without becoming a secret dump.
+Use short SQLite transactions, foreign keys, migrations, and integrity checks.
 
-Redact:
+Never perform network or long-running subprocess work inside a transaction.
 
-- tokens;
-- passwords;
-- session material;
-- authorization headers;
-- API keys;
-- private paths where disclosure is unnecessary;
-- raw provider responses when they may contain credentials.
+Plugin code must not silently drop or rewrite another plugin's database.
 
-User-facing errors should contain a safe summary and correlation ID, not raw traceback text.
+## 22. Logging and Diagnostics
 
-## 22. Plugin Isolation
+User-facing errors are safe summaries plus correlation IDs.
 
-A plugin failure must not silently corrupt global runtime state.
+Logs may contain technical details only after redaction. Never log tokens, session strings, passwords, cookies, authorization headers, or full sensitive provider payloads.
 
-Plugins must own and clean up their registrations/tasks/resources.
+Diagnostics are safe by default and bounded.
 
-The Plugin Manager tracks:
+## 23. Plugin Failure Isolation
 
-- lifecycle state;
-- command ownership;
-- task ownership;
-- setup failure;
-- shutdown failure.
+Plugins are not process-isolated. Nevertheless, their lifecycle resources are tracked:
 
-## 23. Account Archival and Logging
+```text
+commands
+event handlers
+tasks
+service references
+setup state
+shutdown state
+```
 
-Message archiving/logging features must have explicit retention and capacity controls.
+A failed plugin must not leave half-registered commands or orphaned tasks.
 
-A broad `except Exception: pass` around durable archival is not acceptable for the platform implementation because it hides operational failures.
+## 24. Archiving and Logging Retention
 
-Failures should be classified, logged safely, and surfaced through diagnostics.
+Message archivers, reconstruction caches, logs, audit events, media artifacts, HTTP cache, and job history all require retention/capacity controls.
 
-## 24. Monitoring
+A broad exception that silently discards archival errors is forbidden in platform-managed persistence paths.
 
-Health monitoring observes the system. It does not silently grant itself remediation authority.
+## 25. Monitoring
 
-Automatic remediation, if ever introduced, must have explicit policy, bounded scope, and auditability.
+Monitoring is observational by default. `!health` or equivalent diagnostics must not silently mutate the system.
 
-## 25. Recovery
+Automatic remediation requires a separate policy and audit contract.
 
-Recovery must prefer reconciliation over blind replay.
+## 26. Recovery
+
+Recovery follows:
+
+```text
+detect
+→ classify
+→ inspect
+→ reconcile
+→ retry if safe
+→ audit
+```
 
 Examples:
 
-- unknown message-send outcome → inspect before resend when possible;
-- partial media output → inspect/clean workspace before retry;
-- expired job lease → reconcile external state;
-- provider timeout → classify as uncertain rather than assume failure;
-- database error → preserve evidence rather than silently discard it.
+- uncertain message send → inspect before resend;
+- expired job lease → reconcile;
+- partial media output → inspect workspace;
+- HTTP timeout → classify outcome uncertainty where mutation is possible;
+- database error → preserve evidence.
 
-## 26. Testing Requirements
+## 27. Resource Safety
 
-Safety tests must permanently cover:
+Every feature declares or inherits limits for:
 
-- duplicate command detection;
-- permission rejection;
-- scope expansion rejection;
-- destructive command preview/authorization;
-- Telegram rate-limit handling;
+```text
+CPU
+RAM
+disk
+network
+Telegram requests
+HTTP concurrency
+subprocess output
+job concurrency
+media concurrency
+AI context/output
+```
+
+Backpressure is preferred over unbounded queues.
+
+## 28. Testing Contract
+
+Permanent tests must cover:
+
+- authorization denial;
+- scope expansion denial;
+- duplicate command rejection;
 - secret redaction;
-- protected filesystem roots;
-- path traversal rejection;
-- subprocess timeout/cancellation;
-- bounded subprocess output;
-- concurrent eval serialization;
-- HTTP timeout/size limits;
+- path traversal;
+- protected roots;
+- subprocess timeout/cancel/output cap;
+- HTTP timeout/size/redirect policy;
 - media workspace isolation;
+- eval serialization;
 - retry exhaustion;
-- job lease recovery;
+- lease recovery;
 - verification failure;
 - cache expiry;
-- plugin setup failure reporting.
+- plugin setup failure reporting;
+- destructive command preview/authorization.
 
-## 27. Feature Readiness Questions
+## 29. Feature Readiness Checklist
 
-Before implementation of any new feature, answer:
+Before accepting a new high-impact feature:
 
-1. What side effects can it cause?
-2. Who can invoke it?
-3. What capability does it require?
-4. What resources can it consume?
-5. What happens on timeout?
-6. What happens on duplicate invocation?
-7. What happens after process restart?
-8. What data is persisted?
-9. What is logged?
-10. How is success verified?
-11. How is failure recovered?
-12. Can the feature operate without paid infrastructure?
+1. What can it mutate?
+2. Who may invoke it?
+3. What capability is required?
+4. What is the exact scope?
+5. What resources can it consume?
+6. What happens on timeout?
+7. What happens on duplicate invocation?
+8. What happens after restart?
+9. What is persisted?
+10. What is logged?
+11. How is success verified?
+12. How is uncertain execution recovered?
+13. Does it require paid infrastructure?
 
-If these are undefined for a high-impact feature, the feature is not ready.
+## 30. Mandatory Stop Conditions
 
-## Final Safety Principle
+Stop and report when:
 
-> **AstraUserbot should be powerful by capability, conservative by default, explicit about side effects, and honest about uncertainty.**
+```text
+authorization is unknown
+scope is ambiguous
+credential state is uncertain
+external mutation outcome is uncertain and cannot be reconciled
+resource limits cannot be enforced
+verification contract is missing for a required operation
+```
+
+## Final Rule
+
+> **Astra is allowed to be powerful. It is not allowed to turn uncertainty into authority.**
