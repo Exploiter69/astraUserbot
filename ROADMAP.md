@@ -1,61 +1,49 @@
-# AstraUserbot — Canonical Roadmap
+# AstraUserbot — Detailed Canonical Roadmap
 
-**Status:** Canonical implementation roadmap  
-**Version:** 1.0 — reconciled with repository audit  
-**Scope:** Telegram userbot platform, plugin ecosystem, reliability, automation, media, AI, search, and operations  
+**Status:** Canonical implementation sequence  
+**Version:** 2.0  
 **Cost target:** ₹0 / $0
 
-> This root `ROADMAP.md` is the canonical implementation sequence. Future roadmap changes should be recorded here and, when architectural, in `DECISIONS.md`.
+> This file is the execution plan. Architectural changes belong in `DECISIONS.md`; contracts are defined in `ARCHITECTURE.md`, `DATA_MODEL.md`, `JOB_MODEL.md`, `SAFETY_CONTRACT.md`, and `PRODUCTION_BOUNDARY.md`.
 
 ## 0. Non-Negotiable Rules
 
 ```text
-Telethon remains Telegram transport.
-Plugins remain modular.
-Shared services own shared infrastructure.
-Durable work is persisted.
-AI is advisory.
-Secrets stay out of source/logs/audits.
-Resource usage is bounded.
-Verification matters.
-Existing behavior is preserved during migration.
-Core operation remains free.
+Do not destroy working behavior without evidence.
+Do not mass-rewrite plugins before platform services exist.
+Do not introduce paid infrastructure.
+Do not treat asyncio tasks as durable jobs.
+Do not let AI become authority.
+Do not let caches become source-of-truth.
+Do not hide plugin/task/job failures.
+Do not bypass authorization for convenience.
+Do not allow unbounded resource consumption.
+Do not claim verification when only execution succeeded.
 ```
 
-Do not mass-rewrite the plugin ecosystem before platform services exist.
-
----
-
-# Phase 0 — Baseline & Protection ✓
-
-**Goal:** establish a reproducible repository and protect the current system.
+## Phase 0 — Baseline & Protection — COMPLETE
 
 ### Deliverables
 
-- Git repository and GitHub remote
-- baseline commit
-- `.gitignore`
-- `.env.example`
-- secret/session protection
-- dependency inventory
-- plugin inventory
-- source-level plugin audit
-- architecture documentation
+- Git/GitHub baseline;
+- secret/session protection;
+- dependency inventory;
+- plugin inventory;
+- source-level plugin audit;
+- architecture specification;
+- data/job/safety/boundary contracts.
 
-### Exit criteria
+### Exit
 
-- clean baseline;
-- runtime secrets excluded;
-- current behavior understood;
-- confirmed high-risk defects recorded.
+Baseline commit exists, runtime secrets are excluded, existing plugin behavior is understood, and confirmed defects are recorded.
 
 ---
 
 # Phase 1 — Plugin & Command Foundation
 
-**Goal:** make plugin startup and command registration truthful, deterministic, and diagnosable.
+**Goal:** make startup, plugin lifecycle, registration, and command execution deterministic.
 
-## 1.1 Plugin lifecycle
+## 1.1 Plugin Manager
 
 Implement:
 
@@ -69,361 +57,380 @@ DISABLED
 UNLOADED
 ```
 
-Add plugin metadata, dependency handling, ownership, and startup reporting.
+Requirements:
 
-## 1.2 Command router
+- deterministic discovery;
+- metadata validation;
+- dependency graph;
+- cycle detection;
+- ownership tracking;
+- setup/shutdown isolation;
+- registration cleanup;
+- startup report;
+- compatibility adapter for legacy `setup()` plugins.
+
+## 1.2 Command Router
 
 Implement:
 
-- canonical command names;
+- canonical names;
 - aliases;
 - duplicate detection;
 - plugin ownership;
 - permission metadata;
-- descriptions;
+- side-effect classification;
 - execution timing;
 - correlation IDs;
-- safe error boundaries.
+- safe error boundary.
 
-### Immediate defect
+### P0
 
-Resolve duplicate `.block` / `.unblock` registration between ACL and PM guard.
+Resolve ACL/PMGuard `.block`/`.unblock` collision.
 
-## 1.3 Safe errors
+## 1.3 Safe Errors
 
-Users receive concise error IDs. Detailed traceback stays in redacted logs.
+Replace raw exception-to-Telegram behavior with:
 
-## 1.4 Task supervision
+```text
+user → concise safe error + ID
+log  → structured traceback + redaction
+```
 
-Introduce a TaskSupervisor for long-lived process tasks and retain TaskGroup for structured short-lived concurrency.
+## 1.4 TaskSupervisor
 
-### Phase 1 exit gate
+Track long-lived tasks with owner, name, lifecycle, failure state, cancellation, and shutdown behavior.
 
-- duplicate commands cannot silently coexist;
-- plugin failures are visible;
-- startup health is truthful;
-- background tasks are owned and cancellable;
-- command errors do not leak internals.
+### Phase 1 tests
+
+- duplicate command;
+- duplicate alias;
+- plugin import failure;
+- plugin setup failure;
+- dependency cycle;
+- registration cleanup;
+- task crash visibility;
+- shutdown cancellation;
+- safe error output.
+
+### Gate 1
+
+No command/plugin collision can silently coexist. Startup health tells the truth.
 
 ---
 
 # Phase 2 — Shared Runtime Services
 
-**Goal:** remove duplicated infrastructure hidden inside plugins.
+**Goal:** extract duplicated infrastructure.
 
 ## 2.1 Application Context
 
-Create a shared context/service registry exposing stable interfaces.
+Define explicit service ownership and startup/shutdown ordering.
 
 ## 2.2 SubprocessService
 
-Centralize:
+Provide argv execution, timeout, cancellation, output caps, cwd/environment policy, exit classification, resource limits, and safe logs.
 
-- argv execution;
-- timeout;
-- cancellation;
-- output caps;
-- exit classification;
-- working directory;
-- safe logging.
+Migrate `helpers/shell.py` consumers without changing behavior unnecessarily.
 
-## 2.3 HTTP Service
+## 2.3 HttpService
 
-Centralize:
+One shared aiohttp session with pooling, timeouts, per-host concurrency, response limits, redirects, retries, cancellation, cache hooks, and telemetry.
 
-- aiohttp session;
-- connection pooling;
-- timeouts;
-- per-host limits;
-- response-size limits;
-- safe retries;
-- Retry-After;
-- cache hooks;
-- telemetry.
+## 2.4 TelegramFacade
 
-Migrate network/OSINT plugins gradually.
+Common message/media/entity operations, flood-wait handling, and bounded retries while preserving raw Telethon access.
 
-## 2.4 Telegram facade
+## 2.5 Filesystem/WorkspaceService
 
-Provide common send/edit/delete/entity/media helpers while preserving raw Telethon access.
+Canonical roots, safe path handling, per-job temp directories, file-size limits, cleanup and orphan detection.
 
-## 2.5 Filesystem/temp service
+### Gate 2
 
-Provide canonical path validation, per-job temporary workspaces, cleanup, and file limits.
-
-### Phase 2 exit gate
-
-- shared HTTP service works;
-- subprocess policy is centralized;
-- temporary workspaces are reliable;
-- Telegram common helpers are reusable;
-- no broad plugin rewrite required.
+At least one migrated consumer per service proves the contracts work; old infrastructure remains only where migration is incomplete.
 
 ---
 
 # Phase 3 — Cache Foundation
 
-**Goal:** build reusable cache infrastructure before deeper plugin migration.
+**Goal:** establish the reusable cache before broad plugin migration.
 
-## L1 Memory
+## L1
 
-- TTL;
-- LRU;
-- bounded entries/memory;
-- namespaces;
-- versioned keys;
-- hit/miss metrics.
+TTL/LRU, bounded entries/bytes, namespaces, versioned keys, hit/miss metrics, stampede locks.
 
-## L2 SQLite
+## L2
 
-- persistent metadata/API cache;
-- TTL;
-- namespace;
-- source;
-- content type;
-- ETag/Last-Modified where useful.
+SQLite cache metadata/value storage with TTL, source, content type, validators, size and access metadata.
 
-## L3 Filesystem
+## L3
 
-- media;
-- thumbnails;
-- generated artifacts;
-- large responses.
+Filesystem artifacts for large media/binary data with SQLite metadata references.
 
-## Required behavior
+## Cache policies
 
-- stampede protection;
-- invalidation;
-- size limits;
-- retention;
-- safe serialization.
+- explicit expiry/invalidation;
+- namespace isolation;
+- safe serialization;
+- byte/count limits;
+- negative caching only when useful;
+- orphan cleanup;
+- diagnostics.
 
-### Phase 3 exit gate
+### Gate 3
 
-A plugin can use one standard cache API instead of inventing a new cache implementation.
+A plugin can use one cache API for memory, persistent metadata, and large artifacts without inventing its own cache.
 
 ---
 
-# Phase 4 — Storage & Persistence Foundation
+# Phase 4 — Storage & Migration Foundation
 
-**Goal:** establish durable shared SQLite infrastructure.
+**Goal:** create durable shared platform persistence.
 
-### Work
+### Deliverables
 
-- migration framework;
-- shared platform database;
+- migration runner;
+- schema version table;
+- platform SQLite DB;
 - repositories;
-- job/event tables;
-- cache tables;
-- audit tables;
-- plugin metadata;
+- foreign keys;
+- WAL configuration;
+- busy timeout;
 - integrity checks;
-- retention policies;
-- backup/restore of Lab state.
+- retention service;
+- backup/restore tests.
 
-Existing plugin databases remain until their consumers are migrated and tested.
+### Migration rule
+
+Existing plugin DBs stay intact until each migration is backed up, tested, verified, and reversible.
+
+### Gate 4
+
+A clean install and an existing install both reach the same expected platform schema through deterministic migrations.
 
 ---
 
 # Phase 5 — Durable Job Engine
 
-**Goal:** make restart-sensitive automation durable.
+**Goal:** make restart-sensitive work durable.
 
-### Core states
+## Required
 
-```text
-QUEUED
-RUNNING
-PAUSED
-VERIFYING
-COMPLETED
-FAILED
-CANCELLED
-```
-
-### Required capabilities
-
-- durable creation;
+- persistent job creation;
+- state machine;
 - worker leases;
-- retry classification;
-- exponential backoff + jitter;
+- heartbeats;
+- bounded retry/backoff;
+- failure classes;
 - idempotency hooks;
 - cancellation;
-- startup recovery;
 - parent/child jobs;
-- progress/checkpoints;
+- progress;
+- startup recovery;
 - verification state;
-- audit events.
+- audit events;
+- resource classes.
 
-### Initial job types
+## Initial job types
 
 ```text
 REMINDER
 SCHEDULED_MESSAGE
 HTTP_TASK
-MEDIA_PROCESS
 DOWNLOAD
 UPLOAD
+MEDIA_PROCESS
 INDEX
 BACKUP
 MAINTENANCE
+SYNC
 AI_TASK
 PLUGIN_TASK
 ```
 
-### Phase 5 exit gate
+### Crash scenarios to test
 
-Process restart, network interruption, worker failure, cancellation, and retry cannot silently erase or falsely complete durable work.
+```text
+crash before execution
+crash during execution
+crash after external side effect
+crash during verification
+lease expiry
+network outage
+DB restart
+cancellation
+```
+
+### Gate 5
+
+The system never silently loses accepted durable work and never blindly replays an uncertain external mutation.
 
 ---
 
-# Phase 6 — Fix Existing High-Risk Plugins
+# Phase 6 — Confirmed P0 Reliability Fixes
 
-**Goal:** repair confirmed defects before feature expansion.
+**Goal:** repair high-risk existing features before expansion.
 
-## Priority fixes
+1. ACL/PMGuard duplicate commands.
+2. Implement/fix advertised admin `demote` and `slow` semantics.
+3. Consolidate vaults into SecretStore; remove base64-as-encryption semantics.
+4. Serialize eval output capture and impose practical limits.
+5. Surface account-archiver persistence errors.
+6. Add archive/message/logger retention.
+7. Refresh PMGuard contacts through cache/invalidation.
+8. Add AFK sender cooldown.
+9. Fix stream output identity and per-job workspace.
+10. Normalize media cleanup on all paths.
+11. Route rclone/aria2 through SubprocessService.
+12. Remove provider/network duplication as migrations permit.
 
-1. `.block`/`.unblock` command collision.
-2. Missing advertised admin commands (`demote`, `slow`).
-3. Replace base64 vault with a proper SecretStore.
-4. Serialize and control `system/eval.py` global stdout manipulation.
-5. Remove silent persistence failure in account archiver.
-6. Add retention to archive/logger/message caches.
-7. Refresh PMGuard contact state rather than caching forever.
-8. Add AFK per-user cooldown/rate limiting.
-9. Fix media output selection and cleanup.
-10. Put rclone/aria2/media execution through SubprocessService.
+### Gate 6
 
-### Exit gate
-
-All P0 defects have regression tests.
+Every confirmed P0 defect has a regression test and no new infrastructure bypass is introduced.
 
 ---
 
 # Phase 7 — Media Platform
 
-**Goal:** consolidate media functionality.
+**Goal:** make media a reusable service.
 
-### MediaService
+### MediaService contract
 
-- unique job workspaces;
-- download;
-- MIME detection;
-- FFmpeg;
-- conversion;
-- audio extraction;
-- speech/transcription hooks;
-- thumbnails;
-- output validation;
-- cleanup;
-- cancellation.
+```text
+download
+inspect
+validate
+convert
+extract
+thumbnail
+transcribe-hook
+prepare-upload
+cleanup
+```
+
+Every job gets a unique workspace and deterministic outputs.
 
 Migrate:
 
-- `media/ffmpeg.py`;
-- `advanced/mediaflow.py`;
-- `media_ops/video.py`;
-- `media_ops/speech.py`;
-- `media_ops/stream.py`.
+```text
+media/ffmpeg.py
+advanced/mediaflow.py
+media_ops/video.py
+media_ops/speech.py
+media_ops/stream.py
+media/aria2.py
+media/rclone.py
+```
 
-No plugin should select job output by scanning a shared directory for the newest file.
+### Gate 7
+
+Concurrent media jobs cannot select one another's outputs, and failed jobs do not leak unbounded artifacts.
 
 ---
 
 # Phase 8 — AI Gateway
 
-**Goal:** remove provider lock-in and make AI optional.
+**Goal:** remove provider lock-in.
 
-### Gateway
+### Interface
 
 ```text
-AI Gateway
- ├── Ollama
- ├── llama.cpp where useful
- ├── Groq adapter
- └── other zero-cost adapters as available
+chat
+summarize
+extract
+classify
+transcribe
+embed (future)
 ```
 
-### Capabilities
+### Adapters
 
-- chat;
-- summarization;
-- extraction;
-- classification;
-- transcription integration;
-- embeddings later;
-- caching;
-- fallback policy.
+```text
+Ollama/local
+llama.cpp/local where useful
+Groq
+other genuinely free adapters
+```
 
 ### Rules
 
-- no provider-specific business logic in plugins;
-- model IDs are configuration;
-- AI unavailable must not break the bot;
-- secrets are excluded from prompts;
-- AI cannot bypass permissions.
+- provider details stay in adapters;
+- models are configuration;
+- requests have bounded input/output;
+- cache where useful;
+- cancellation works;
+- secrets are excluded;
+- AI failure degrades gracefully;
+- AI cannot bypass authorization.
+
+### Gate 8
+
+`ask`, `summarize`, and transcription-related workflows no longer require plugin-level knowledge of the Groq API.
 
 ---
 
 # Phase 9 — Plugin Migration Program
 
-**Goal:** migrate the existing ecosystem to shared infrastructure in batches.
+**Goal:** move the existing ecosystem onto platform services.
 
-### Batch A — security/admin
+## Batch A — Security/Admin
 
-ACL, PMGuard, logger, archiver, vault, eval, admin.
+ACL, PMGuard, logger, account archiver, vault, eval, admin.
 
-### Batch B — network
+## Batch B — Network/OSINT
 
-DNS, IP info, headers, speedtest, and related HTTP consumers.
+DNS, IP info, headers, speedtest and other HTTP consumers.
 
-### Batch C — media
+## Batch C — Media
 
 FFmpeg, mediaflow, stream, video, speech, aria2, rclone.
 
-### Batch D — system/automation
+## Batch D — System/Automation
 
 AFK, autopost, sysinfo, maintenance, testall.
 
-### Batch E — AI/advanced
+## Batch E — AI/Advanced
 
-Groq client, ask, summarize, transcription, advanced workflows.
+Groq client, ask, summarize, transcription and advanced workflows.
 
-Each migration must:
+### Every migration must
 
-1. preserve existing behavior;
-2. add regression tests;
-3. use shared service;
+1. preserve intended behavior;
+2. add regression coverage;
+3. use shared service contracts;
 4. remove duplicate infrastructure;
-5. update documentation;
-6. verify startup/command health.
+5. verify cleanup/failure behavior;
+6. update documentation;
+7. run startup/command smoke tests.
 
 ---
 
 # Phase 10 — Search & Knowledge
 
-**Goal:** make the growing plugin/runtime state searchable.
+Start with SQLite indexes and FTS5.
 
-### Levels
+Sources:
 
 ```text
-1. plugin/command metadata
-2. notes and structured data
-3. message cache
-4. SQLite FTS5
-5. OCR/transcripts
-6. semantic retrieval later
+plugin metadata
+commands
+notes
+message cache
+documents
+OCR
+transcripts
 ```
 
-Search state is derived and rebuildable.
+Later, semantic/vector retrieval may be added only if measurable value exists.
+
+### Gate 10
+
+Indexes can be rebuilt from authoritative source records.
 
 ---
 
-# Phase 11 — Observability & Diagnostics
+# Phase 11 — Observability
 
-**Goal:** make the bot able to explain its own operational state.
-
-Initial commands:
+Implement:
 
 ```text
 !health
@@ -435,154 +442,128 @@ Initial commands:
 !diagnostics
 ```
 
-Future:
+Diagnostics cover plugin state, conflicts, tasks, jobs, cache, DB, HTTP, resources, and recent classified errors without secrets.
 
-```text
-!db
-!http
-!media
-!ai
-```
+### Gate 11
 
-Diagnostics should show:
-
-- loaded/failed plugins;
-- command conflicts;
-- task status;
-- job backlog;
-- cache hit/miss;
-- DB health;
-- HTTP health;
-- resource pressure;
-- recent errors.
-
-No secrets.
+The owner can diagnose the majority of runtime failures without opening source code first.
 
 ---
 
-# Phase 12 — Automation Expansion
+# Phase 12 — Feature Expansion
 
-**Goal:** add a large feature surface on proven primitives.
+Only after the platform gates pass, add broad capability families:
 
-Candidate families:
-
-- advanced Telegram utilities;
-- reminders;
-- scheduled messages;
-- notes/bookmarks;
-- message tools;
-- bulk operations;
-- media tools;
-- download/upload workflows;
-- RSS/feed automation;
+- Telegram utilities;
+- messaging/productivity;
+- reminders/scheduling;
+- bulk tools;
+- media;
+- downloads/uploads;
+- feeds/RSS;
 - web utilities;
 - developer tools;
-- Linux/system utilities;
-- knowledge/search;
+- Linux/system tools;
+- search/knowledge;
 - backup/export;
-- AI-assisted utilities;
-- fun/social modules.
+- AI utilities;
+- social/fun modules.
 
-Every feature plugs into shared services rather than implementing its own infrastructure.
-
----
-
-# Phase 13 — Performance & Resource Optimization
-
-**Goal:** optimize from measurements rather than guesses.
-
-Measure:
-
-- event latency;
-- command latency;
-- HTTP latency;
-- cache hit rate;
-- DB contention;
-- queue depth;
-- memory;
-- CPU;
-- media throughput;
-- Telegram rate-limit frequency.
-
-Then tune bounded concurrency, cache sizes, batch sizes, and scheduling.
+Every feature consumes existing platform services.
 
 ---
 
-# Phase 14 — Optional Advanced Isolation
+# Phase 13 — Performance
 
-**Goal:** introduce stronger isolation only if evidence demands it.
+Measure before tuning:
 
-Possible future mechanisms:
+```text
+command latency
+handler latency
+Telegram rate limits
+HTTP latency
+cache hit rate
+DB contention
+queue depth
+CPU
+RAM
+disk
+media throughput
+AI latency
+```
 
-- dedicated worker processes for heavy media/AI;
+Tune bounded concurrency, cache sizes, queue policy, batching, and cleanup only from evidence.
+
+---
+
+# Phase 14 — Optional Isolation
+
+Only if workloads prove it necessary:
+
+- dedicated heavy-worker processes;
 - restricted subprocess profiles;
 - containers for genuinely untrusted workloads;
-- separate service processes for proven scaling needs.
+- separate services for measured scaling requirements.
 
-This phase is intentionally deferred. Python plugin isolation is not claimed merely because modules are separate.
+No fake sandbox claims.
 
 ---
 
 # Phase 15 — Platform Maturity
 
-**Goal:** make AstraUserbot a stable extensible platform.
-
 Potential deliverables:
 
 - documented plugin SDK;
 - compatibility/version policy;
-- plugin health dashboard;
+- safe enable/disable;
 - migration tooling;
-- self-test suite;
-- performance benchmarks;
-- disaster/recovery procedures;
+- comprehensive self-test;
+- benchmarks;
+- disaster recovery procedures;
 - feature flags;
-- safe plugin disable/enable;
 - release checklist.
 
----
+## Global Definition of Done
 
-# Global Exit Criteria
+Astra is platform-mature when:
 
-AstraUserbot is considered architecturally mature when:
-
-1. all plugins load through an observable lifecycle;
-2. command collisions are impossible to ignore;
-3. long-lived work has explicit supervision or durability;
-4. shared HTTP/subprocess/media infrastructure is centralized;
-5. cache behavior is bounded and measurable;
-6. SQLite persistence is migrated through tested schemas;
-7. durable jobs survive restart;
-8. high-risk plugins have regression coverage;
+1. plugin lifecycle is observable;
+2. command conflicts cannot hide;
+3. long-lived tasks are supervised;
+4. durable work survives restart;
+5. shared HTTP/subprocess/media infrastructure is used;
+6. cache is bounded and measurable;
+7. persistence is migration-driven;
+8. high-risk plugins have regression tests;
 9. AI is provider-independent and optional;
-10. diagnostics expose real platform health;
-11. resources remain bounded;
+10. diagnostics expose real health;
+11. resource use is bounded;
 12. secrets remain protected;
-13. the feature surface can grow without duplicating infrastructure;
-14. core operation remains ₹0 / $0.
+13. new features reuse infrastructure;
+14. the core remains ₹0/$0.
 
-## Implementation Philosophy
+## Execution Discipline
 
 ```text
 RESEARCH
    ↓
 AUDIT
    ↓
-ARCHITECTURE
+DECIDE
    ↓
-PLATFORM SERVICES
+DOCUMENT
    ↓
-FIX
-   ↓
-MIGRATE
+IMPLEMENT
    ↓
 TEST
    ↓
-EXPAND FEATURES
+MIGRATE
+   ↓
+VERIFY
+   ↓
+EXPAND
    ↓
 MEASURE
-   ↓
-OPTIMIZE
 ```
 
-> **Build the platform once, then let the plugins become thin capability modules.**
+> **Build the platform once. Make every later plugin cheaper, safer, and faster to build.**
