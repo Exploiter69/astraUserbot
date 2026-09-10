@@ -1,339 +1,187 @@
-# AstraUserbot — Architecture Decisions
+# AstraUserbot — Detailed Architecture Decisions
 
-**Status:** Living architectural record  
-**Version:** 1.0  
-**Scope:** Decisions constraining architecture, implementation, safety, compatibility, and evolution
+**Status:** Living ADR record  
+**Version:** 2.0  
+**Rule:** Accepted decisions constrain implementation until new evidence justifies supersession.
 
-This document prevents already-settled architecture from being reopened without new evidence. A later decision may supersede an earlier one only when it records what changed and why.
-
----
-
-## ADR-001 — Keep a Single-Process Modular Monolith
+## ADR-001 — Single-Process Modular Monolith
 
 **Status:** Accepted
 
-### Decision
-AstraUserbot remains one primary Python process with modular plugins and shared services.
+**Decision:** Keep one primary Python process containing plugins and platform services.
 
-### Rationale
-The workload is asynchronous and local. Distributed infrastructure would add operational complexity without demonstrated need.
+**Why:** The workload is asynchronous, local, and currently manageable without distributed infrastructure.
 
-### Consequences
-Redis, Kafka, RabbitMQ, Kubernetes, Celery, microservices, and remote queues are not default dependencies.
+**Consequences:** Redis, Kafka, RabbitMQ, Celery, Kubernetes, and microservices are not default dependencies. Heavy/untrusted workloads may later move to dedicated processes only with evidence.
 
----
+## ADR-002 — Telethon Remains Transport
 
-## ADR-002 — Telethon Remains the Telegram Transport
+**Decision:** Telethon remains the Telegram transport/client. Common operations may use a facade; raw Telethon remains available.
 
-**Status:** Accepted
+**Reason:** Existing plugins depend on Telethon semantics and replacing the transport creates unnecessary migration risk.
 
-### Decision
-Telethon remains the Telegram client/transport layer. Platform services may wrap common operations but raw Telethon remains available for advanced plugins.
+## ADR-003 — Platform Before Mass Migration
 
-### Consequences
-The architecture must remain compatible with the current Telethon-based plugin ecosystem.
+**Decision:** Build shared infrastructure first; migrate plugins incrementally.
 
----
-
-## ADR-003 — Build Shared Platform Services Before Mass Plugin Rewrites
-
-**Status:** Accepted
-
-### Decision
-Do not rewrite all existing plugins first. Extract duplicated infrastructure into shared services, then migrate plugins incrementally.
-
-### Rationale
-The repository already contains substantial working behavior. The highest-value architectural work is removing duplicated infrastructure and improving lifecycle/observability.
-
-### Consequences
-Compatibility adapters are required during migration.
-
----
+**Reason:** The audit found duplicated HTTP, subprocess, media, cache, scheduler, and event behavior. Rewriting all plugins before extracting these services would duplicate effort and increase regression risk.
 
 ## ADR-004 — Central Plugin Lifecycle
 
-**Status:** Accepted
+**Decision:** Plugin discovery, metadata, dependencies, registrations, setup/shutdown, and health are centrally tracked.
 
-### Decision
-Plugin discovery, metadata, dependency handling, registration ownership, setup failure, shutdown, and health are controlled centrally.
-
-### Consequences
-A plugin failure must be visible in startup health instead of being mistaken for a fully healthy boot.
-
----
+**Reason:** Current loader behavior can continue startup despite individual plugin failures. Health must tell the truth.
 
 ## ADR-005 — Central Command Router
 
-**Status:** Accepted
+**Decision:** One router owns command names and aliases. Duplicate registration is a conflict.
 
-### Decision
-Commands and aliases are registered through one authoritative router with duplicate detection and plugin ownership.
+**Reason:** ACL and PMGuard currently collide on `.block`/`.unblock`.
 
-### Rationale
-The current plugin set contains duplicate `.block`/`.unblock` registrations. Direct independent registration permits ambiguous execution.
+**Consequences:** Alias ownership, permission metadata, timing, errors, and diagnostics become queryable platform state.
 
-### Consequences
-Duplicate command names/aliases become explicit conflicts.
+## ADR-006 — Central Authorization + Capabilities
 
----
+**Decision:** Use OWNER/ADMIN/TRUSTED/PUBLIC plus capability declarations.
 
-## ADR-006 — Central Authorization and Capabilities
+**Reason:** Existing `event.out` behavior provides useful compatibility but is not a complete policy model.
 
-**Status:** Accepted
+**Consequences:** Authorization is separated from handler implementation and can be tested independently.
 
-### Decision
-Permissions and high-impact capabilities are represented centrally rather than implemented inconsistently in every plugin.
+## ADR-007 — Durable Jobs in SQLite
 
-### Consequences
-Existing self/outgoing command behavior can remain as compatibility behavior while explicit OWNER/ADMIN/TRUSTED/PUBLIC policy is introduced.
+**Decision:** Restart-sensitive work uses a SQLite-backed Job Engine.
 
----
+**Reason:** asyncio tasks disappear with the process.
 
-## ADR-007 — Durable Jobs for Restart-Sensitive Work
+**Required:** state machine, leases, retry policy, idempotency, verification, cancellation, recovery, audit.
 
-**Status:** Accepted
+## ADR-008 — TaskSupervisor for Ephemeral Long-Lived Work
 
-### Decision
-Work that must survive process restart uses a SQLite-backed Job Engine.
+**Decision:** TaskGroup for structured bounded work; TaskSupervisor for process-lifetime tasks.
 
-### Rationale
-Asyncio tasks are not durable.
+**Reason:** Every long-lived task needs ownership, failure reporting, and shutdown semantics without turning the whole runtime into a giant task registry.
 
-### Consequences
-Jobs use explicit state transitions, leases, retries, cancellation, verification, and recovery.
+## ADR-009 — SQLite Default Persistence
 
----
+**Decision:** SQLite remains the primary local durable store.
 
-## ADR-008 — Task Supervisor for Long-Lived Ephemeral Tasks
+**Reason:** free, transactional, local, indexed, simple, and already used by the repository.
 
-**Status:** Accepted
+**Required:** WAL where appropriate, foreign keys, busy timeout, migrations, short transactions, repositories, integrity checks.
 
-### Decision
-Long-lived process tasks use a central supervisor. TaskGroup is used for short-lived structured concurrency.
+## ADR-010 — Three-Tier Cache
 
-### Consequences
-Every long-lived task has ownership, naming, exception handling, cancellation, and shutdown semantics.
+**Decision:** L1 memory, L2 SQLite, L3 filesystem where workload justifies it.
 
----
+**Reason:** Existing plugins already cache data and media independently; a common bounded cache prevents duplicated logic and improves restart behavior.
 
-## ADR-009 — SQLite as Default Local Persistence
-
-**Status:** Accepted
-
-### Decision
-SQLite remains the default durable local database.
-
-### Rationale
-It is free, local, transactional, indexed, and operationally lightweight.
-
-### Consequences
-Use WAL where appropriate, foreign keys, busy timeouts, migrations, short transactions, and repository boundaries.
-
----
-
-## ADR-010 — Tiered Cache
-
-**Status:** Accepted
-
-### Decision
-Use bounded L1 memory, L2 SQLite, and L3 filesystem caching where workload justifies each tier.
-
-### Consequences
-Cache state remains disposable and versionable. No Redis dependency is required.
-
----
+**Constraint:** no Redis dependency merely to obtain persistence.
 
 ## ADR-011 — Shared HTTP Service
 
-**Status:** Accepted
+**Decision:** One shared aiohttp session/service.
 
-### Decision
-Plugins should use a shared aiohttp session/service rather than creating independent clients.
-
-### Consequences
-Timeouts, pooling, concurrency, retries, response limits, and telemetry become consistent.
-
----
+**Reason:** Current network plugins independently implement HTTP behavior, causing inconsistent timeout/retry/size handling.
 
 ## ADR-012 — Shared Subprocess Service
 
-**Status:** Accepted
+**Decision:** External binaries use one controlled subprocess boundary.
 
-### Decision
-External commands use a centralized subprocess boundary.
+**Reason:** FFmpeg, rclone, aria2c, speech, and system utilities need common timeout, cancellation, output and resource policy.
 
-### Consequences
-Timeouts, cancellation, output limits, resource policies, and safe logging become common infrastructure.
+## ADR-013 — MediaService
 
----
+**Decision:** Media/download/FFmpeg/speech/thumbnail workflows converge on MediaService.
 
-## ADR-013 — MediaService for Media Workflows
-
-**Status:** Accepted
-
-### Decision
-FFmpeg, downloads, speech, conversion, thumbnails, and temporary workspaces converge on a shared MediaService.
-
-### Rationale
-The current repository contains multiple duplicated media pipelines and inconsistent cleanup/output selection.
-
-### Consequences
-Every media job receives a unique workspace and deterministic output path.
-
----
+**Reason:** Current media implementations duplicate temp handling and can collide when concurrent jobs choose outputs from shared directories.
 
 ## ADR-014 — Provider-Independent AI Gateway
 
-**Status:** Accepted
+**Decision:** Plugins call an AI gateway rather than provider-specific clients.
 
-### Decision
-AI integrations use a provider-independent gateway with local models first and optional free hosted adapters.
+**Initial adapters:** local Ollama/llama.cpp where useful, Groq, and other genuinely free providers if configured.
 
-### Rationale
-Provider APIs/models change. Core behavior must not be coupled to one vendor.
+**Reason:** Provider APIs and model IDs change; core feature behavior must remain stable.
 
-### Consequences
-Groq becomes an adapter rather than the AI architecture. Ollama/local inference can operate without network credentials.
+## ADR-015 — AI Is Never Authority
 
----
+**Decision:** AI output is untrusted data.
 
-## ADR-015 — AI Is Advisory
-
-**Status:** Accepted
-
-### Decision
-AI output is untrusted input and never final authority for consequential mutations.
-
-### Consequences
-Deterministic validation and authorization remain mandatory.
-
----
+**Consequences:** deterministic parsing, validation, authorization, scope checks, and verification remain mandatory.
 
 ## ADR-016 — Verification Before Completion
 
-**Status:** Accepted
+**Decision:** Required postconditions must be verified before a job is completed.
 
-### Decision
-Operations requiring verification are not complete until their postconditions are verified.
+**Reason:** executor success is not equivalent to user-visible success.
 
-### Consequences
-A successful subprocess/API response cannot alone produce a completed durable job.
+## ADR-017 — Stable Failure Classes
 
----
+**Decision:** Retry decisions use stable codes/classes rather than exception-string matching.
 
-## ADR-017 — Explicit Failure Classification
-
-**Status:** Accepted
-
-### Decision
-Retry decisions use stable failure classes/codes rather than arbitrary exception-string parsing.
-
-### Initial classes
+**Initial classes:**
 
 ```text
 TRANSIENT
 RATE_LIMITED
-PERMANENT
-INTEGRITY
+TIMEOUT
 RESOURCE_LIMIT
+INTEGRITY
+PERMANENT
 CANCELLED
 INTERNAL
 ```
 
----
+## ADR-018 — Proper Cryptography
 
-## ADR-018 — Proper Cryptography Only
+**Decision:** Base64/obfuscation is never encryption. SecretStore uses reviewed authenticated encryption and appropriate key derivation.
 
-**Status:** Accepted
+**Reason:** The repository currently contains a base64 vault and an AES-GCM vault with materially different semantics.
 
-### Decision
-Base64 or encoding is never described as encryption. Secret storage uses reviewed authenticated encryption and appropriate key derivation.
+## ADR-019 — Resource Awareness
 
-### Rationale
-The existing repository contains two vault concepts with materially different security properties; they must converge on one proper SecretStore.
+**Decision:** CPU, RAM, disk, network, Telegram limits, and cache growth are explicit constraints.
 
----
+**Consequences:** bounded concurrency and backpressure are architectural, not optional optimizations.
 
-## ADR-019 — Resource Awareness Is Architectural
+## ADR-020 — ₹0/$0 Cost Target
 
-**Status:** Accepted
+**Decision:** Core operation must remain free.
 
-### Decision
-CPU, RAM, disk, network, Telegram limits, and cache growth are explicit scheduling constraints.
+**Preferred:** Python, Telethon, asyncio, SQLite, aiohttp, FFmpeg/Linux tools, local models.
 
-### Consequences
-Bounded concurrency and backpressure are preferred over maximum throughput.
+Optional free hosted APIs may exist but cannot be mandatory foundations.
 
----
+## ADR-021 — Preserve Existing Behavior
 
-## ADR-020 — No Mandatory Paid Infrastructure
+**Decision:** During migration, preserve behavior unless a deliberate defect fix or contract change is recorded.
 
-**Status:** Accepted
+**Reason:** The plugin ecosystem is valuable existing functionality.
 
-### Decision
-AstraUserbot remains usable at ₹0 / $0.
+## ADR-022 — P0 Defects Before Feature Expansion
 
-### Consequences
-Local/open-source components and existing host capabilities are preferred. Free hosted APIs may be optional adapters but never mandatory foundations.
+**Confirmed initial defects:**
 
----
+1. ACL/PMGuard `.block`/`.unblock` collision.
+2. Admin advertises `demote`/`slow` without corresponding implementation branches.
+3. Base64 vault is not encryption.
+4. Global stdout manipulation in eval is unsafe under concurrent invocation.
+5. Account archive persistence can fail silently.
 
-## ADR-021 — Preserve Existing Plugin Behavior During Migration
+Additional reliability work includes retention, stale caches, media output collisions, cleanup leaks, duplicated HTTP/subprocess infrastructure, and provider coupling.
 
-**Status:** Accepted
+## ADR-023 — Explicit Retention
 
-### Decision
-Migration should preserve behavior unless a defect is identified and deliberately fixed.
+**Decision:** Every unbounded store has TTL, count, byte, age, or equivalent retention.
 
-### Consequences
-Compatibility tests are required for high-value plugins and workflows.
+**Applies:** account archive, message cache, HTTP cache, media artifacts, logs, audit, job history.
 
----
+## ADR-024 — Avoid Heavy Frameworks
 
-## ADR-022 — Fix Confirmed P0 Defects Before Expansion
+**Decision:** No large infrastructure dependency without demonstrated need.
 
-**Status:** Accepted
-
-### Initial confirmed defects
-
-1. Duplicate `.block`/`.unblock` registration between ACL and PM guard.
-2. Admin commands advertised but not actually implemented (`demote`, `slow`).
-3. Security vault using base64 obfuscation instead of encryption.
-4. Concurrent eval manipulating global `sys.stdout`.
-5. Silent failure around account archival persistence.
-
-### Consequences
-Feature expansion does not outrank correctness of existing high-impact paths.
-
----
-
-## ADR-023 — Centralize Retention
-
-**Status:** Accepted
-
-### Decision
-Every unbounded data source requires an explicit retention/capacity policy.
-
-### Applies to
-
-- account archives;
-- message reconstruction cache;
-- logs;
-- audit events;
-- media artifacts;
-- HTTP cache;
-- job history.
-
----
-
-## ADR-024 — Avoid Heavy Frameworks Until Proven Necessary
-
-**Status:** Accepted
-
-### Decision
-Do not adopt large generic frameworks merely for architectural appearance.
-
-### Explicitly not default
+**Not default:**
 
 ```text
 Redis
@@ -342,44 +190,67 @@ RabbitMQ
 Celery
 Kubernetes
 microservices
+PostgreSQL
 ORM-heavy persistence
-LangChain/LlamaIndex as core
-LiteLLM as mandatory gateway
-Prometheus/Grafana as mandatory stack
-OpenTelemetry as mandatory stack
-APScheduler as a prerequisite
+LangChain/LlamaIndex core
+LiteLLM mandatory
+Prometheus/Grafana mandatory
+OpenTelemetry mandatory
+APScheduler prerequisite
 automatic hot reload
+giant generic event bus
 ```
 
-Each may be reconsidered only with concrete evidence.
+## ADR-025 — Compatibility Layer Is Temporary
 
----
+**Decision:** Legacy setup/registration behavior is supported through adapters during migration.
 
-## ADR-025 — Architecture Changes Require Evidence
+**Exit condition:** all consumers use the new contracts and compatibility code has tests proving it can be removed safely.
 
-**Status:** Accepted
+## ADR-026 — Tiny Internal Event Bus Only
 
-A decision may be revisited because of:
+**Decision:** Telethon remains the event transport. An internal bus may carry genuine application events such as `job.completed` or `plugin.failed`.
 
-- demonstrated implementation failure;
-- new hard requirement;
-- measured performance bottleneck;
-- security finding;
-- major dependency change;
-- production workload change.
+**Constraint:** it must not become a second hidden command/event framework.
 
-Preference alone is insufficient to overturn a safety invariant.
+## ADR-027 — Search Starts with SQLite FTS5
 
-## Decision Review Rule
+**Decision:** Use ordinary SQLite indexes/FTS5 before vector infrastructure.
 
-When superseding an ADR, record:
+**Reason:** local, free, rebuildable, and adequate for initial knowledge/search needs.
 
-- old decision;
-- new decision;
-- evidence;
-- affected components;
-- migration plan;
-- compatibility impact;
-- safety impact.
+## ADR-028 — Existing Plugin Databases Migrate Incrementally
 
-> **Change architecture deliberately, record why, preserve compatibility, and never let implementation convenience silently change the system's authority model.**
+**Decision:** Do not force all existing DBs into one schema immediately.
+
+**Reason:** destructive migration is unnecessary risk. Shared infrastructure moves first; plugin state follows when justified.
+
+## ADR-029 — No Fake Sandbox Claim
+
+**Decision:** Plugins and eval are not treated as security-isolated because they share a Python process.
+
+**Future:** dedicated process/container isolation only for workloads that actually require it.
+
+## ADR-030 — Documentation Is an Engineering Contract
+
+**Decision:** Root architecture documents are canonical. Implementation that contradicts a mandatory contract must either be fixed or accompanied by a new ADR explaining the intentional change.
+
+## Supersession Procedure
+
+To supersede an ADR record:
+
+```text
+old decision
+new decision
+evidence
+trade-offs
+affected modules
+migration plan
+compatibility impact
+security impact
+rollback plan
+```
+
+Preference alone is not sufficient evidence.
+
+> **Architecture is allowed to evolve, but it must evolve deliberately and leave an audit trail.**
