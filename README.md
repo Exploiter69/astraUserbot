@@ -1,201 +1,259 @@
 # AstraUserbot
 
-A modular, local-first Telegram userbot platform built with **Python + Telethon + asyncio**, designed to grow from a large plugin collection into a reliable engineering platform.
+**A modular, local-first Telegram userbot platform for automation, media, AI, security, productivity, and extensibility.**
 
-**Cost target:** ₹0 / $0  
-**Architecture:** single-process modular monolith  
-**Transport:** Telethon  
-**Persistence:** SQLite  
-**Runtime:** asyncio
+| Property | Contract |
+|---|---|
+| Architecture | Single-process service-oriented modular monolith |
+| Language | Python |
+| Telegram | Telethon |
+| Concurrency | asyncio |
+| Persistence | SQLite |
+| HTTP | aiohttp |
+| Media | FFmpeg + controlled subprocesses |
+| AI | Local-first gateway + optional free adapters |
+| Cost target | ₹0 / $0 |
 
-## What AstraUserbot Is
+## 1. Mission
 
-AstraUserbot is more than a command collection. It provides a platform for:
+AstraUserbot is intended to become a reliable personal Telegram automation platform rather than a pile of unrelated command handlers.
 
-- Telegram automation;
-- modular plugins;
-- durable scheduled work;
-- media processing;
-- HTTP/API integrations;
-- local and optional hosted AI;
-- security and account controls;
-- search and knowledge features;
-- backups and maintenance;
-- operational diagnostics;
-- reusable shared infrastructure.
+The repository already contains roughly 40 functional plugin modules spanning administration, advanced utilities, AI, backup, cryptography, fun, media, network/OSINT, security, stealth, system utilities, and automation.
 
-The repository already contains a broad plugin ecosystem. The current architectural effort is to make that ecosystem reliable, observable, and easier to extend without rewriting everything.
+The architecture therefore focuses on **platform extraction and reliability**, not a destructive rewrite.
 
-## Architecture
+## 2. What Astra Provides
+
+### Telegram
+
+Commands, events, message utilities, account automation, moderation, scheduling, notifications, and extensible Telegram workflows.
+
+### Automation
+
+Durable reminders, scheduled messages, maintenance, background processing, retries, and recovery.
+
+### Media
+
+Downloads, FFmpeg processing, conversion, audio/video operations, speech/transcription, thumbnails, and uploads.
+
+### Network
+
+Controlled HTTP/API integrations, DNS/IP utilities, web retrieval, and cached external data.
+
+### AI
+
+Provider-independent chat/summarization/extraction/classification/transcription capabilities, with local models preferred and hosted providers optional.
+
+### Security
+
+Authorization, vault/secret handling, account controls, audit, logging, and explicit privileged boundaries.
+
+### Knowledge
+
+Notes, message cache, FTS5 search, OCR/transcript indexing, and future retrieval capabilities.
+
+## 3. Architecture at a Glance
 
 ```text
-                    Telegram
-                       │
-                       ▼
-                Event / Command Router
-                       │
-                       ▼
-                Authorization Layer
-                       │
-                       ▼
-               Application Context
-          ┌────────────┼─────────────┐
-          ▼            ▼             ▼
-      Plugins      Job Engine    Shared Services
-                       │         ┌────┼────┬────┐
-                       │         ▼    ▼    ▼    ▼
-                       │        HTTP Cache Media AI
-                       │
-                       ▼
-                 Verification/Audit
+Telegram / local trigger
+          │
+          ▼
+ Event + Command Router
+          │
+          ▼
+ Authorization + Scope
+          │
+          ▼
+ Application Context
+    ┌─────┼───────────────┐
+    ▼     ▼               ▼
+ Plugins Jobs       Shared Services
+          │       ┌────────┼────────────┐
+          │       ▼        ▼            ▼
+          │     HTTP     Cache      Media/Subprocess
+          │       │        │            │
+          └───────┴────────┴────────────┘
+                          │
+                          ▼
+                   Storage / AI
+                          │
+                          ▼
+                  Verify + Audit
 ```
 
-The platform is intentionally a **service-oriented modular monolith**, not a distributed system.
+## 4. Core Rules
 
-## Core Principles
+1. Telethon remains the transport.
+2. One process is the default.
+3. Plugins consume shared services instead of reinventing them.
+4. Durable work is persisted.
+5. Ephemeral tasks are supervised.
+6. Cache/index state is derived.
+7. AI is untrusted/advisory.
+8. Authorization is deterministic.
+9. Verification is separate from execution.
+10. Resource usage is bounded.
+11. Secrets never enter source control or ordinary diagnostics.
+12. Core operation must remain free.
 
-1. **Telethon remains the Telegram transport.**
-2. **Plugins remain modular and migrate incrementally.**
-3. **Shared infrastructure is centralized.**
-4. **Durable work is persisted.**
-5. **Asyncio tasks are not treated as durable jobs.**
-6. **AI is advisory, never authoritative.**
-7. **Secrets never enter source, logs, or audits.**
-8. **Caches and indexes are derived state.**
-9. **Verification is distinct from execution success.**
-10. **Resource usage is bounded.**
-11. **Core functionality remains free.**
-12. **High-impact operations require explicit authorization.**
+## 5. Current Audit Findings
 
-## Current Plugin Surface
+The existing codebase was source-audited and identified concrete migration targets:
 
-The existing repository contains approximately 40 functional plugin modules across areas including:
+- ACL and PMGuard both register `.block`/`.unblock`;
+- admin help advertises `demote` and `slow` without matching handler branches;
+- one vault uses base64 obfuscation while another uses authenticated encryption;
+- eval temporarily replaces global `sys.stdout`, which is unsafe under concurrency;
+- account archiving can silently swallow persistence errors;
+- logger reconstruction state is bounded only in memory;
+- PMGuard contact state can become stale until restart;
+- AFK can answer repeatedly without per-user cooldown;
+- multiple media plugins duplicate FFmpeg/temp/download logic;
+- stream output selection can race through shared directories;
+- media cleanup is inconsistent on failures;
+- rclone/aria2/media subprocess policy is duplicated;
+- network plugins independently implement HTTP behavior;
+- AI is coupled to provider-specific implementation;
+- existing scheduling is not a complete durable job platform.
 
-- administration;
-- advanced utilities;
-- AI;
-- backup;
-- cryptography;
-- fun;
-- media;
-- media operations;
-- network/OSINT;
-- security;
-- stealth;
-- system utilities;
-- system operations.
+These findings are engineering inputs, not reasons to discard the plugin ecosystem.
 
-The platform is built around this existing surface rather than discarding it.
+## 6. Platform Services
 
-## Confirmed Engineering Priorities
+The target shared services are:
 
-The repository audit identified several high-priority areas:
+```text
+ApplicationContext
+PluginManager
+CommandRouter
+Authorization/Policy
+TaskSupervisor
+JobEngine
+Storage/Repositories
+CacheService
+HttpService
+SubprocessService
+Filesystem/WorkspaceService
+TelegramFacade
+MediaService
+AI Gateway
+SearchService
+AuditService
+DiagnosticsService
+```
 
-- duplicate `.block` / `.unblock` command ownership;
-- advertised but missing admin command branches;
-- inconsistent vault/security semantics;
-- concurrent global stdout manipulation in eval;
-- silent account-archiver persistence failures;
-- stale in-memory caches;
-- duplicated media/subprocess infrastructure;
-- unsafe shared-directory output selection;
-- inconsistent temporary-file cleanup;
-- provider-specific AI coupling;
-- independent HTTP implementations;
-- incomplete durable scheduling semantics.
+A service is introduced when it removes duplicated infrastructure or establishes a contract needed by multiple features.
 
-These findings are reflected in the roadmap and architecture documents.
+## 7. Documentation Set
 
-## Documentation
-
-| Document | Purpose |
+| File | Role |
 |---|---|
-| `ARCHITECTURE.md` | Canonical system architecture and component boundaries |
-| `DATA_MODEL.md` | Persistent state, cache, jobs, audit, and derived-data model |
-| `JOB_MODEL.md` | Durable job lifecycle, retries, leases, recovery, and verification |
+| `ARCHITECTURE.md` | Full component architecture and invariants |
+| `DATA_MODEL.md` | Persistent state and data ownership |
+| `JOB_MODEL.md` | Durable execution state machine |
 | `SAFETY_CONTRACT.md` | Mandatory safety and side-effect rules |
-| `PRODUCTION_BOUNDARY.md` | Telegram, filesystem, network, database, and runtime boundaries |
-| `DECISIONS.md` | Architecture Decision Record (ADR) history |
+| `PRODUCTION_BOUNDARY.md` | Runtime and external-system boundaries |
+| `DECISIONS.md` | Accepted architecture decisions |
 | `ROADMAP.md` | Canonical implementation sequence |
 
-## Implementation Sequence
+These files are the root engineering specification. Code should conform to them; intentional deviations require a recorded decision.
+
+## 8. Migration Philosophy
 
 ```text
-Baseline
-  ↓
-Plugin / Command Foundation
-  ↓
-Shared Runtime Services
-  ↓
-Cache
-  ↓
-Storage / Persistence
-  ↓
-Durable Jobs
-  ↓
-High-Risk Plugin Fixes
-  ↓
-Media Platform
-  ↓
-AI Gateway
-  ↓
-Plugin Migration
-  ↓
-Search / Knowledge
-  ↓
-Observability
-  ↓
-Feature Expansion
-  ↓
-Performance / Maturity
+Protect baseline
+    ↓
+Build platform contract
+    ↓
+Build shared services
+    ↓
+Fix confirmed P0 defects
+    ↓
+Migrate plugins in batches
+    ↓
+Add regression tests
+    ↓
+Expand capabilities
+    ↓
+Measure and optimize
 ```
 
-## Zero-Cost Requirement
+No mass rewrite occurs merely to make code look uniform.
 
-AstraUserbot is designed around a hard ₹0 / $0 cost target.
+## 9. Zero-Cost Architecture
 
-Preferred infrastructure:
+The foundation uses free/open-source or already available components:
 
 - Python;
 - Telethon;
 - asyncio;
 - SQLite;
 - aiohttp;
-- FFmpeg and standard Linux tools;
-- local Ollama/llama.cpp where useful;
-- existing machine resources;
-- optional genuinely free provider adapters.
+- FFmpeg/Linux tools;
+- local Ollama/llama.cpp where useful.
 
-Paid services are never mandatory foundations.
+Hosted AI/API adapters may be used only when genuinely free and configured by the user. No paid service is a required dependency.
 
-## Development Philosophy
+## 10. Security Position
 
-### Do not rewrite blindly
+Astra is a privileged process. Plugins are not security-isolated from one another.
 
-Existing plugins contain useful working behavior. Platform services should be introduced first, then plugins migrated in batches with regression tests.
+The platform therefore uses:
 
-### Do not over-engineer
+- centralized authorization;
+- capability declarations;
+- secret separation;
+- safe subprocess boundaries;
+- filesystem policy;
+- HTTP limits;
+- auditability;
+- explicit destructive-operation contracts.
 
-Astra does not need a miniature cloud platform to run a Telegram userbot. New infrastructure must solve a measured problem.
+Eval is privileged and is not represented as a sandbox.
 
-### Do not hide failures
+## 11. Operational Model
 
-Plugin setup failures, task crashes, job failures, verification failures, and dependency problems must be observable.
+A healthy Astra runtime should be able to explain:
 
-### Do not confuse automation with authority
+```text
+which plugins loaded
+which commands exist
+which tasks are alive
+which jobs are queued/running
+how cache is behaving
+whether SQLite is healthy
+which recent failures occurred
+how much resource pressure exists
+```
 
-The system can automate aggressively within explicit boundaries, but no model, plugin, cache, or background task is allowed to invent permission.
+This becomes the purpose of diagnostics such as:
 
-## Security
+```text
+!health
+!plugins
+!tasks
+!jobs
+!cache
+!stats
+!diagnostics
+```
 
-Runtime credentials and Telegram session state are local secrets. They must never be committed to GitHub.
+## 12. Current Development Stage
 
-Use `.env.example` for placeholders and keep actual `.env`, session files, databases, logs, and generated artifacts outside source control as appropriate.
+**Phase 0 — Baseline and architecture protection is complete.**
 
-## Status
+The next implementation target is **Phase 1 — Plugin and Command Foundation**:
 
-The project is in the **platform architecture and reliability foundation** stage. The immediate implementation target is Phase 1 of `ROADMAP.md`: plugin lifecycle, command routing, startup health, safe error handling, and task supervision.
+1. plugin lifecycle state;
+2. deterministic dependency/registration handling;
+3. authoritative command router;
+4. duplicate command detection;
+5. safe error boundaries;
+6. truthful startup health;
+7. centralized long-lived task supervision.
 
-## Guiding Principle
+## 13. Definition of Success
 
-> **Make AstraUserbot powerful by capability, reliable by architecture, observable by default, and cheap enough to run at ₹0.**
+Astra succeeds when adding the next 100 useful features does not require inventing another HTTP client, scheduler, cache, temp-file strategy, subprocess wrapper, database pattern, or authorization mechanism.
+
+> **Power belongs at the plugin edge. Reliability belongs in the platform core.**
