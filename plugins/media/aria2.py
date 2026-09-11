@@ -36,6 +36,8 @@ async def handle_aria(event):
     try:
         argv = ["aria2c", "-d", ".", "-x", "4", "-s", "4", "--max-file-not-found", "2", "--file-allocation", "none", url]
         _, artifacts = await service.run_download(argv, workspace=workspace, timeout=600)
+        if not artifacts:
+            raise CommandError("aria2c completed without producing a downloadable file.")
         file_to_upload = artifacts[0]
         up_prog = ProgressCallback(event, "Uploading to Telegram")
         await event.client.send_file(event.chat_id, file=file_to_upload.path, progress_callback=up_prog, reply_to=event.reply_to_msg_id)
