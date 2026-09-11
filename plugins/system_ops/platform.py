@@ -14,6 +14,10 @@ from config import config
 PATTERN = rf"^{re.escape(config.PREFIX)}(health|plugins|tasks|jobs|cache|stats|diagnostics|search|reindex|flags)(?:\s+(.*))?$"
 
 
+def _redact(text: str) -> str:
+    return re.sub(r"(?i)(api[_-]?hash|api[_-]?id|token|secret|password|authorization|session|cookie)[^\n:=]*[:=]\s*[^\n]+", "[REDACTED]", text)
+
+
 def _ctx():
     ctx = get_application_context()
     if ctx is None:
@@ -84,6 +88,8 @@ async def handle(event):
         rows += [f"{name}: avg {value['avg_ms']:.1f}ms p95 {value['p95_ms']:.1f}ms n={int(value['count'])}" for name, value in sorted(snapshot.timings.items())]
         resource = snapshot.resources
         rows += [f"RSS: {resource['rss_bytes'] / 1024 / 1024:.1f} MiB", f"Disk free: {resource['disk_free_bytes'] / 1024 / 1024 / 1024:.1f} GiB"]
+        jobs = await ctx.get("jobs").list(states=None, limit=100)
+        rows += [f"Jobs sampled: {len(jobs)}", f"Queued: {sum(1 for job in jobs if job.state.value == 'QUEUED')}", f"Uncertain: {sum(1 for job in jobs if job.state.value == 'UNCERTAIN')}"]
         await event.edit(render("STATS // PERFORMANCE", rows[:30], footer="system_ops | stats"))
         return
 
@@ -107,7 +113,7 @@ async def handle(event):
         }
         path = ctx.project_root / "data" / "logs" / f"diagnostics_{int(time.time())}.json"
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(report, indent=2, default=str)[:200_000], encoding="utf-8")
+        path.write_text(_redact(json.dumps(report, indent=2, default=str))[:200_000], encoding="utf-8")
         await event.edit(render("DIAGNOSTICS // REPORT", [f"Written: {path.relative_to(ctx.project_root)}", f"DB integrity: {'PASS' if report['db_integrity'] else 'FAIL'}", f"Plugins: {len(report['plugins'])}", f"Commands: {report['commands']}", f"Jobs sampled: {len(jobs)}"], footer="system_ops | diagnostics"))
         return
 
