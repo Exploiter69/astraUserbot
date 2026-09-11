@@ -1,9 +1,9 @@
 import asyncio
 import json
+import os
 import tempfile
 import unittest
-from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import patch
 
 from core.errors import ConfigurationError, ExternalServiceError, ResourceError
 from core.services.ai import AIService, GeminiProvider, GroqProvider, OllamaProvider
@@ -84,10 +84,8 @@ class AIGatewayTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_output_is_bounded(self):
         fake = FakeProvider()
-        original_chat = fake.chat
 
         async def long_chat(*args, **kwargs):
-            await original_chat(*args, **kwargs)
             return "x" * 20
 
         fake.chat = long_chat
@@ -128,7 +126,7 @@ class AIGatewayTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.NamedTemporaryFile(suffix=".ogg") as handle:
             handle.write(b"audio")
             handle.flush()
-            with unittest.mock.patch.dict("os.environ", {"ASTRA_AI_MAX_AUDIO_BYTES": "2"}):
+            with patch.dict(os.environ, {"ASTRA_AI_MAX_AUDIO_BYTES": "2"}):
                 with self.assertRaises(ResourceError):
                     await service.transcribe(handle.name)
 
