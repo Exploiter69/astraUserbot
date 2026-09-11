@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, Protocol, TypeVar
 
@@ -12,6 +11,7 @@ from core.services import HttpService, SubprocessService, TelegramFacade, Worksp
 logger = logging.getLogger("astra.context")
 
 T = TypeVar("T")
+_application_context: "ApplicationContext | None" = None
 
 
 class ManagedService(Protocol):
@@ -84,3 +84,12 @@ class ApplicationContext:
             "state": "CLOSED" if self._closed else "RUNNING",
             "services": ",".join(self.services),
         }
+
+
+def set_application_context(context: ApplicationContext | None) -> None:
+    global _application_context
+    _application_context = context
+
+
+def get_application_context() -> ApplicationContext | None:
+    return _application_context
