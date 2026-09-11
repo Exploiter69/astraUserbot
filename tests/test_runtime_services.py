@@ -59,7 +59,7 @@ class RuntimeServiceTests(unittest.IsolatedAsyncioTestCase):
             )
             self.assertIsNotNone(context.get("http").session)
             self.assertTrue(context.get("cache").db_path.exists())
-            self.assertTrue(context.get("storage").db_path.exists())
+            self.assertIsNotNone(context.get("storage").conn)
             self.assertTrue(context.get("workspace").root.exists())
 
             await context.close()
