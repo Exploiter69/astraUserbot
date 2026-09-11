@@ -6,7 +6,8 @@ import logging
 from pathlib import Path
 from typing import Any, Protocol, TypeVar
 
-from core.services import AIService, CacheService, HttpService, JobEngine, MediaService, SecretStore, StorageService, SubprocessService, TelegramFacade, WorkspaceService
+from core.services import CacheService, HttpService, JobEngine, MediaService, SecretStore, StorageService, SubprocessService, TelegramFacade, WorkspaceService
+from core.services.ai import AIService
 
 logger = logging.getLogger("astra.context")
 
