@@ -1,4 +1,5 @@
 import re
+import shutil
 from core.context import get_application_context
 from core.registry import register_cmd
 from helpers.hud import render
@@ -9,6 +10,8 @@ PATTERN = rf"^{re.escape(config.PREFIX)}rip(?:\s+(audio|video|doc|best))?(?:\s+(
 
 
 async def setup(client):
+    if not shutil.which("yt-dlp"):
+        return
     register_cmd(
         client,
         pattern=PATTERN,
@@ -43,11 +46,15 @@ async def handle_rip(event):
         argv = ["yt-dlp", "-x", "--audio-format", "mp3", "--audio-quality", "0", "-o", "%(title).50s.%(ext)s", "--no-playlist", "--max-filesize", max_filesize, url]
     elif mode == "doc":
         argv = ["yt-dlp", "-f", "best", "-o", "%(title).50s.%(ext)s", "--no-playlist", "--max-filesize", max_filesize, url]
+    elif mode == "best":
+        argv = ["yt-dlp", "-f", "best", "-o", "%(title).50s.%(ext)s", "--no-playlist", "--max-filesize", max_filesize, url]
     else:
         argv = ["yt-dlp", "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best", "-o", "%(title).50s.%(ext)s", "--no-playlist", "--max-filesize", max_filesize, url]
 
     try:
         _, artifacts = await service.run_download(argv, workspace=workspace, timeout=600)
+        if not artifacts:
+            raise CommandError("yt-dlp completed without producing a downloadable file.")
         target = artifacts[0]
         await event.edit(render("RIP // UPLOADING", [f"File: `{target.path.name}`", "Uploading to chat..."]))
         await event.client.send_file(event.chat_id, file=str(target.path), caption=f"Extracted: `{target.path.name}`", reply_to=event.id)
