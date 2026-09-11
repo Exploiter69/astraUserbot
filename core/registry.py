@@ -18,7 +18,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional
 from telethon import events
 
 from config import config
-from core.errors import CommandError
+from core.errors import AstraError, CommandError, as_astra_error, user_message
 from core.plugins.manager import PluginManager
 from helpers.hud import render
 
@@ -129,31 +129,42 @@ def register_cmd(
             result = handler(event)
             if inspect.isawaitable(result):
                 await result
-        except CommandError as exc:
+        except Exception as exc:
             elapsed = time.perf_counter() - start_time
-            logger.warning(
-                "Command failed correlation=%s command=%s error=%s",
-                correlation_id,
-                pattern,
-                exc.message,
+            error = as_astra_error(
+                exc,
+                operation="command",
+                component=owner or category,
+                correlation_id=correlation_id,
             )
+            if isinstance(exc, AstraError):
+                logger.warning(
+                    "Command failure correlation=%s command=%s code=%s error=%s",
+                    correlation_id,
+                    pattern,
+                    error.code,
+                    error.message,
+                )
+            else:
+                logger.error(
+                    "Unhandled command failure correlation=%s command=%s code=%s",
+                    correlation_id,
+                    pattern,
+                    error.code,
+                    exc_info=True,
+                )
+            if isinstance(exc, CommandError):
+                rows = [user_message(error)]
+                title = "ERROR"
+            else:
+                rows = ["An unexpected error occurred.", f"Reference: {correlation_id}"]
+                title = "COMMAND FAILED"
             await event.edit(render(
-                title="ERROR",
-                rows=[exc.message],
-                footer=f"{elapsed:.2f}s | {category} | {correlation_id}",
-            ))
-        except Exception:
-            elapsed = time.perf_counter() - start_time
-            logger.error(
-                "Unhandled command failure correlation=%s command=%s",
-                correlation_id,
-                pattern,
-                exc_info=True,
-            )
-            await event.edit(render(
-                title="COMMAND FAILED",
-                rows=["An unexpected error occurred.", f"Reference: {correlation_id}"],
-                footer=f"{elapsed:.2f}s | {category}",
+                title=title,
+                rows=rows,
+                footer=f"{elapsed:.2f}s | {category}" + (
+                    f" | {correlation_id}" if isinstance(exc, CommandError) else ""
+                ),
             ))
 
     registration = CommandRegistration(
