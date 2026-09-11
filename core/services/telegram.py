@@ -45,8 +45,8 @@ class TelegramFacade:
             try:
                 return await operation(*args, **kwargs)
             except FloodWaitError as exc:
-                wait = min(float(exc.seconds), self.flood_wait_cap)
-                if attempt >= self.retries or wait <= 0:
+                wait = float(exc.seconds)
+                if attempt >= self.retries or wait <= 0 or wait > self.flood_wait_cap:
                     raise ExternalServiceError("Telegram rate limit prevented the operation.") from exc
                 logger.warning("Telegram flood wait operation=%s seconds=%s", method, int(wait))
                 await asyncio.sleep(wait)
