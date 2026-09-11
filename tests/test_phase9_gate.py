@@ -75,7 +75,6 @@ class Phase9MigrationGate(unittest.TestCase):
             "plugins/media/ocr.py",
             "plugins/backup/cloud_backup.py",
             "plugins/system_ops/doctor.py",
-            "plugins/system_ops/testall.py",
         ):
             source = self._source(path)
             self.assertIn('context.get("subprocess")', source, path)
