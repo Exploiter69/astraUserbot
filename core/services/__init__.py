@@ -3,6 +3,7 @@
 from core.services.cache import Artifact, CacheEntry, CacheService, CacheStats
 from core.services.http import HttpService
 from core.services.jobs import Job, JobEngine, JobError, JobState
+from core.services.media import MediaArtifact, MediaService
 from core.services.secrets import SecretStore, SecretStoreError
 from core.services.storage import StorageError, StorageService
 from core.services.subprocess import SubprocessResult, SubprocessService
@@ -13,6 +14,7 @@ __all__ = [
     "Artifact", "CacheEntry", "CacheService", "CacheStats",
     "HttpService",
     "Job", "JobEngine", "JobError", "JobState",
+    "MediaArtifact", "MediaService",
     "SecretStore", "SecretStoreError",
     "StorageError", "StorageService",
     "SubprocessResult", "SubprocessService",
