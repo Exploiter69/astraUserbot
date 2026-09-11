@@ -44,26 +44,29 @@ def _decrypt(password: str, salt: bytes, nonce: bytes, ciphertext: bytes) -> str
 
 async def handle_crypto(event):
     cmd = event.pattern_match.group(1).lower()
-    arg = event.pattern_match.group(2)
-    
+    arg = (event.pattern_match.group(2) or "").strip()
+
     if cmd == "savenote":
         parts = arg.split(maxsplit=2)
-        if len(parts) < 3: raise CommandError("Usage: .savenote <tag> <pass> <content>")
+        if len(parts) < 3:
+            raise CommandError("Usage: .savenote <tag> <pass> <content>")
         tag, pwd, content = parts
-        
+
         salt, nonce, ciphertext = await run_in_thread(_encrypt, pwd, content)
-        await db.execute("INSERT OR REPLACE INTO secure_notes (tag, salt, nonce, ciphertext) VALUES (?, ?, ?, ?)", 
+        await db.execute("INSERT OR REPLACE INTO secure_notes (tag, salt, nonce, ciphertext) VALUES (?, ?, ?, ?)",
                          (tag, salt, nonce, ciphertext))
         await event.edit(render("CRYPTO VAULT", [f"Note '{tag}' encrypted and stored."]))
-        
+
     elif cmd == "getnote":
         parts = arg.split(maxsplit=1)
-        if len(parts) < 2: raise CommandError("Usage: .getnote <tag> <pass>")
+        if len(parts) < 2:
+            raise CommandError("Usage: .getnote <tag> <pass>")
         tag, pwd = parts
-        
+
         row = await db.fetchone("SELECT salt, nonce, ciphertext FROM secure_notes WHERE tag = ?", (tag,))
-        if not row: raise CommandError("Note not found.")
-        
+        if not row:
+            raise CommandError("Note not found.")
+
         try:
             plaintext = await run_in_thread(_decrypt, pwd, row[0], row[1], row[2])
             await event.edit(render("CRYPTO VAULT: DECRYPTED", [f"Tag: {tag}", "---", plaintext]))
@@ -71,5 +74,7 @@ async def handle_crypto(event):
             raise CommandError("Decryption failed. Authentication tag mismatch (wrong passphrase).")
 
     elif cmd == "delnote_sec":
-        await db.execute("DELETE FROM secure_notes WHERE tag = ?", (arg.strip(),))
+        if not arg:
+            raise CommandError("Usage: .delnote_sec <tag>")
+        await db.execute("DELETE FROM secure_notes WHERE tag = ?", (arg,))
         await event.edit(render("CRYPTO VAULT", [f"Wiped '{arg}'."]))
