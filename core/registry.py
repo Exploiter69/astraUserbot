@@ -61,19 +61,12 @@ _COMMAND_OWNERS: Dict[str, str] = {}
 
 
 def _command_names(pattern: str, aliases: Optional[Iterable[str]] = None) -> tuple[str, ...]:
-    """Return conservative command-name fingerprints for collision detection.
-
-    Existing plugins encode command names in their regex. We intentionally only
-    fingerprint the command token, not arbitrary argument regex, to avoid false
-    positives while still catching ``.block`` vs ``.block ...`` and grouped
-    commands such as ``(block|unblock)``.
-    """
+    """Return conservative command-name fingerprints for collision detection."""
     names: list[str] = []
     escaped_prefix = re.escape(config.PREFIX)
     prefix_match = re.search(rf"(?:\^)?{escaped_prefix}", pattern)
     if prefix_match:
-        remainder = pattern[prefix_match.end():]
-        remainder = remainder.lstrip()
+        remainder = pattern[prefix_match.end():].lstrip()
         group = re.match(r"\(([^()]+)\)", remainder)
         if group:
             names.extend(part.strip() for part in group.group(1).split("|") if part.strip())
@@ -102,11 +95,7 @@ def register_cmd(
     aliases: Optional[List[str]] = None,
     permission: str = "owner",
 ) -> CommandRegistration:
-    """Register one outgoing command with deterministic ownership.
-
-    Registration fails before mutating the client when the same pattern or
-    command token is already owned. This prevents silent duplicate commands.
-    """
+    """Register one outgoing command with deterministic ownership."""
     if not pattern or not callable(handler):
         raise CommandRegistrationError("pattern and callable handler are required")
 
@@ -114,23 +103,13 @@ def register_cmd(
     collisions: list[str] = []
     if pattern in COMMANDS:
         collisions.append(f"pattern {pattern!r}")
-    collisions.extend(
-        f"command {name!r}" for name in names if name in _COMMAND_OWNERS
-    )
+    collisions.extend(f"command {name!r}" for name in names if name in _COMMAND_OWNERS)
     if collisions:
-        existing_ids = {
-            _COMMAND_OWNERS[name]
-            for name in names
-            if name in _COMMAND_OWNERS
-        }
+        existing_ids = {_COMMAND_OWNERS[name] for name in names if name in _COMMAND_OWNERS}
         if pattern in COMMANDS:
             existing_ids.add(str(COMMANDS[pattern].get("registration_id", "unknown")))
         owners = sorted(
-            {
-                _REGISTRATIONS[item].owner or "unknown"
-                for item in existing_ids
-                if item in _REGISTRATIONS
-            }
+            {_REGISTRATIONS[item].owner or "unknown" for item in existing_ids if item in _REGISTRATIONS}
         )
         owner_text = ", ".join(owners) if owners else "existing registration"
         raise CommandRegistrationError(
@@ -144,7 +123,6 @@ def register_cmd(
     async def wrapper(event: Any) -> None:
         if not event.out:
             return
-
         correlation_id = _new_correlation_id()
         start_time = time.perf_counter()
         try:
@@ -172,8 +150,6 @@ def register_cmd(
                 pattern,
                 exc_info=True,
             )
-            # Do not expose exception types, paths, provider responses or args
-            # to Telegram. Detailed diagnostics stay in logs.
             await event.edit(render(
                 title="COMMAND FAILED",
                 rows=["An unexpected error occurred.", f"Reference: {correlation_id}"],
@@ -193,7 +169,6 @@ def register_cmd(
         wrapper=wrapper,
     )
 
-    # Commit registry state only after all validation has succeeded.
     client.add_event_handler(wrapper, event_builder)
     COMMANDS[pattern] = {
         "registration_id": registration_id,
@@ -207,7 +182,13 @@ def register_cmd(
     _REGISTRATIONS[registration_id] = registration
     for name in names:
         _COMMAND_OWNERS[name] = registration_id
-    
+
+    manager = getattr(client, "plugin_manager", None)
+    if manager is not None:
+        manager.register_ownership(registration_id)
+    else:
+        logger.debug("Command %s registered without attached plugin manager", pattern)
+
     logger.debug(
         "Registered command %s owner=%s id=%s",
         pattern,
