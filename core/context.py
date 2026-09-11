@@ -8,6 +8,11 @@ from typing import Any, Protocol, TypeVar
 
 from core.services import CacheService, HttpService, JobEngine, MediaService, SecretStore, StorageService, SubprocessService, TelegramFacade, WorkspaceService
 from core.services.ai import AIService
+from core.services.flags import FeatureFlagService
+from core.services.isolation import IsolationService
+from core.services.metrics import MetricsService
+from core.services.search import SearchService
+from core.tasks import TaskSupervisor
 
 logger = logging.getLogger("astra.context")
 
@@ -27,6 +32,7 @@ class ApplicationContext:
         self.client = client
         self.project_root = Path(project_root).resolve()
         self.services: dict[str, Any] = {}
+        self.tasks = TaskSupervisor()
         self._started: list[str] = []
         self._closed = False
 
@@ -40,6 +46,10 @@ class ApplicationContext:
         self.register("jobs", JobEngine(self.get("storage")))
         self.register("secrets", SecretStore())
         self.register("ai", AIService(self.get("http")))
+        self.register("search", SearchService(self.get("storage"), self.project_root))
+        self.register("metrics", MetricsService(self.project_root))
+        self.register("flags", FeatureFlagService(self.get("storage")))
+        self.register("isolation", IsolationService())
 
     def register(self, name: str, service: Any) -> Any:
         if not name or name in self.services:
@@ -75,6 +85,7 @@ class ApplicationContext:
         if self._closed:
             return
         self._closed = True
+        await self.tasks.shutdown()
         for name in reversed(self._started):
             service = self.services[name]
             closer = getattr(service, "close", None)
@@ -86,10 +97,11 @@ class ApplicationContext:
                 logger.error("Failed to close service name=%s", name, exc_info=True)
         self._started.clear()
 
-    def snapshot(self) -> dict[str, str]:
+    def snapshot(self) -> dict[str, Any]:
         return {
             "state": "CLOSED" if self._closed else "RUNNING",
             "services": ",".join(self.services),
+            "task_count": len(self.tasks.active()),
         }
 
 
