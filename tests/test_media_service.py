@@ -63,7 +63,8 @@ class MediaServiceTests(unittest.IsolatedAsyncioTestCase):
             source = job.resolve("input.mp4")
             source.write_bytes(b"source")
 
-            async def fake_run(argv, *, workspace, timeout=None):
+            async def fake_run(argv, *, workspace, timeout=None, cwd=None):
+                self.assertIsNotNone(workspace)
                 if argv[0] == "ffmpeg":
                     self.assertEqual(argv[:5], ["ffmpeg", "-hide_banner", "-y", "-i", str(source)])
                     self.assertIn("-c:v", argv)
@@ -91,8 +92,9 @@ class MediaServiceTests(unittest.IsolatedAsyncioTestCase):
             active = 0
             peak = 0
 
-            async def fake_run(argv, *, workspace, timeout=None):
+            async def fake_run(argv, *, workspace, timeout=None, cwd=None):
                 nonlocal active, peak
+                self.assertIsNotNone(cwd)
                 active += 1
                 peak = max(peak, active)
                 await asyncio.sleep(0.02)
