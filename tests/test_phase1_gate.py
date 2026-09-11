@@ -64,12 +64,12 @@ class Phase1GateTests(unittest.IsolatedAsyncioTestCase):
         acl.db = FakeDB()
         pmguard.db = FakeDB()
 
-        with manager.plugin_context("plugins.security.acl"):
+        with manager.plugin_context("plugins.security.acl", manager):
             await acl.setup(client)
         self.assertEqual(len(list_registrations()), 1)
         self.assertEqual(len(manager.get("plugins.security.acl").registrations), 1)
 
-        with manager.plugin_context("plugins.security.pmguard"):
+        with manager.plugin_context("plugins.security.pmguard", manager):
             with self.assertRaises(ValueError):
                 await pmguard.setup(client)
 
@@ -153,7 +153,7 @@ class Phase1GateTests(unittest.IsolatedAsyncioTestCase):
         manager.records["plugins.security.acl"].module = acl
         manager.records["plugins.security.acl"].state = PluginState.LOADED
         manager._load_order = ["plugins.security.acl"]
-        with manager.plugin_context("plugins.security.acl"):
+        with manager.plugin_context("plugins.security.acl", manager):
             await acl.setup(client)
         manager.records["plugins.security.acl"].state = PluginState.RUNNING
 
