@@ -60,7 +60,8 @@ class StorageService:
         assert self.conn is not None
         for version, sql in MIGRATIONS:
             checksum = hashlib.sha256(sql.encode()).hexdigest()
-            row = await self.conn.execute_fetchone("SELECT checksum FROM schema_migrations WHERE version=?", (version,))
+            async with self.conn.execute("SELECT checksum FROM schema_migrations WHERE version=?", (version,)) as cursor:
+                row = await cursor.fetchone()
             if row is not None:
                 if row[0] != checksum:
                     raise StorageError(f"Migration checksum mismatch: {version}")
