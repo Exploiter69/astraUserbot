@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from typing import Any, Protocol, TypeVar
 
-from core.services import HttpService, SubprocessService, TelegramFacade, WorkspaceService
+from core.services import CacheService, HttpService, SubprocessService, TelegramFacade, WorkspaceService
 
 logger = logging.getLogger("astra.context")
 
@@ -29,6 +29,7 @@ class ApplicationContext:
         self._started: list[str] = []
         self._closed = False
 
+        self.register("cache", CacheService(self.project_root))
         self.register("http", HttpService())
         self.register("subprocess", SubprocessService())
         self.register("telegram", TelegramFacade(client))
