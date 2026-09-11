@@ -92,7 +92,7 @@ class MediaServiceTests(unittest.IsolatedAsyncioTestCase):
             active = 0
             peak = 0
 
-            async def fake_run(argv, *, workspace, timeout=None, cwd=None):
+            async def fake_run(argv, *, timeout=None, cwd=None):
                 nonlocal active, peak
                 self.assertIsNotNone(cwd)
                 active += 1
