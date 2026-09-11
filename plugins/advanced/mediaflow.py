@@ -54,7 +54,7 @@ async def handle_mediaflow(event):
             options = ["-vn", "-c:a", "libmp3lame", "-b:a", "320k"]
             output_name = "output.mp3"
         elif mode == "square":
-            options = ["-vf", "crop=w=min(in_w\,in_h):h=min(in_w\,in_h)", "-c:v", "libx264", "-crf", "23", "-c:a", "copy"]
+            options = ["-vf", r"crop=w=min(in_w\,in_h):h=min(in_w\,in_h)", "-c:v", "libx264", "-crf", "23", "-c:a", "copy"]
             output_name = "output.mp4"
         else:
             raise CommandError("Invalid mode. Use: compress, extract, or square")
