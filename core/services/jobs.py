@@ -67,6 +67,7 @@ class JobEngine:
         self.poll_seconds = max(0.1, poll_seconds)
         self.handlers: dict[str, Handler] = {}
         self._worker_task: asyncio.Task[None] | None = None
+        self._active_tasks: dict[str, asyncio.Task[Any]] = {}
         self._stop = asyncio.Event()
         self._started = False
 
@@ -82,6 +83,10 @@ class JobEngine:
         if not self._started:
             return
         self._stop.set()
+        for task in list(self._active_tasks.values()):
+            task.cancel()
+        if self._active_tasks:
+            await asyncio.gather(*self._active_tasks.values(), return_exceptions=True)
         if self._worker_task:
             self._worker_task.cancel()
             try:
@@ -89,6 +94,7 @@ class JobEngine:
             except asyncio.CancelledError:
                 pass
         self._worker_task = None
+        self._active_tasks.clear()
         self._started = False
 
     def register_handler(self, job_type: str, handler: Handler) -> None:
@@ -180,8 +186,12 @@ class JobEngine:
 
     async def cancel(self, job_id: str) -> None:
         now = time.time()
+        job = await self.get(job_id)
         await self.storage.execute("UPDATE jobs SET state=?,updated_at=?,completed_at=? WHERE id=? AND state IN (?,?,?,?)", (JobState.CANCELLED.value, now, now, job_id, JobState.QUEUED.value, JobState.RUNNING.value, JobState.PAUSED.value, JobState.VERIFYING.value))
         await self.storage.execute("DELETE FROM leases WHERE job_id=?", (job_id,))
+        task = self._active_tasks.get(job_id)
+        if task is not None:
+            task.cancel()
         await self.storage.execute("INSERT INTO job_events(job_id,event_type,payload_json,created_at) VALUES (?,?,?,?)", (job_id, "CANCELLED", "{}", now))
 
     async def recover_expired(self) -> int:
@@ -211,7 +221,6 @@ class JobEngine:
             await self.storage.conn.commit()
 
     async def _execute_handler(self, job: Job, handler: Handler) -> Any:
-        """Run a handler while renewing its lease until execution finishes."""
         async def lease_loop() -> None:
             interval = max(1.0, self.lease_seconds / 3.0)
             while True:
@@ -229,6 +238,22 @@ class JobEngine:
             except asyncio.CancelledError:
                 pass
 
+    async def _run_job(self, job: Job, handler: Handler) -> None:
+        try:
+            result = await self._execute_handler(job, handler)
+            current = await self.get(job.id)
+            if current.state == JobState.RUNNING:
+                await self.complete(job.id, result)
+        except asyncio.CancelledError:
+            return
+        except JobError as exc:
+            await self.fail(job.id, exc.code, str(exc)[:500], retryable=exc.retryable)
+        except Exception:
+            logger.exception("Durable job failed id=%s type=%s", job.id, job.type)
+            await self.fail(job.id, "UNEXPECTED_FAILURE", "Job execution failed", retryable=False)
+        finally:
+            self._active_tasks.pop(job.id, None)
+
     async def _worker_loop(self) -> None:
         while not self._stop.is_set():
             try:
@@ -240,16 +265,9 @@ class JobEngine:
                 if handler is None:
                     await self.fail(job.id, "NO_HANDLER", f"No handler registered for {job.type}")
                     continue
-                try:
-                    result = await self._execute_handler(job, handler)
-                    await self.complete(job.id, result)
-                except asyncio.CancelledError:
-                    raise
-                except JobError as exc:
-                    await self.fail(job.id, exc.code, str(exc)[:500], retryable=exc.retryable)
-                except Exception:
-                    logger.exception("Durable job failed id=%s type=%s", job.id, job.type)
-                    await self.fail(job.id, "UNEXPECTED_FAILURE", "Job execution failed", retryable=False)
+                task = asyncio.create_task(self._run_job(job, handler), name=f"jobs.execute.{job.id}")
+                self._active_tasks[job.id] = task
+                await task
             except asyncio.TimeoutError:
                 continue
             except asyncio.CancelledError:
@@ -264,9 +282,4 @@ class JobEngine:
 
     @staticmethod
     def _row_to_job(row: Any) -> Job:
-        return Job(
-            id=row["id"], type=row["type"], state=JobState(row["state"]), payload=json.loads(row["payload_json"]),
-            result=json.loads(row["result_json"]) if row["result_json"] else None, error_code=row["error_code"], error_message=row["error_message"],
-            owner=row["owner"], parent_id=row["parent_id"], attempt_count=row["attempt_count"], max_attempts=row["max_attempts"],
-            progress=row["progress"], resource_class=row["resource_class"], priority=row["priority"], verify_required=bool(row["verify_required"]),
-        )
+        return Job(id=row["id"], type=row["type"], state=JobState(row["state"]), payload=json.loads(row["payload_json"]), result=json.loads(row["result_json"]) if row["result_json"] else None, error_code=row["error_code"], error_message=row["error_message"], owner=row["owner"], parent_id=row["parent_id"], attempt_count=row["attempt_count"], max_attempts=row["max_attempts"], progress=row["progress"], resource_class=row["resource_class"], priority=row["priority"], verify_required=bool(row["verify_required"]))
