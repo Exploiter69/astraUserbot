@@ -49,6 +49,7 @@ async def main():
     logger.info("Initializing Astra Userbot...")
     logger.info("Persistent log: %s", LOG_FILE)
     client = create_client()
+    plugin_manager = None
 
     try:
         await client.start()
@@ -59,11 +60,13 @@ async def main():
         loop = asyncio.get_running_loop()
         bootstrap.install_signal_handlers(loop, client)
 
-        await loader.load_plugins(client)
+        plugin_manager = await loader.load_plugins(client)
 
         logger.info("Startup complete. Running until disconnected.")
         await client.run_until_disconnected()
     finally:
+        if plugin_manager is not None:
+            await plugin_manager.shutdown()
         await bootstrap.shutdown(client)
         await close_session()
 
