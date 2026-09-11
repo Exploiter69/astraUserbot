@@ -31,11 +31,10 @@ async def handle_aria(event):
         raise CommandError("Media service is unavailable.")
     service = context.get("media")
     workspace = await service.create_workspace("aria")
-    max_mb = max(1, service.max_output_bytes // (1024 * 1024))
 
     await event.edit(render("ARIA2", ["Initializing download...", url], footer="media | aria2"))
     try:
-        argv = ["aria2c", "-d", ".", "-x", "4", "-s", "4", "--max-file-not-found", "2", "--max-download-limit", "0", "--file-allocation", "none", "--max-file-size", f"{max_mb}M", url]
+        argv = ["aria2c", "-d", ".", "-x", "4", "-s", "4", "--max-file-not-found", "2", "--file-allocation", "none", url]
         _, artifacts = await service.run_download(argv, workspace=workspace, timeout=600)
         file_to_upload = artifacts[0]
         up_prog = ProgressCallback(event, "Uploading to Telegram")
