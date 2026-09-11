@@ -46,17 +46,15 @@ Telegram / external systems
             ▼
       ApplicationContext
             │
-   ┌────────┼───────────────┐
-   ▼        ▼               ▼
-Plugins  Shared Services  Supervisors
-            │
-   ┌────────┼───────────────┬────────────┐
-   ▼        ▼               ▼            ▼
- Cache    HTTP         Subprocess   Workspace
-   │
-   ├── L1 bounded memory
-   ├── L2 SQLite
-   └── L3 filesystem artifacts
+   ┌────────┼────────────────────────────┐
+   ▼        ▼             ▼              ▼
+ Storage   Cache       Supervisors    Shared Services
+   │        │             │              │
+   │        ├── L1        ├── Tasks      ├── HTTP
+   │        ├── L2        └── Durable    ├── Subprocess
+   │        └── L3            Jobs       ├── Telegram
+   │                                     └── Workspace
+   └── SQLite WAL / migrations
 ```
 
 ## 5. Platform Before Plugins
@@ -215,7 +213,7 @@ Diagnostics are therefore part of the platform design, not an afterthought.
 - dedicated Phase 2 service regression suite;
 - Gate 2: **37/37 tests passing + compile gate passing**.
 
-**Phase 3 — Cache Foundation: IMPLEMENTED; local Gate 3 verification pending.**
+**Phase 3 — Cache Foundation: COMPLETE.**
 
 - bounded L1 in-memory LRU cache;
 - persistent L2 SQLite cache with WAL, TTL and access metadata;
@@ -223,14 +221,44 @@ Diagnostics are therefore part of the platform design, not an afterthought.
 - namespace and version isolation;
 - explicit invalidation and cleanup;
 - entry and byte limits at every tier;
-- safe JSON value serialization instead of arbitrary object deserialization;
+- safe JSON value serialization;
 - per-key stampede protection through `get_or_set()`;
 - cache statistics and diagnostics;
 - atomic artifact writes and orphan-safe artifact metadata handling;
 - dedicated cache regression coverage;
-- ApplicationContext lifecycle integration.
+- ApplicationContext lifecycle integration;
+- Gate 3: **49/49 full regression tests passing**.
 
-**Next:** run the local Phase 3 gate, then Phase 4 Storage & Migration Foundation.
+**Phase 4 — Storage & Migration Foundation: IMPLEMENTED; local verification required.**
+
+- canonical platform SQLite database;
+- deterministic migration runner with schema versions and checksums;
+- WAL, foreign keys, busy timeout and integrity checks;
+- transactional migration execution;
+- platform tables for plugins, commands, jobs, attempts, events, leases and audit records;
+- verified SQLite backup/restore support;
+- ApplicationContext integration through `StorageService`;
+- dedicated Phase 4/5 storage regression coverage.
+
+**Phase 5 — Durable Job Engine: IMPLEMENTED; local verification required.**
+
+- durable job persistence;
+- canonical `QUEUED/RUNNING/PAUSED/VERIFYING/COMPLETED/FAILED/CANCELLED` states;
+- worker leasing and heartbeat;
+- expired-lease recovery;
+- bounded retry/backoff and stable failure codes;
+- idempotency keys;
+- cancellation;
+- parent/child job relationship support;
+- progress tracking;
+- verification state;
+- attempt and event history;
+- resource class and priority metadata;
+- handler registration and supervised worker loop;
+- ApplicationContext lifecycle integration;
+- no-handler and unexpected-failure containment.
+
+**Next:** run the combined Phase 4/5 gate locally. After it passes, Phase 6 is the confirmed P0 reliability-fix program.
 
 ## 13. Definition of Success
 
