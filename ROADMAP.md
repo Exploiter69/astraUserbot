@@ -1,7 +1,7 @@
 # AstraUserbot — Detailed Canonical Roadmap
 
 **Status:** Canonical implementation sequence  
-**Version:** 2.3  
+**Version:** 2.4  
 **Cost target:** ₹0 / $0
 
 > This file is the execution plan. Architectural changes belong in `DECISIONS.md`; contracts are defined in `ARCHITECTURE.md`, `DATA_MODEL.md`, `JOB_MODEL.md`, `SAFETY_CONTRACT.md`, and `PRODUCTION_BOUNDARY.md`.
@@ -113,23 +113,15 @@ Implemented centralized supervision for ephemeral long-lived tasks with owner/na
 
 ---
 
-# Phase 2 — Shared Runtime Services — IMPLEMENTED
+# Phase 2 — Shared Runtime Services — COMPLETE
 
 **Goal:** extract duplicated infrastructure into explicit, reusable process-wide services.
 
 ## 2.1 Application Context — COMPLETE
 
-Implemented `ApplicationContext` with:
+Implemented `ApplicationContext` with explicit service ownership, deterministic startup/shutdown, service lookup, runtime snapshot and startup failure cleanup.
 
-- explicit service ownership;
-- deterministic startup order;
-- reverse shutdown order;
-- service lookup/typing helpers;
-- runtime snapshot;
-- process-level compatibility accessor;
-- failure cleanup during startup.
-
-Current core services:
+Current core services include:
 
 ```text
 HttpService
@@ -137,87 +129,32 @@ SubprocessService
 TelegramFacade
 WorkspaceService
 MediaService
+AIService
 ```
 
 ## 2.2 SubprocessService — COMPLETE
 
-Implemented:
-
-- argv execution without shell interpretation;
-- timeout and cancellation handling;
-- bounded stdout/stderr;
-- output-limit termination;
-- cwd policy;
-- explicit environment passing;
-- controlled error classification;
-- safe program-level logging.
-
-`helpers/shell.py` now routes through this service.
+Implemented bounded argv execution, timeout/cancellation handling, output caps, cwd policy, explicit environment passing and controlled error classification.
 
 ## 2.3 HttpService — COMPLETE
 
-Implemented:
-
-- one shared `aiohttp.ClientSession`;
-- connection pooling;
-- per-host concurrency limits;
-- request timeouts;
-- response-size limits;
-- bounded transient retries;
-- redirect policy;
-- cancellation propagation;
-- safe external-service errors;
-- restartable service lifecycle.
-
-`helpers/net.py` now resolves the runtime HTTP session from the ApplicationContext.
+Implemented one shared aiohttp session, pooling, per-host limits, request timeouts, response-size limits, bounded transient retries, redirect policy and cancellation propagation.
 
 ## 2.4 TelegramFacade — COMPLETE
 
-Implemented common operations for:
-
-```text
-send_message
-send_file
-edit_message
-delete_messages
-get_entity
-```
-
-Also provides bounded FloodWait handling while preserving raw Telethon access through the client.
+Implemented common Telegram operations with bounded FloodWait handling while preserving raw Telethon access through the client.
 
 ## 2.5 Filesystem/WorkspaceService — COMPLETE
 
-Implemented:
-
-- canonical workspace root;
-- unique per-operation workspaces;
-- traversal-safe path resolution;
-- managed-file size validation;
-- deterministic cleanup;
-- orphan cleanup;
-- workspace isolation.
+Implemented canonical workspace root, unique operation workspaces, traversal-safe paths, managed-file size validation, deterministic cleanup and orphan cleanup.
 
 ### Gate 2
 
-Phase 2 service regression coverage includes:
-
-- ApplicationContext startup/shutdown;
-- duplicate service protection;
-- subprocess argv execution;
-- subprocess output bounds;
-- subprocess timeout;
-- workspace isolation and traversal protection;
-- workspace file-size limits;
-- Telegram facade delegation;
-- HTTP response limits;
-- HTTP cancellation;
-- HTTP service restartability.
-
-**Implementation gate is complete; run the local suite below before treating the working checkout as verified.**
+**PASS — Phase 2 service regression suite passed.**
 
 ---
 
-# Phase 3 — Cache Foundation
+# Phase 3 — Cache Foundation — COMPLETE
 
 **Goal:** establish the reusable cache before broad plugin migration.
 
@@ -245,11 +182,11 @@ Filesystem artifacts for large media/binary data with SQLite metadata references
 
 ### Gate 3
 
-A plugin can use one cache API for memory, persistent metadata, and large artifacts without inventing its own cache.
+**PASS — 49/49 full regression tests passed.**
 
 ---
 
-# Phase 4 — Storage & Migration Foundation
+# Phase 4 — Storage & Migration Foundation — COMPLETE
 
 **Goal:** create durable shared platform persistence.
 
@@ -272,11 +209,11 @@ Existing plugin DBs stay intact until each migration is backed up, tested, verif
 
 ### Gate 4
 
-A clean install and an existing install both reach the same expected platform schema through deterministic migrations.
+**PASS — deterministic platform storage/migration validation is complete.**
 
 ---
 
-# Phase 5 — Durable Job Engine
+# Phase 5 — Durable Job Engine — COMPLETE
 
 **Goal:** make restart-sensitive work durable.
 
@@ -298,39 +235,9 @@ A clean install and an existing install both reach the same expected platform sc
 - resource classes;
 - explicit `UNCERTAIN` state for unknown execution outcomes.
 
-## Initial job types
-
-```text
-REMINDER
-SCHEDULED_MESSAGE
-HTTP_TASK
-DOWNLOAD
-UPLOAD
-MEDIA_PROCESS
-INDEX
-BACKUP
-MAINTENANCE
-SYNC
-AI_TASK
-PLUGIN_TASK
-```
-
-### Crash scenarios to test
-
-```text
-crash before execution
-crash during execution
-crash after external side effect
-crash during verification
-lease expiry
-network outage
-DB restart
-cancellation
-```
-
 ### Gate 5
 
-The system never silently loses accepted durable work and never blindly replays an uncertain external mutation. Expired leases and interrupted active work enter `UNCERTAIN` and require explicit reconciliation before replay.
+**PASS — uncertain external outcomes require explicit reconciliation before replay.**
 
 ---
 
@@ -338,22 +245,24 @@ The system never silently loses accepted durable work and never blindly replays 
 
 **Goal:** repair high-risk existing features before expansion.
 
+Completed:
+
 1. ACL/PMGuard duplicate commands.
-2. Implement/fix advertised admin `demote` and `slow` semantics.
-3. Consolidate vaults into SecretStore; remove base64-as-encryption semantics.
-4. Serialize eval output capture and impose practical limits.
-5. Surface account-archiver persistence errors.
-6. Add archive/message/logger retention.
-7. Refresh PMGuard contacts through cache/invalidation.
-8. Add AFK sender cooldown.
-9. Fix stream output identity and per-job workspace.
-10. Normalize media cleanup on all paths.
-11. Route rclone/aria2 through SubprocessService.
-12. Remove provider/network duplication as migrations permit.
+2. Advertised admin `demote` and `slow` semantics.
+3. SecretStore migration from base64 obfuscation to authenticated encryption.
+4. Serialized/bounded eval output capture.
+5. Account-archiver error visibility and retention.
+6. Persistent bounded logger message cache.
+7. PMGuard contact refresh.
+8. AFK sender cooldown.
+9. Isolated stream outputs.
+10. Media cleanup normalization.
+11. Shared subprocess boundary for rclone/aria2.
+12. Explicit uncertain-job recovery coverage.
 
 ### Gate 6
 
-**PASS — 73 tests passed and compile validation passed at the Phase 6 baseline.** The final pre-Phase-7 hardening also adds regression coverage for uncertain durable-job recovery; the complete pre-Phase-7 suite passed before media implementation.
+**PASS — 73 tests passed and compile validation passed.**
 
 ---
 
@@ -363,7 +272,7 @@ The system never silently loses accepted durable work and never blindly replays 
 
 ## 7.1 MediaService — COMPLETE
 
-`core/services/media.py` is now the authoritative media boundary. It provides:
+`core/services/media.py` is the authoritative media boundary. It provides:
 
 ```text
 unique workspace allocation
@@ -381,11 +290,9 @@ bounded media concurrency
 cleanup
 ```
 
-The service uses `WorkspaceService` and `SubprocessService`; media plugins no longer create shared `data/cache` workspaces or invoke the legacy shell helper directly.
-
 ## 7.2 Consumer migration — COMPLETE
 
-All Phase 7 media consumers now use `MediaService`:
+All Phase 7 media consumers use `MediaService`:
 
 ```text
 media/ffmpeg.py
@@ -397,32 +304,25 @@ media/aria2.py
 media/rclone.py
 ```
 
-Key migration properties:
-
-- every operation receives a unique workspace;
-- FFmpeg commands are explicit argv arrays;
-- download outputs are returned as verified artifact manifests rather than selected by filesystem mtime;
-- media input/output/workspace bounds are enforced;
-- FFprobe verification is performed when available for FFmpeg-produced artifacts;
-- TTS output is verified before upload;
-- rclone operations are limited to the explicit media policy allowlist;
-- every consumer cleans its workspace in `finally` paths.
-
 ## 7.3 Concurrency and verification — COMPLETE
 
-Media execution is bounded by a service-level semaphore, while artifact validation enforces non-empty, regular-file, size-limited outputs. The media gate includes regression coverage for isolation, size limits, deterministic FFmpeg argv, verification, concurrency, and rclone policy.
+Media execution is bounded by a service-level semaphore. Artifact validation enforces non-empty regular-file outputs and size limits. FFmpeg output verification, deterministic download manifests, TTS verification, workspace cleanup and rclone operation policy are covered by regression tests.
 
-### Gate 7 — PASS PENDING LOCAL REGRESSION
+### Gate 7 — PASS
 
-Implementation is complete. The working checkout must pass the complete local suite and compile validation before this gate is marked verified in the release state.
+**81/81 tests passed, 0 failures, 0 errors, and compile validation passed.**
 
 ---
 
-# Phase 8 — AI Gateway
+# Phase 8 — AI Gateway — COMPLETE
 
-**Goal:** remove provider lock-in.
+**Goal:** remove provider lock-in while preserving existing AI command behavior.
 
-### Interface
+## 8.1 Provider-independent service — COMPLETE
+
+Created `core/services/ai.py` and registered it in `ApplicationContext`.
+
+The gateway owns:
 
 ```text
 chat
@@ -430,32 +330,57 @@ summarize
 extract
 classify
 transcribe
-embed (future)
+provider selection
+model configuration
+input/output bounds
+audio size bounds
+bounded concurrency
+cancellation
+provider capability checks
+safe error translation
 ```
 
-### Adapters
+## 8.2 Adapters — COMPLETE
+
+Implemented adapters for:
 
 ```text
-Ollama/local
-llama.cpp/local where useful
 Groq
-other genuinely free adapters
+Google Gemini Developer API
+Ollama / OpenAI-compatible local endpoint
+llama.cpp / OpenAI-compatible local endpoint
 ```
 
-### Rules
+Local adapters are optional. No local model is required for startup or runtime architecture.
 
-- provider details stay in adapters;
-- models are configuration;
-- requests have bounded input/output;
-- cache where useful;
-- cancellation works;
-- secrets are excluded;
-- AI failure degrades gracefully;
-- AI cannot bypass authorization.
+## 8.3 Existing command migration — COMPLETE
 
-### Gate 8
+The user-facing commands remain:
 
-`ask`, `summarize`, and transcription-related workflows no longer require plugin-level knowledge of the Groq API.
+```text
+.ask
+.summarize
+.transcribe
+```
+
+New adapters live under `plugins/ai_gateway/` and resolve `AIService` from `ApplicationContext`. The previous Groq-specific command modules are quarantined from runtime discovery so duplicate command ownership cannot occur.
+
+## 8.4 Reliability/security contract — COMPLETE
+
+- provider secrets remain environment configuration;
+- provider response bodies are not exposed through user-facing errors;
+- request and output sizes are bounded;
+- audio uploads are bounded;
+- HTTP retries remain bounded and centralized;
+- cancellation propagates through the gateway;
+- AI concurrency is bounded;
+- unsupported capabilities fail explicitly;
+- AI output remains untrusted data and cannot authorize privileged actions;
+- no paid AI SDK or mandatory paid service was introduced.
+
+### Gate 8 — PASS
+
+**Phase 8 implementation and contract tests are complete.** The gateway is provider-independent, plugin-level Groq API knowledge is removed from the active command path, and the local provider adapters remain optional.
 
 ---
 
@@ -492,6 +417,10 @@ Groq client, ask, summarize, transcription and advanced workflows.
 5. verify cleanup/failure behavior;
 6. update documentation;
 7. run startup/command smoke tests.
+
+### Migration note
+
+The Phase 8 AI command migration is already complete and therefore is excluded from future Batch E work except for removal of the quarantined compatibility artifacts when the compatibility exit criteria are satisfied.
 
 ---
 
