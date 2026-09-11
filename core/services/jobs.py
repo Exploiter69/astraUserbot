@@ -21,6 +21,7 @@ class JobState(StrEnum):
     RUNNING = "RUNNING"
     PAUSED = "PAUSED"
     VERIFYING = "VERIFYING"
+    UNCERTAIN = "UNCERTAIN"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
@@ -83,10 +84,12 @@ class JobEngine:
         if not self._started:
             return
         self._stop.set()
+        active_ids = list(self._active_tasks)
         for task in list(self._active_tasks.values()):
             task.cancel()
         if self._active_tasks:
             await asyncio.gather(*self._active_tasks.values(), return_exceptions=True)
+        await self._mark_active_uncertain(active_ids, reason="worker_shutdown")
         if self._worker_task:
             self._worker_task.cancel()
             try:
@@ -188,29 +191,64 @@ class JobEngine:
         await self.storage.execute("INSERT INTO job_events(job_id,event_type,payload_json,created_at) VALUES (?,?,?,?)", (job_id, state.value, json.dumps({}), now))
 
     async def cancel(self, job_id: str) -> None:
+        job = await self.get(job_id)
         now = time.time()
-        await self.get(job_id)
-        await self.storage.execute("UPDATE jobs SET state=?,updated_at=?,completed_at=? WHERE id=? AND state IN (?,?,?,?)", (JobState.CANCELLED.value, now, now, job_id, JobState.QUEUED.value, JobState.RUNNING.value, JobState.PAUSED.value, JobState.VERIFYING.value))
-        await self.storage.execute("DELETE FROM leases WHERE job_id=?", (job_id,))
+        if job.state in {JobState.RUNNING, JobState.VERIFYING}:
+            state = JobState.UNCERTAIN
+            code = "CANCELLATION_UNCERTAIN"
+            message = "Cancellation interrupted active work; external side effects must be verified before replay."
+        elif job.state in {JobState.QUEUED, JobState.PAUSED}:
+            state = JobState.CANCELLED
+            code = None
+            message = None
+        else:
+            return
+        async with self.storage.lock:
+            assert self.storage.conn is not None
+            await self.storage.conn.execute("UPDATE jobs SET state=?,error_code=?,error_message=?,updated_at=?,completed_at=? WHERE id=? AND state IN (?,?,?,?)", (state.value, code, message, now, now if state == JobState.CANCELLED else None, job_id, JobState.QUEUED.value, JobState.RUNNING.value, JobState.PAUSED.value, JobState.VERIFYING.value))
+            await self.storage.conn.execute("DELETE FROM leases WHERE job_id=?", (job_id,))
+            await self._event_locked(job_id, "CANCELLED" if state == JobState.CANCELLED else "CANCELLED_UNCERTAIN", {})
+            await self.storage.conn.commit()
         task = self._active_tasks.get(job_id)
         if task is not None:
             task.cancel()
-        await self.storage.execute("INSERT INTO job_events(job_id,event_type,payload_json,created_at) VALUES (?,?,?,?)", (job_id, "CANCELLED", "{}", now))
 
     async def recover_expired(self) -> int:
         now = time.time()
         async with self.storage.lock:
             assert self.storage.conn is not None
-            # Do not call StorageService.fetchall() while holding storage.lock;
-            # that helper acquires the same non-reentrant lock and would deadlock.
             async with self.storage.conn.execute("SELECT job_id FROM leases WHERE expires_at<?", (now,)) as cursor:
                 rows = await cursor.fetchall()
             for row in rows:
-                await self.storage.conn.execute("UPDATE jobs SET state=?,available_at=?,updated_at=? WHERE id=? AND state=?", (JobState.QUEUED.value, now, now, row[0], JobState.RUNNING.value))
+                await self.storage.conn.execute("UPDATE jobs SET state=?,error_code=?,error_message=?,updated_at=? WHERE id=? AND state=?", (JobState.UNCERTAIN.value, "LEASE_EXPIRED", "Worker lease expired; execution outcome is unknown and requires verification before replay.", now, row[0], JobState.RUNNING.value))
                 await self.storage.conn.execute("DELETE FROM leases WHERE job_id=?", (row[0],))
-                await self._event_locked(row[0], "LEASE_EXPIRED", {})
+                await self._event_locked(row[0], "LEASE_EXPIRED_UNCERTAIN", {"worker_id": self.worker_id})
             await self.storage.conn.commit()
             return len(rows)
+
+    async def requeue_uncertain(self, job_id: str) -> Job:
+        """Explicitly requeue a job after an operator verifies replay is safe."""
+        now = time.time()
+        async with self.storage.lock:
+            assert self.storage.conn is not None
+            cur = await self.storage.conn.execute("UPDATE jobs SET state=?,error_code=NULL,error_message=NULL,available_at=?,updated_at=?,completed_at=NULL WHERE id=? AND state=?", (JobState.QUEUED.value, now, now, job_id, JobState.UNCERTAIN.value))
+            if cur.rowcount != 1:
+                raise ValueError(f"Job is not uncertain: {job_id}")
+            await self._event_locked(job_id, "UNCERTAIN_REQUEUED", {"worker_id": self.worker_id})
+            await self.storage.conn.commit()
+        return await self.get(job_id)
+
+    async def _mark_active_uncertain(self, job_ids: list[str], *, reason: str) -> None:
+        if not job_ids:
+            return
+        now = time.time()
+        async with self.storage.lock:
+            assert self.storage.conn is not None
+            for job_id in job_ids:
+                await self.storage.conn.execute("UPDATE jobs SET state=?,error_code=?,error_message=?,updated_at=? WHERE id=? AND state=?", (JobState.UNCERTAIN.value, "WORKER_SHUTDOWN", "Worker stopped while job was active; execution outcome is unknown and requires verification before replay.", now, job_id, JobState.RUNNING.value))
+                await self.storage.conn.execute("DELETE FROM leases WHERE job_id=?", (job_id,))
+                await self._event_locked(job_id, "WORKER_SHUTDOWN_UNCERTAIN", {"reason": reason})
+            await self.storage.conn.commit()
 
     async def fail(self, job_id: str, code: str, message: str, *, retryable: bool = False) -> None:
         job = await self.get(job_id)
@@ -284,7 +322,7 @@ class JobEngine:
 
     async def _event_locked(self, job_id: str, event_type: str, payload: dict[str, Any]) -> None:
         assert self.storage.conn is not None
-        await self.storage.conn.execute("INSERT INTO job_events(job_id,event_type,payload_json,created_at) VALUES (?,?,?,?)", (job_id, event_type, json.dumps(payload, separators=(",", ":")), time.time()))
+        await self.storage.conn.execute("INSERT INTO job_events(job_id,event_type,payload_json,created_at) VALUES (?,?,?,?,?)", (job_id, event_type, json.dumps(payload, separators=(",", ":")), time.time()))
 
     def _row_to_job(self, row: Any) -> Job:
         return Job(id=row["id"], type=row["type"], state=JobState(row["state"]), payload=json.loads(row["payload_json"]), result=json.loads(row["result_json"]) if row["result_json"] else None, error_code=row["error_code"], error_message=row["error_message"], owner=row["owner"], parent_id=row["parent_id"], attempt_count=int(row["attempt_count"]), max_attempts=int(row["max_attempts"]), progress=float(row["progress"]), resource_class=row["resource_class"], priority=int(row["priority"]), verify_required=bool(row["verify_required"]))
