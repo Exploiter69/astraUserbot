@@ -1,3 +1,4 @@
+import asyncio
 import re
 
 from core.context import get_application_context
@@ -28,7 +29,7 @@ async def handle_sysinfo(event):
     await event.edit(render(title="SYSINFO", rows=["Gathering telemetry..."]))
 
     try:
-        results = await __import__("asyncio").gather(
+        results = await asyncio.gather(
             subprocess.run(["uname", "-r"], timeout=5, max_output_bytes=16 * 1024),
             subprocess.run(["uptime", "-p"], timeout=5, max_output_bytes=16 * 1024),
             subprocess.run(["free", "-m"], timeout=5, max_output_bytes=16 * 1024),
