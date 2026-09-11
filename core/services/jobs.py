@@ -96,20 +96,7 @@ class JobEngine:
             raise ValueError(f"Job handler already registered: {job_type}")
         self.handlers[job_type] = handler
 
-    async def enqueue(
-        self,
-        job_type: str,
-        payload: dict[str, Any] | None = None,
-        *,
-        owner: str | None = None,
-        parent_id: str | None = None,
-        idempotency_key: str | None = None,
-        max_attempts: int = 3,
-        priority: int = 0,
-        resource_class: str = "default",
-        delay: float = 0.0,
-        verify_required: bool = False,
-    ) -> Job:
+    async def enqueue(self, job_type: str, payload: dict[str, Any] | None = None, *, owner: str | None = None, parent_id: str | None = None, idempotency_key: str | None = None, max_attempts: int = 3, priority: int = 0, resource_class: str = "default", delay: float = 0.0, verify_required: bool = False) -> Job:
         now = time.time()
         job_id = uuid.uuid4().hex
         payload_json = json.dumps(payload or {}, separators=(",", ":"), sort_keys=True)
@@ -119,10 +106,7 @@ class JobEngine:
                 row = await self.storage.conn.execute_fetchone("SELECT * FROM jobs WHERE idempotency_key=?", (idempotency_key,))
                 if row:
                     return self._row_to_job(row)
-            await self.storage.conn.execute(
-                """INSERT INTO jobs(id,type,state,payload_json,owner,parent_id,idempotency_key,resource_class,priority,created_at,updated_at,available_at,max_attempts,verify_required) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (job_id, job_type, JobState.QUEUED.value, payload_json, owner, parent_id, idempotency_key, resource_class, priority, now, now, now + max(0.0, delay), max(1, max_attempts), int(verify_required)),
-            )
+            await self.storage.conn.execute("INSERT INTO jobs(id,type,state,payload_json,owner,parent_id,idempotency_key,resource_class,priority,created_at,updated_at,available_at,max_attempts,verify_required) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (job_id, job_type, JobState.QUEUED.value, payload_json, owner, parent_id, idempotency_key, resource_class, priority, now, now, now + max(0.0, delay), max(1, max_attempts), int(verify_required)))
             await self._event_locked(job_id, "ENQUEUED", {"type": job_type})
             await self.storage.conn.commit()
         return await self.get(job_id)
@@ -226,6 +210,25 @@ class JobEngine:
             await self._event_locked(job_id, "RETRY_SCHEDULED" if should_retry else "FAILED", {"retryable": retryable})
             await self.storage.conn.commit()
 
+    async def _execute_handler(self, job: Job, handler: Handler) -> Any:
+        """Run a handler while renewing its lease until execution finishes."""
+        async def lease_loop() -> None:
+            interval = max(1.0, self.lease_seconds / 3.0)
+            while True:
+                await asyncio.sleep(interval)
+                if not await self.heartbeat(job.id):
+                    return
+
+        heartbeat_task = asyncio.create_task(lease_loop(), name=f"jobs.heartbeat.{job.id}")
+        try:
+            return await handler(job)
+        finally:
+            heartbeat_task.cancel()
+            try:
+                await heartbeat_task
+            except asyncio.CancelledError:
+                pass
+
     async def _worker_loop(self) -> None:
         while not self._stop.is_set():
             try:
@@ -238,7 +241,7 @@ class JobEngine:
                     await self.fail(job.id, "NO_HANDLER", f"No handler registered for {job.type}")
                     continue
                 try:
-                    result = await handler(job)
+                    result = await self._execute_handler(job, handler)
                     await self.complete(job.id, result)
                 except asyncio.CancelledError:
                     raise
@@ -262,9 +265,8 @@ class JobEngine:
     @staticmethod
     def _row_to_job(row: Any) -> Job:
         return Job(
-            id=row["id"], type=row["type"], state=JobState(row["state"]),
-            payload=json.loads(row["payload_json"]), result=json.loads(row["result_json"]) if row["result_json"] else None,
-            error_code=row["error_code"], error_message=row["error_message"], owner=row["owner"], parent_id=row["parent_id"],
-            attempt_count=row["attempt_count"], max_attempts=row["max_attempts"], progress=row["progress"],
-            resource_class=row["resource_class"], priority=row["priority"], verify_required=bool(row["verify_required"]),
+            id=row["id"], type=row["type"], state=JobState(row["state"]), payload=json.loads(row["payload_json"]),
+            result=json.loads(row["result_json"]) if row["result_json"] else None, error_code=row["error_code"], error_message=row["error_message"],
+            owner=row["owner"], parent_id=row["parent_id"], attempt_count=row["attempt_count"], max_attempts=row["max_attempts"],
+            progress=row["progress"], resource_class=row["resource_class"], priority=row["priority"], verify_required=bool(row["verify_required"]),
         )
