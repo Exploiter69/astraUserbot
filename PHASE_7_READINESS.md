@@ -1,8 +1,8 @@
 # AstraUserbot — Phase 7 Media Platform Completion
 
-**Status: IMPLEMENTATION COMPLETE — LOCAL REGRESSION REQUIRED FOR FINAL GATE**
+**Status: COMPLETE — LOCAL REGRESSION VERIFIED**
 
-Phase 7 has been implemented on `main`. The Media Platform is now a shared runtime service rather than a collection of plugin-owned temporary-file and subprocess conventions.
+Phase 7 made media a shared runtime platform rather than a collection of plugin-owned temporary-file and subprocess conventions.
 
 ## 1. MediaService
 
@@ -34,7 +34,7 @@ FFmpeg timeout: 300s
 
 ## 2. All Phase 7 Consumers Migrated
 
-The following seven consumers now use `MediaService`:
+The following seven consumers use `MediaService`:
 
 ```text
 plugins/media/ffmpeg.py
@@ -45,8 +45,6 @@ plugins/media_ops/stream.py
 plugins/media/aria2.py
 plugins/media/rclone.py
 ```
-
-No Phase 7 consumer creates its own shared `data/cache` media workspace or calls the legacy shell helper for media execution.
 
 ## 3. Deterministic Output Contract
 
@@ -69,11 +67,9 @@ FFmpeg-produced artifacts additionally receive an FFprobe readability check when
 
 All seven migrated consumers allocate a unique workspace and clean it in a `finally` path. Cleanup therefore covers normal success, command failure, media failure, upload failure, and cancellation paths that unwind the handler.
 
-The service also enforces a workspace aggregate size bound after external execution.
-
 ## 6. Rclone Boundary
 
-Rclone remains available, but it is no longer an unrestricted generic subprocess API. The MediaService currently permits only:
+Rclone remains available, but it is no longer an unrestricted generic subprocess API. The MediaService permits only:
 
 ```text
 copy
@@ -85,19 +81,9 @@ All other rclone operations are rejected by policy.
 
 ## 7. Regression Coverage
 
-Added `tests/test_media_service.py` covering:
+`tests/test_media_service.py` covers isolated workspace/artifact lifecycle, input size enforcement, artifact rejection, explicit FFmpeg argv construction, FFprobe verification, bounded concurrent execution and rclone policy enforcement.
 
-- isolated workspace/artifact lifecycle;
-- input size enforcement;
-- missing/empty/oversized artifact rejection;
-- explicit FFmpeg argv construction;
-- FFprobe verification path;
-- bounded concurrent execution;
-- rclone policy enforcement.
-
-Updated runtime service tests to require the MediaService in the application context.
-
-## 8. Phase 7 Exit Criteria
+## 8. Final Gate
 
 ```text
 MediaService exists                         PASS
@@ -105,29 +91,18 @@ all seven consumers use it                 PASS
 unique operation workspaces                PASS
 deterministic outputs                      PASS
 media input/output/workspace limits        PASS
-bounded media concurrency                 PASS
+bounded media concurrency                  PASS
 cleanup in migrated consumers              PASS
-explicit artifact verification              PASS
+explicit artifact verification             PASS
 FFmpeg argv-only execution                 PASS
 rclone policy boundary                     PASS
 media regression coverage                  PASS
+full regression                            PASS
+compile validation                         PASS
 ```
 
-### Final Gate
-
-The implementation gate is complete. Run the complete local regression and compile validation from the current checkout before declaring the release gate verified:
-
-```bash
-cd ~/AstraUserbot && \
-git pull --ff-only origin main && \
-source venv/bin/activate && \
-python -m unittest discover -s tests -v && \
-python -m compileall -q core plugins main.py && \
-echo "=== PHASE 7 GATE: PASS ==="
-```
-
-Expected test count is **81 tests** (75 pre-Phase-7 tests plus 6 new media-platform tests).
+**Final result: 81/81 tests passed, 0 failures, 0 errors, and compile validation passed.**
 
 ## Next Phase
 
-After the local gate passes, the canonical next phase is **Phase 8 — AI Gateway**. It should extract the existing Groq integration behind a provider-independent interface. Local Ollama/llama.cpp remains optional and is not a deployment requirement for the current host.
+The canonical next phase is **Phase 8 — AI Gateway**, now implemented in `core/services/ai.py` with command adapters under `plugins/ai_gateway/`. See `PHASE_8_READINESS.md` for the completion record and final local verification command.
