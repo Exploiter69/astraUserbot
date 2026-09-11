@@ -14,6 +14,8 @@ logger = logging.getLogger("astra.plugins.logger")
 _CACHE_CAPACITY = 500
 _PERSISTED_CAPACITY = 5000
 _RETENTION_SECONDS = 7 * 86400
+_CLEANUP_INTERVAL = 300.0
+_last_cleanup = 0.0
 
 
 class LRUCache:
@@ -49,14 +51,18 @@ async def setup(client):
         );
         CREATE INDEX IF NOT EXISTS idx_message_cache_created ON message_cache(created_at);
     """)
-    await _cleanup_cache(time.time())
+    await _cleanup_cache(time.time(), force=True)
     register_cmd(client, PATTERN, handle_logger, "security", "Forensic message logger.")
     client.add_event_handler(cache_watcher, events.NewMessage(incoming=True, func=lambda e: e.is_private))
     client.add_event_handler(delete_watcher, events.MessageDeleted())
     client.add_event_handler(edit_watcher, events.MessageEdited(incoming=True, func=lambda e: e.is_private))
 
 
-async def _cleanup_cache(now: float):
+async def _cleanup_cache(now: float, *, force: bool = False):
+    global _last_cleanup
+    if not force and now - _last_cleanup < _CLEANUP_INTERVAL:
+        return
+    _last_cleanup = now
     cutoff = now - _RETENTION_SECONDS
     try:
         await db.execute("DELETE FROM message_cache WHERE created_at < ?", (cutoff,))
@@ -97,10 +103,8 @@ async def cache_watcher(event):
     now = time.time()
     mirror_cfg = await db.fetchone("SELECT val FROM log_settings WHERE key = 'mirror'")
     if mirror_cfg and mirror_cfg[0] == 1:
-        log_chat = await get_log_chat()
-        await event.forward_to(log_chat)
-    record = {"text": event.text, "sender": event.sender_id, "media": event.media}
-    _msg_cache.put(event.id, record)
+        await event.forward_to(await get_log_chat())
+    _msg_cache.put(event.id, {"text": event.text, "sender": event.sender_id, "media": event.media})
     await db.execute(
         "INSERT OR REPLACE INTO message_cache(message_id, sender_id, text, created_at) VALUES (?, ?, ?, ?)",
         (event.id, event.sender_id, event.text, now),
