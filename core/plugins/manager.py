@@ -56,6 +56,9 @@ class PluginManager:
     _current_plugin: ContextVar[str | None] = ContextVar(
         "astra_current_plugin", default=None
     )
+    _current_manager: ContextVar["PluginManager | None"] = ContextVar(
+        "astra_current_plugin_manager", default=None
+    )
 
     def __init__(self, client: Any, plugin_root: Path):
         self.client = client
@@ -71,14 +74,25 @@ class PluginManager:
         return cls._current_plugin.get()
 
     @classmethod
+    def current_manager(cls) -> "PluginManager | None":
+        """Return the manager bound to the current plugin lifecycle context."""
+        return cls._current_manager.get()
+
+    @classmethod
     @contextmanager
-    def plugin_context(cls, name: str) -> Iterator[None]:
-        """Bind plugin ownership for code that registers resources outside load_all."""
-        token = cls._current_plugin.set(name)
+    def plugin_context(cls, name: str, manager: "PluginManager | None" = None) -> Iterator[None]:
+        """Bind plugin and manager ownership for out-of-band registration setup."""
+        token_plugin = cls._current_plugin.set(name)
+        token_manager = cls._current_manager.set(manager)
         try:
             yield
         finally:
-            cls._current_plugin.reset(token)
+            cls._current_manager.reset(token_manager)
+            cls._current_plugin.reset(token_plugin)
+
+    def _plugin_context(self, name: str) -> Iterator[None]:
+        """Bind this manager and plugin for lifecycle execution."""
+        return self.plugin_context(name, self)
 
     def discover(self) -> list[PluginRecord]:
         """Discover Python plugin modules in deterministic path order."""
@@ -180,7 +194,8 @@ class PluginManager:
             if setup is None:
                 record.state = PluginState.RUNNING
                 continue
-            token = self._current_plugin.set(name)
+            token_plugin = self._current_plugin.set(name)
+            token_manager = self._current_manager.set(self)
             try:
                 logger.info("Setting up plugin: %s", name)
                 result = setup(self.client)
@@ -195,7 +210,8 @@ class PluginManager:
                 if record.critical:
                     raise
             finally:
-                self._current_plugin.reset(token)
+                self._current_manager.reset(token_manager)
+                self._current_plugin.reset(token_plugin)
 
         self._log_report()
         return list(self.records.values())
@@ -207,13 +223,15 @@ class PluginManager:
             return record
         shutdown = getattr(record.module, "shutdown", None)
         if shutdown is not None:
-            token = self._current_plugin.set(name)
+            token_plugin = self._current_plugin.set(name)
+            token_manager = self._current_manager.set(self)
             try:
                 result = shutdown(self.client)
                 if inspect.isawaitable(result):
                     await result
             finally:
-                self._current_plugin.reset(token)
+                self._current_manager.reset(token_manager)
+                self._current_plugin.reset(token_plugin)
 
         if record.registrations:
             from core.registry import get_registration
