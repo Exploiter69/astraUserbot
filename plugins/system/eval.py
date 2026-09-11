@@ -1,7 +1,6 @@
 import asyncio
 import io
 import re
-import traceback
 from contextlib import redirect_stdout
 
 from core.registry import register_cmd
@@ -28,11 +27,7 @@ def _build_function(code: str):
     wrapped_code = "async def __ex(event, client):\n"
     for line in code.split("\n"):
         wrapped_code += f"    {line}\n"
-
-    namespace = {
-        "__builtins__": __builtins__,
-        "asyncio": asyncio,
-    }
+    namespace = {"__builtins__": __builtins__, "asyncio": asyncio}
     exec_locals = {}
     exec(wrapped_code, namespace, exec_locals)
     return exec_locals["__ex"]
@@ -44,8 +39,7 @@ async def handle_eval(event):
         await event.edit(render("EVAL", ["Error: No code provided."], footer="system | eval"))
         return
 
-    # Eval is deliberately serialized: redirect_stdout is process-global and cannot
-    # safely be used by concurrent evaluations.
+    # redirect_stdout is process-global, so concurrent evaluations must be serialized.
     async with _EVAL_LOCK:
         output = io.StringIO()
         rows = []
@@ -53,7 +47,6 @@ async def handle_eval(event):
             func = _build_function(code)
             with redirect_stdout(output):
                 await asyncio.wait_for(func(event, event.client), timeout=_EVAL_TIMEOUT)
-
             stdout_result = output.getvalue()
             if len(stdout_result) > _MAX_OUTPUT:
                 stdout_result = stdout_result[:_MAX_OUTPUT] + "\n[output truncated]"
@@ -63,8 +56,6 @@ async def handle_eval(event):
         except asyncio.TimeoutError:
             rows = ["Execution failed:", "---", "Evaluation timed out after 30 seconds."]
         except Exception as exc:
-            # Never expose arbitrary source paths, provider responses, or command text.
-            logger_rows = traceback.format_exception_only(type(exc), exc)
             error_name = type(exc).__name__ if type(exc).__name__.isalnum() else "Error"
             rows = ["Execution failed:", "---", f"{error_name}: execution error"]
         finally:
