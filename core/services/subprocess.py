@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import shlex
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from core.errors import AstraError, ErrorCode, ResourceError, TimeoutError
+from core.errors import AstraError, ErrorCode, TimeoutError
 
 logger = logging.getLogger("astra.services.subprocess")
 
@@ -65,36 +64,52 @@ class SubprocessService:
                 env=process_env,
             )
         except FileNotFoundError as exc:
-            raise AstraError(
-                "Executable not found",
-                code=ErrorCode.NOT_FOUND,
-                retryable=False,
-            ) from exc
+            raise AstraError("Executable not found", code=ErrorCode.NOT_FOUND) from exc
         except OSError as exc:
-            raise AstraError(
-                "Unable to start subprocess",
-                code=ErrorCode.EXTERNAL_SERVICE,
-                retryable=False,
-            ) from exc
+            raise AstraError("Unable to start subprocess", code=ErrorCode.SUBPROCESS) from exc
 
         stdout_task = asyncio.create_task(self._read_stream(process.stdout, limit), name="subprocess.stdout")
         stderr_task = asyncio.create_task(self._read_stream(process.stderr, limit), name="subprocess.stderr")
+        wait_task = asyncio.create_task(process.wait(), name="subprocess.wait")
         try:
             try:
-                await asyncio.wait_for(process.wait(), timeout=timeout_value)
-            except asyncio.TimeoutError as exc:
-                await self._terminate(process)
-                await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
-                raise TimeoutError(f"Subprocess timed out after {timeout_value:g}s") from exc
+                done, _ = await asyncio.wait(
+                    {stdout_task, stderr_task, wait_task},
+                    timeout=timeout_value,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if not done:
+                    await self._terminate(process)
+                    await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
+                    raise TimeoutError(f"Subprocess timed out after {timeout_value:g}s")
+
+                stdout_done = stdout_task.done()
+                stderr_done = stderr_task.done()
+                truncated = any(
+                    task.done() and not task.cancelled() and task.result()[1]
+                    for task in (stdout_task, stderr_task)
+                )
+                if truncated:
+                    await self._terminate(process)
+                else:
+                    await wait_task
+
+                stdout, stderr = await asyncio.gather(stdout_task, stderr_task)
+                if not wait_task.done():
+                    await wait_task
+                return SubprocessResult(
+                    process.returncode or 0,
+                    stdout[0],
+                    stderr[0],
+                    stdout[1],
+                    stderr[1],
+                )
             except asyncio.CancelledError:
                 await self._terminate(process)
                 await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
                 raise
-
-            stdout, stderr = await asyncio.gather(stdout_task, stderr_task)
-            return SubprocessResult(process.returncode or 0, stdout[0], stderr[0], stdout[1], stderr[1])
         finally:
-            for task in (stdout_task, stderr_task):
+            for task in (stdout_task, stderr_task, wait_task):
                 if not task.done():
                     task.cancel()
 
@@ -113,27 +128,20 @@ class SubprocessService:
             return "", False
         chunks: list[bytes] = []
         total = 0
-        truncated = False
-        while True:
+        while total < limit:
             chunk = await stream.read(min(65_536, limit - total + 1))
             if not chunk:
-                break
+                return b"".join(chunks).decode(errors="replace"), False
             remaining = limit - total
-            if remaining <= 0:
-                truncated = True
-                break
             if len(chunk) > remaining:
                 chunks.append(chunk[:remaining])
-                total += remaining
-                truncated = True
-                break
+                return b"".join(chunks).decode(errors="replace"), True
             chunks.append(chunk)
             total += len(chunk)
-            if total >= limit:
+            if total == limit:
                 extra = await stream.read(1)
-                truncated = bool(extra)
-                break
-        return b"".join(chunks).decode(errors="replace"), truncated
+                return b"".join(chunks).decode(errors="replace"), bool(extra)
+        return b"".join(chunks).decode(errors="replace"), True
 
     @staticmethod
     async def _terminate(process: asyncio.subprocess.Process) -> None:
