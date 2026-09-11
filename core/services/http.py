@@ -45,6 +45,8 @@ class HttpService:
         retries: int = 2,
         retry_delay: float = 0.5,
     ) -> None:
+        if response_limit <= 0 or connection_limit <= 0 or per_host_limit <= 0:
+            raise ValueError("HTTP limits must be positive")
         self.response_limit = int(response_limit)
         self.retries = max(0, int(retries))
         self.retry_delay = max(0.0, float(retry_delay))
@@ -54,15 +56,12 @@ class HttpService:
             sock_connect=connect_timeout,
             sock_read=read_timeout,
         )
-        self._connector = aiohttp.TCPConnector(
-            limit=connection_limit,
-            limit_per_host=per_host_limit,
-            ttl_dns_cache=300,
-            keepalive_timeout=30,
-        )
+        self._connection_limit = int(connection_limit)
+        self._per_host_limit = int(per_host_limit)
+        self._connector: aiohttp.TCPConnector | None = None
         self._session: aiohttp.ClientSession | None = None
         self._host_limits: defaultdict[str, asyncio.Semaphore] = defaultdict(
-            lambda: asyncio.Semaphore(per_host_limit)
+            lambda: asyncio.Semaphore(self._per_host_limit)
         )
         self._lock = asyncio.Lock()
 
@@ -72,8 +71,15 @@ class HttpService:
 
     async def start(self) -> aiohttp.ClientSession:
         async with self._lock:
-            if self._session is None or self._session.closed:
-                self._session = aiohttp.ClientSession(timeout=self._timeout, connector=self._connector)
+            if self._session is not None and not self._session.closed:
+                return self._session
+            self._connector = aiohttp.TCPConnector(
+                limit=self._connection_limit,
+                limit_per_host=self._per_host_limit,
+                ttl_dns_cache=300,
+                keepalive_timeout=30,
+            )
+            self._session = aiohttp.ClientSession(timeout=self._timeout, connector=self._connector)
             return self._session
 
     async def close(self) -> None:
@@ -81,6 +87,7 @@ class HttpService:
             if self._session is not None and not self._session.closed:
                 await self._session.close()
             self._session = None
+            self._connector = None
 
     async def request(
         self,
