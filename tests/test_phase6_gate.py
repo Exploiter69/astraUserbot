@@ -136,8 +136,8 @@ class Phase6GateTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("create_workspace", inspect.getsource(stream.handle_rip))
         self.assertIn("finally:", inspect.getsource(stream.handle_rip))
         self.assertIn("finally:", inspect.getsource(aria2.handle_aria))
-        self.assertIn("subprocess", inspect.getsource(aria2.handle_aria))
-        self.assertIn("subprocess", inspect.getsource(rclone.handle_rclone))
+        self.assertIn("run_download", inspect.getsource(aria2.handle_aria))
+        self.assertIn("run_rclone", inspect.getsource(rclone.handle_rclone))
         self.assertIn("finally:", inspect.getsource(ffmpeg.handle_ffmpeg))
         self.assertIn("finally:", inspect.getsource(speech.handle_speech))
 
