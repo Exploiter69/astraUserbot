@@ -1,12 +1,15 @@
 import asyncio
 import base64
-import re
+import inspect
 import unittest
 
-from plugins.security import acl, pmguard
-from plugins.admin_ops import advanced_admin
-from plugins.system import eval as eval_plugin
 from core.services.secrets import SecretStore
+from plugins.admin_ops import advanced_admin
+from plugins.media import aria2, ffmpeg, rclone
+from plugins.media_ops import speech, stream
+from plugins.security import account_archiver, acl, logger as logger_plugin, pmguard
+from plugins.system import afk
+from plugins.system import eval as eval_plugin
 
 
 class FakeSecretDB:
@@ -29,6 +32,14 @@ class FakeSecretDB:
 
     async def fetchall(self, _sql):
         return [(key,) for key in sorted(self.values)]
+
+
+class FakeRetentionDB:
+    def __init__(self):
+        self.calls = []
+
+    async def execute(self, sql, parameters=()):
+        self.calls.append((sql, parameters))
 
 
 class FakePattern:
@@ -86,6 +97,49 @@ class Phase6GateTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("second", second.responses[0])
         self.assertIn("second-end", second.responses[0])
         self.assertNotIn("first-end", second.responses[0])
+
+    async def test_afk_sender_cooldown_is_bounded(self):
+        afk._last_replies.clear()
+        self.assertTrue(afk._allow_reply(123, 100.0))
+        self.assertFalse(afk._allow_reply(123, 100.5))
+        self.assertTrue(afk._allow_reply(123, 161.0))
+        self.assertLessEqual(len(afk._last_replies), afk._WARN_CACHE_LIMIT)
+
+    async def test_archive_retention_is_explicit_and_bounded(self):
+        fake = FakeRetentionDB()
+        old = account_archiver.db
+        account_archiver.db = fake
+        account_archiver._last_cleanup = 0
+        try:
+            await account_archiver._cleanup_if_due(1_000_000)
+        finally:
+            account_archiver.db = old
+        sql = " ".join(call[0] for call in fake.calls)
+        self.assertIn("DELETE FROM account_messages WHERE timestamp < ?", sql)
+        self.assertIn("LIMIT -1 OFFSET ?", sql)
+        self.assertIn("DELETE FROM user_accounts", sql)
+
+    async def test_logger_cache_retention_is_explicit_and_bounded(self):
+        fake = FakeRetentionDB()
+        old = logger_plugin.db
+        logger_plugin.db = fake
+        try:
+            await logger_plugin._cleanup_cache(1_000_000)
+        finally:
+            logger_plugin.db = old
+        sql = " ".join(call[0] for call in fake.calls)
+        self.assertIn("DELETE FROM message_cache WHERE created_at < ?", sql)
+        self.assertIn("LIMIT -1 OFFSET ?", sql)
+        self.assertEqual(logger_plugin._PERSISTED_CAPACITY, 5000)
+
+    async def test_media_and_subprocess_migrations_have_cleanup_or_isolation(self):
+        self.assertIn("workspace_service.create", inspect.getsource(stream.handle_rip))
+        self.assertIn("finally:", inspect.getsource(stream.handle_rip))
+        self.assertIn("finally:", inspect.getsource(aria2.handle_aria))
+        self.assertIn("subprocess", inspect.getsource(aria2.handle_aria))
+        self.assertIn("subprocess", inspect.getsource(rclone.handle_rclone))
+        self.assertIn("finally:", inspect.getsource(ffmpeg.handle_ffmpeg))
+        self.assertIn("finally:", inspect.getsource(speech.handle_speech))
 
 
 if __name__ == "__main__":
