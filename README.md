@@ -1,122 +1,87 @@
 # AstraUserbot
 
-**A modular, local-first Telegram userbot platform for automation, media, AI, security, productivity, and extensibility.**
+A modular, service-oriented Telegram userbot platform designed for reliability, explicit safety boundaries, durable background work, and zero-cost operation.
 
-| Property | Contract |
-|---|---|
-| Architecture | Single-process service-oriented modular monolith |
-| Language | Python |
-| Telegram | Telethon |
-| Concurrency | asyncio |
-| Persistence | SQLite |
-| HTTP | aiohttp |
-| Media | FFmpeg + controlled subprocesses |
-| AI | Local-first gateway + optional free adapters |
-| Cost target | ₹0 / $0 |
+## 1. Project Position
 
-## 1. Mission
+AstraUserbot is being developed as a long-lived platform rather than a collection of independent command scripts.
 
-AstraUserbot is intended to become a reliable personal Telegram automation platform rather than a pile of unrelated command handlers.
+The repository began from an existing feature-rich userbot. The current engineering work therefore prioritizes **platform extraction, correctness, safety, and compatibility** before broad feature expansion.
 
-The repository already contains roughly 40 functional plugin modules spanning administration, advanced utilities, AI, backup, cryptography, fun, media, network/OSINT, security, stealth, system utilities, and automation.
+## 2. Core Principles
 
-The architecture therefore focuses on **platform extraction and reliability**, not a destructive rewrite.
+1. Telegram remains the transport layer, not the application architecture.
+2. Plugins provide capabilities; shared services own infrastructure.
+3. The platform must make command/plugin collisions explicit.
+4. Background work must be supervised; restart-sensitive work must become durable jobs.
+5. SQLite is the default durable local store.
+6. Cache state is never treated as authoritative external state.
+7. AI providers are replaceable and AI output is never authority.
+8. Side effects require explicit authorization and bounded execution.
+9. User-facing errors must not expose secrets, paths, provider responses, or tracebacks.
+10. Resource usage must be bounded.
+11. Existing behavior is preserved during migration unless a defect is intentionally corrected.
+12. No paid dependency is required for the platform to operate.
 
-## 2. What Astra Provides
+## 3. Architecture Documents
 
-### Telegram
+Read these before making structural changes:
 
-Commands, events, message utilities, account automation, moderation, scheduling, notifications, and extensible Telegram workflows.
+- `ARCHITECTURE.md` — complete component architecture;
+- `DATA_MODEL.md` — data ownership and persistence model;
+- `JOB_MODEL.md` — durable job lifecycle;
+- `SAFETY_CONTRACT.md` — mandatory safety rules;
+- `PRODUCTION_BOUNDARY.md` — authority and runtime boundaries;
+- `DECISIONS.md` — accepted architecture decisions;
+- `ROADMAP.md` — canonical implementation sequence.
 
-### Automation
-
-Durable reminders, scheduled messages, maintenance, background processing, retries, and recovery.
-
-### Media
-
-Downloads, FFmpeg processing, conversion, audio/video operations, speech/transcription, thumbnails, and uploads.
-
-### Network
-
-Controlled HTTP/API integrations, DNS/IP utilities, web retrieval, and cached external data.
-
-### AI
-
-Provider-independent chat/summarization/extraction/classification/transcription capabilities, with local models preferred and hosted providers optional.
-
-### Security
-
-Authorization, vault/secret handling, account controls, audit, logging, and explicit privileged boundaries.
-
-### Knowledge
-
-Notes, message cache, FTS5 search, OCR/transcript indexing, and future retrieval capabilities.
-
-## 3. Architecture at a Glance
+## 4. Current Platform Shape
 
 ```text
-Telegram / local trigger
-          │
-          ▼
- Event + Command Router
-          │
-          ▼
- Authorization + Scope
-          │
-          ▼
- Application Context
-    ┌─────┼───────────────┐
-    ▼     ▼               ▼
- Plugins Jobs       Shared Services
-          │       ┌────────┼────────────┐
-          │       ▼        ▼            ▼
-          │     HTTP     Cache      Media/Subprocess
-          │       │        │            │
-          └───────┴────────┴────────────┘
-                          │
-                          ▼
-                   Storage / AI
-                          │
-                          ▼
-                  Verify + Audit
+Telegram / external systems
+            │
+            ▼
+       Command Router
+            │
+            ▼
+      ApplicationContext
+            │
+   ┌────────┼───────────────┐
+   ▼        ▼               ▼
+Plugins  Shared Services  Supervisors
+            │
+   ┌────────┼───────────────┬────────────┐
+   ▼        ▼               ▼            ▼
+ Cache    HTTP         Subprocess   Workspace
+   │
+   ├── L1 bounded memory
+   ├── L2 SQLite
+   └── L3 filesystem artifacts
 ```
 
-## 4. Core Rules
+## 5. Platform Before Plugins
 
-1. Telethon remains the transport.
-2. One process is the default.
-3. Plugins consume shared services instead of reinventing them.
-4. Durable work is persisted.
-5. Ephemeral tasks are supervised.
-6. Cache/index state is derived.
-7. AI is untrusted/advisory.
-8. Authorization is deterministic.
-9. Verification is separate from execution.
-10. Resource usage is bounded.
-11. Secrets never enter source control or ordinary diagnostics.
-12. Core operation must remain free.
+The implementation order is deliberate:
 
-## 5. Current Audit Findings
-
-The existing codebase was source-audited and identified concrete migration targets:
-
-- ACL and PMGuard both register `.block`/`.unblock`;
-- admin help advertises `demote` and `slow` without matching handler branches;
-- one vault uses base64 obfuscation while another uses authenticated encryption;
-- eval temporarily replaces global `sys.stdout`, which is unsafe under concurrency;
-- account archiving can silently swallow persistence errors;
-- logger reconstruction state is bounded only in memory;
-- PMGuard contact state can become stale until restart;
-- AFK can answer repeatedly without per-user cooldown;
-- multiple media plugins duplicate FFmpeg/temp/download logic;
-- stream output selection can race through shared directories;
-- media cleanup is inconsistent on failures;
-- rclone/aria2/media subprocess policy is duplicated;
-- network plugins independently implement HTTP behavior;
-- AI is coupled to provider-specific implementation;
-- existing scheduling is not a complete durable job platform.
-
-These findings are engineering inputs, not reasons to discard the plugin ecosystem.
+```text
+Baseline protection
+      ↓
+Plugin / command foundation
+      ↓
+Shared runtime services
+      ↓
+Cache foundation
+      ↓
+Storage / migration foundation
+      ↓
+Durable jobs
+      ↓
+Confirmed reliability fixes
+      ↓
+Plugin migration batches
+      ↓
+Feature expansion
+```
 
 ## 6. Platform Services
 
@@ -218,29 +183,16 @@ A healthy Astra runtime should be able to explain:
 ```text
 which plugins loaded
 which commands exist
-which tasks are alive
-which jobs are queued/running
-how cache is behaving
-whether SQLite is healthy
-which recent failures occurred
-how much resource pressure exists
+which background tasks are running
+which durable jobs are queued/running/failed
+which cache namespaces are consuming resources
+which external operations are active
+which failures are recent
 ```
 
-This becomes the purpose of diagnostics such as:
-
-```text
-!health
-!plugins
-!tasks
-!jobs
-!cache
-!stats
-!diagnostics
-```
+Diagnostics are therefore part of the platform design, not an afterthought.
 
 ## 12. Current Development Stage
-
-**Phase 0 — Baseline and architecture protection: COMPLETE.**
 
 **Phase 1 — Plugin & Command Foundation: COMPLETE.**
 
@@ -250,7 +202,7 @@ This becomes the purpose of diagnostics such as:
 - TaskSupervisor: complete;
 - Gate 1: **28/28 tests passing + compile gate passing**.
 
-**Phase 2 — Shared Runtime Services: IMPLEMENTED.**
+**Phase 2 — Shared Runtime Services: COMPLETE.**
 
 - ApplicationContext with explicit service ownership/lifecycle;
 - bounded/cancellable SubprocessService;
@@ -260,9 +212,25 @@ This becomes the purpose of diagnostics such as:
 - legacy `helpers/shell.py` routed through SubprocessService;
 - legacy `helpers/net.py` routed through the ApplicationContext HTTP service;
 - runtime startup/shutdown wired through the shared context;
-- dedicated Phase 2 service regression suite.
+- dedicated Phase 2 service regression suite;
+- Gate 2: **37/37 tests passing + compile gate passing**.
 
-**Next:** run the local Phase 2 gate, then Phase 3 Cache Foundation.
+**Phase 3 — Cache Foundation: IMPLEMENTED; local Gate 3 verification pending.**
+
+- bounded L1 in-memory LRU cache;
+- persistent L2 SQLite cache with WAL, TTL and access metadata;
+- filesystem L3 artifact cache with SQLite metadata;
+- namespace and version isolation;
+- explicit invalidation and cleanup;
+- entry and byte limits at every tier;
+- safe JSON value serialization instead of arbitrary object deserialization;
+- per-key stampede protection through `get_or_set()`;
+- cache statistics and diagnostics;
+- atomic artifact writes and orphan-safe artifact metadata handling;
+- dedicated cache regression coverage;
+- ApplicationContext lifecycle integration.
+
+**Next:** run the local Phase 3 gate, then Phase 4 Storage & Migration Foundation.
 
 ## 13. Definition of Success
 
