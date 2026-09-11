@@ -9,6 +9,7 @@ from helpers.hud import render
 from config import config
 
 PATTERN = rf"^{re.escape(config.PREFIX)}ip(?:\s+(\S+))?$"
+_MAX_TARGET = 253
 
 async def setup(client):
     register_cmd(
@@ -20,13 +21,18 @@ async def setup(client):
     )
 
 async def handle_ip(event):
-    target = event.pattern_match.group(1) or ""
+    target = (event.pattern_match.group(1) or "").strip()
+    if len(target) > _MAX_TARGET:
+        raise CommandError("IP/domain target is too long.")
+    if any(char.isspace() for char in target):
+        raise CommandError("IP/domain target must not contain whitespace.")
+
     context = get_application_context()
     if context is None:
         raise CommandError("HTTP service is unavailable.")
     http = context.get("http")
 
-    url = f"http://ip-api.com/json/{quote(target, safe='') }"
+    url = f"http://ip-api.com/json/{quote(target, safe='')}"
     params = {
         "fields": "status,message,country,countryCode,regionName,city,zip,lat,lon,timezone,isp,org,as,query"
     }
@@ -58,6 +64,6 @@ async def handle_ip(event):
 
     await event.edit(render(
         title="IP GEOLOCATION",
-        rows=rows,
+        rows=rows[:20],
         footer="network_osint | ip"
     ))
