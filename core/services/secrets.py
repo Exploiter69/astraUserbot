@@ -41,7 +41,7 @@ class SecretStore:
         if self._started:
             return
         if not self.master_key:
-            raise SecretStoreError("ASTRA_VAULT_KEY is not configured")
+            return
         await self.db.init_schema(
             """
             CREATE TABLE IF NOT EXISTS secrets (
@@ -56,8 +56,12 @@ class SecretStore:
         self._started = False
 
     async def _ensure_started(self) -> None:
+        if not self.master_key:
+            raise SecretStoreError("ASTRA_VAULT_KEY is not configured")
         if not self._started:
             await self.start()
+        if not self._started:
+            raise SecretStoreError("Secret store is unavailable")
 
     def _encrypt(self, plaintext: str) -> str:
         salt = os.urandom(16)
