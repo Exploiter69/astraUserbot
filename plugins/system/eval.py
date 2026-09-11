@@ -1,14 +1,18 @@
-import re
-import sys
+import asyncio
 import io
+import re
 import traceback
-from telethon import events
+from contextlib import redirect_stdout
+
 from core.registry import register_cmd
 from helpers.hud import render
 from config import config
 
-# DANGEROUS: Owner-gated by core.registry inherently.
 PATTERN = rf"^{re.escape(config.PREFIX)}eval(?:\s+(.*))?$"
+_EVAL_LOCK = asyncio.Lock()
+_MAX_OUTPUT = 6000
+_EVAL_TIMEOUT = 30
+
 
 async def setup(client):
     register_cmd(
@@ -16,48 +20,54 @@ async def setup(client):
         pattern=PATTERN,
         handler=handle_eval,
         category="system",
-        description="Evaluate raw Python expressions dynamically."
+        description="Evaluate raw Python expressions dynamically.",
     )
+
+
+def _build_function(code: str):
+    wrapped_code = "async def __ex(event, client):\n"
+    for line in code.split("\n"):
+        wrapped_code += f"    {line}\n"
+
+    namespace = {
+        "__builtins__": __builtins__,
+        "asyncio": asyncio,
+    }
+    exec_locals = {}
+    exec(wrapped_code, namespace, exec_locals)
+    return exec_locals["__ex"]
+
 
 async def handle_eval(event):
     code = event.pattern_match.group(1)
     if not code:
-        await event.edit(render(title="EVAL", rows=["Error: No code provided."], footer="system | eval"))
+        await event.edit(render("EVAL", ["Error: No code provided."], footer="system | eval"))
         return
 
-    # Redirect stdout to capture print() statements within the eval
-    old_stdout = sys.stdout
-    redirected_output = sys.stdout = io.StringIO()
-    
-    try:
-        # Wrap the expression in an async function to allow 'await' inside .eval
-        wrapped_code = f"async def __ex(event, client):\n"
-        for line in code.split("\n"):
-            wrapped_code += f"    {line}\n"
-            
-        exec_locals = {}
-        exec(wrapped_code, globals(), exec_locals)
-        func = exec_locals["__ex"]
-        
-        await func(event, event.client)
-        
-        stdout_result = redirected_output.getvalue()
-        rows = ["Code executed successfully."]
-        if stdout_result:
-            rows.append("---")
-            rows.extend(stdout_result.strip().split("\n"))
-            
-    except Exception as e:
-        exc_type, exc_value, exc_traceback = sys.exc_info()
-        tb_lines = traceback.format_exception(exc_type, exc_value, exc_traceback)
-        rows = ["Execution Failed:", "---"]
-        # Only take the last few lines of the traceback to avoid exceeding max message length
-        rows.extend([line.strip() for line in tb_lines[-4:]])
-    finally:
-        sys.stdout = old_stdout
+    # Eval is deliberately serialized: redirect_stdout is process-global and cannot
+    # safely be used by concurrent evaluations.
+    async with _EVAL_LOCK:
+        output = io.StringIO()
+        rows = []
+        try:
+            func = _build_function(code)
+            with redirect_stdout(output):
+                await asyncio.wait_for(func(event, event.client), timeout=_EVAL_TIMEOUT)
 
-    await event.edit(render(
-        title="EVAL",
-        rows=rows,
-        footer="system | eval"
-    ))
+            stdout_result = output.getvalue()
+            if len(stdout_result) > _MAX_OUTPUT:
+                stdout_result = stdout_result[:_MAX_OUTPUT] + "\n[output truncated]"
+            rows = ["Code executed successfully."]
+            if stdout_result:
+                rows.extend(["---", *stdout_result.strip().splitlines()])
+        except asyncio.TimeoutError:
+            rows = ["Execution failed:", "---", "Evaluation timed out after 30 seconds."]
+        except Exception as exc:
+            # Never expose arbitrary source paths, provider responses, or command text.
+            logger_rows = traceback.format_exception_only(type(exc), exc)
+            error_name = type(exc).__name__ if type(exc).__name__.isalnum() else "Error"
+            rows = ["Execution failed:", "---", f"{error_name}: execution error"]
+        finally:
+            output.close()
+
+    await event.edit(render("EVAL", rows, footer="system | eval"))
