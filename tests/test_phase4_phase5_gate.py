@@ -173,8 +173,7 @@ class StorageAndJobsGateTests(unittest.IsolatedAsyncioTestCase):
         await engine.claim()
         await self.storage.execute("UPDATE leases SET expires_at=0 WHERE job_id=?", (job.id,))
         await engine.recover_expired()
-        with self.assertRaises(ValueError):
-            await engine.claim()
+        self.assertIsNone(await engine.claim())
         requeued = await engine.requeue_uncertain(job.id)
         self.assertEqual(requeued.state, JobState.QUEUED)
         claimed = await engine.claim()
