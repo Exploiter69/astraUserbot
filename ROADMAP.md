@@ -1,7 +1,7 @@
 # AstraUserbot — Detailed Canonical Roadmap
 
 **Status:** Canonical implementation sequence  
-**Version:** 2.1  
+**Version:** 2.2  
 **Cost target:** ₹0 / $0
 
 > This file is the execution plan. Architectural changes belong in `DECISIONS.md`; contracts are defined in `ARCHITECTURE.md`, `DATA_MODEL.md`, `JOB_MODEL.md`, `SAFETY_CONTRACT.md`, and `PRODUCTION_BOUNDARY.md`.
@@ -20,22 +20,6 @@ Do not bypass authorization for convenience.
 Do not allow unbounded resource consumption.
 Do not claim verification when only execution succeeded.
 ```
-
-## Phase 0 — Baseline & Protection — COMPLETE
-
-### Deliverables
-
-- Git/GitHub baseline;
-- secret/session protection;
-- dependency inventory;
-- plugin inventory;
-- source-level plugin audit;
-- architecture specification;
-- data/job/safety/boundary contracts.
-
-### Exit
-
-Baseline commit exists, runtime secrets are excluded, existing plugin behavior is understood, and confirmed defects are recorded.
 
 ---
 
@@ -82,7 +66,7 @@ Implemented:
 - correlation IDs;
 - safe error boundary.
 
-The real ACL/PMGuard `.block`/`.unblock` collision is now deterministically rejected rather than silently coexisting.
+The real ACL/PMGuard `.block`/`.unblock` conflict was resolved by making ACL the sole owner; PMGuard no longer registers duplicate handlers.
 
 ## 1.3 Safe Errors — COMPLETE
 
@@ -292,7 +276,8 @@ A clean install and an existing install both reach the same expected platform sc
 - startup recovery;
 - verification state;
 - audit events;
-- resource classes.
+- resource classes;
+- explicit `UNCERTAIN` state for unknown execution outcomes.
 
 ## Initial job types
 
@@ -326,11 +311,11 @@ cancellation
 
 ### Gate 5
 
-The system never silently loses accepted durable work and never blindly replays an uncertain external mutation.
+The system never silently loses accepted durable work and never blindly replays an uncertain external mutation. Expired leases and interrupted active work enter `UNCERTAIN` and require explicit reconciliation before replay.
 
 ---
 
-# Phase 6 — Confirmed P0 Reliability Fixes
+# Phase 6 — Confirmed P0 Reliability Fixes — COMPLETE
 
 **Goal:** repair high-risk existing features before expansion.
 
@@ -349,7 +334,7 @@ The system never silently loses accepted durable work and never blindly replays 
 
 ### Gate 6
 
-Every confirmed P0 defect has a regression test and no new infrastructure bypass is introduced.
+**PASS — 73 tests passed and compile validation passed at the Phase 6 baseline.** The final pre-Phase-7 hardening also adds regression coverage for uncertain durable-job recovery; rerun the complete local suite after pulling the latest commits.
 
 ---
 
