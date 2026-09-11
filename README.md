@@ -6,7 +6,7 @@ A modular, service-oriented Telegram userbot platform designed for reliability, 
 
 AstraUserbot is being developed as a long-lived platform rather than a collection of independent command scripts.
 
-The repository began from an existing feature-rich userbot. The current engineering work therefore prioritizes **platform extraction, correctness, safety, and compatibility** before broad feature expansion.
+The repository began from an existing feature-rich userbot. The engineering work therefore prioritizes **platform extraction, correctness, safety, compatibility, observability, and measured expansion**.
 
 ## 2. Core Principles
 
@@ -15,13 +15,14 @@ The repository began from an existing feature-rich userbot. The current engineer
 3. The platform must make command/plugin collisions explicit.
 4. Background work must be supervised; restart-sensitive work must become durable jobs.
 5. SQLite is the default durable local store.
-6. Cache state is never treated as authoritative external state.
+6. Cache and search state are derived and rebuildable.
 7. AI providers are replaceable and AI output is never authority.
 8. Side effects require explicit authorization and bounded execution.
-9. User-facing errors must not expose secrets, paths, provider responses, or tracebacks.
+9. User-facing errors and diagnostics must not expose secrets.
 10. Resource usage must be bounded.
 11. Existing behavior is preserved during migration unless a defect is intentionally corrected.
 12. No paid dependency is required for the platform to operate.
+13. Isolation is never claimed unless it is actually enforced.
 
 ## 3. Architecture Documents
 
@@ -34,8 +35,12 @@ Read these before making structural changes:
 - `PRODUCTION_BOUNDARY.md` — authority and runtime boundaries;
 - `DECISIONS.md` — accepted architecture decisions;
 - `ROADMAP.md` — canonical implementation sequence;
-- `PHASE_7_READINESS.md` — completed Media Platform gate;
-- `PHASE_8_READINESS.md` — AI Gateway completion record and final gate.
+- `PHASE_9_READINESS.md` — plugin migration contract;
+- `PHASE_10_15_READINESS.md` — search, observability, expansion, performance, isolation and maturity verification;
+- `PLUGIN_SDK.md` — plugin API contract;
+- `COMPATIBILITY.md` — version policy;
+- `DISASTER_RECOVERY.md` — recovery procedure;
+- `RELEASE_CHECKLIST.md` — release gate.
 
 ## 4. Current Platform Shape
 
@@ -48,16 +53,20 @@ Telegram / external systems
             ▼
       ApplicationContext
             │
-   ┌────────┼───────────────────────────────┐
-   ▼        ▼             ▼                 ▼
- Storage   Cache       Supervisors      Shared Services
-   │        │             │                 │
-   │        ├── L1        ├── Tasks         ├── HTTP
-   │        ├── L2        └── Durable       ├── Subprocess
-   │        └── L3            Jobs          ├── Telegram
-   │                                         ├── Workspace
-   └── SQLite WAL / migrations               ├── Media
-                                             └── AI Gateway
+   ┌────────┼─────────────────────────────────────────┐
+   ▼        ▼             ▼                           ▼
+ Storage   Cache       Supervisors              Shared Services
+   │        │             │                           │
+   │        ├── L1        ├── TaskSupervisor          ├── HTTP
+   │        ├── L2        └── Durable JobEngine       ├── Subprocess
+   │        └── L3                                    ├── Telegram
+   └── SQLite WAL / migrations                         ├── Workspace
+                                                       ├── Media
+                                                       ├── AI
+                                                       ├── Search
+                                                       ├── Metrics
+                                                       ├── Feature Flags
+                                                       └── Isolation Policy
 ```
 
 ## 5. Platform Before Plugins
@@ -85,7 +94,17 @@ AI Gateway
       ↓
 Plugin migration batches
       ↓
+Search & Knowledge
+      ↓
+Observability
+      ↓
 Feature expansion
+      ↓
+Performance
+      ↓
+Optional isolation assessment
+      ↓
+Platform maturity
 ```
 
 ## 6. Platform Services
@@ -107,6 +126,10 @@ Filesystem/WorkspaceService
 TelegramFacade
 MediaService
 AIService
+SearchService
+MetricsService
+FeatureFlagService
+IsolationService
 ```
 
 A service is introduced when it removes duplicated infrastructure or establishes a contract needed by multiple features.
@@ -121,14 +144,14 @@ A service is introduced when it removes duplicated infrastructure or establishes
               ▼
           AIService
               │
-      ┌───────┼───────────┬───────────┐
-      ▼       ▼           ▼           ▼
-    Groq    Gemini      Ollama     llama.cpp
+        ┌─────┴─────┐
+        ▼           ▼
+      Groq        Gemini
 ```
 
-Provider-specific API details, model configuration, response parsing, retries, capability checks and transcription behavior remain inside adapters. The active command plugins do not know the Groq HTTP API.
+Provider-specific API details, model configuration, response parsing, retries, capability checks and transcription behavior remain inside adapters. The active command plugins do not know provider HTTP APIs.
 
-Local providers are optional; no local model is required on the current host.
+No local model is required on the current host. No paid AI provider is required by the architecture.
 
 ## 8. Documentation Set
 
@@ -141,7 +164,12 @@ Local providers are optional; no local model is required on the current host.
 | `PRODUCTION_BOUNDARY.md` | Runtime and external-system boundaries |
 | `DECISIONS.md` | Accepted architecture decisions |
 | `ROADMAP.md` | Canonical implementation sequence |
-| `PHASE_8_READINESS.md` | AI Gateway completion and gate contract |
+| `PHASE_9_READINESS.md` | Plugin migration gate |
+| `PHASE_10_15_READINESS.md` | Final roadmap-phase implementation and verification contract |
+| `PLUGIN_SDK.md` | Plugin API contract |
+| `COMPATIBILITY.md` | Version and migration policy |
+| `DISASTER_RECOVERY.md` | Backup, restore and recovery procedure |
+| `RELEASE_CHECKLIST.md` | Release verification gate |
 
 These files are the root engineering specification. Code should conform to them; intentional deviations require a recorded decision.
 
@@ -163,6 +191,8 @@ Add regression tests
 Expand capabilities
     ↓
 Measure and optimize
+    ↓
+Harden release and recovery
 ```
 
 No mass rewrite occurs merely to make code look uniform.
@@ -174,11 +204,11 @@ The foundation uses free/open-source or already available components:
 - Python;
 - Telethon;
 - asyncio;
-- SQLite;
+- SQLite/FTS5;
 - aiohttp;
 - FFmpeg/Linux tools;
-- optional local Ollama/llama.cpp;
-- optional genuinely free hosted AI providers.
+- Groq/Gemini only when genuinely free access is configured;
+- existing local operating-system tooling.
 
 No paid AI SDK, hosted service, or infrastructure is a required dependency.
 
@@ -196,7 +226,8 @@ The platform therefore uses:
 - HTTP limits;
 - bounded AI execution;
 - auditability;
-- explicit destructive-operation contracts.
+- explicit destructive-operation contracts;
+- explicit isolation policy rather than fake sandbox claims.
 
 Eval is privileged and is not represented as a sandbox.
 
@@ -210,123 +241,53 @@ A healthy Astra runtime should be able to explain:
 which plugins loaded
 which commands exist
 which background tasks are running
-which durable jobs are queued/running/failed
+which durable jobs are queued/running/uncertain/failed
 which cache namespaces are consuming resources
-which external operations are active
+which search indexes are ready
 which failures are recent
+which resources are under pressure
 ```
 
 Diagnostics are therefore part of the platform design, not an afterthought.
 
 ## 13. Current Development Stage
 
-**Phase 1 — Plugin & Command Foundation: COMPLETE.**
+**Phases 1–8: COMPLETE.**
 
-- Plugin Manager;
-- Command Router;
-- Safe Errors;
-- TaskSupervisor;
-- Gate 1 passed.
+Plugin lifecycle, command ownership, safe errors, task supervision, shared runtime services, bounded cache, durable SQLite storage, JobEngine with explicit `UNCERTAIN` recovery, confirmed P0 reliability fixes, MediaService, and the provider-independent Groq/Gemini AI Gateway are implemented and gated.
 
-**Phase 2 — Shared Runtime Services: COMPLETE.**
+**Phase 9 — Plugin Migration Program: PASS.**
 
-- ApplicationContext;
-- bounded/cancellable SubprocessService;
-- shared pooled HttpService;
-- TelegramFacade;
-- WorkspaceService;
-- runtime lifecycle integration;
-- Phase 2 regression suite passed.
+The existing network/OSINT, media, OCR, system, backup and active AI consumers were moved onto the shared service boundaries. The local full suite and Phase 9 gate both passed before the Phase 10–15 implementation pass began.
 
-**Phase 3 — Cache Foundation: COMPLETE.**
+**Phases 10–15 — IMPLEMENTATION COMPLETE; FINAL LOCAL VERIFICATION PENDING.**
 
-- bounded L1 memory cache;
-- persistent L2 SQLite cache;
-- filesystem L3 artifacts;
-- namespaces/versioning;
-- invalidation/cleanup;
-- stampede protection;
-- diagnostics;
-- Gate 3: 49/49 tests passed.
+Implemented in the current main branch:
 
-**Phase 4 — Storage & Migration Foundation: COMPLETE.**
+- Phase 10: rebuildable SQLite FTS5 SearchService, plugin/command/document/message indexing, `.search`, `.reindex`;
+- Phase 11: `.health`, `.plugins`, `.tasks`, `.jobs`, `.cache`, `.stats`, `.diagnostics` and bounded secret-redacted reports;
+- Phase 12: additional shared-service developer/web/feed utilities while preserving the existing broad plugin ecosystem;
+- Phase 13: bounded MetricsService, command latency/failure measurement, resource snapshots, queue-depth visibility and benchmark tooling;
+- Phase 14: explicit optional isolation policy with no false sandbox claim;
+- Phase 15: versioned Plugin SDK, compatibility policy, persistent feature flags, migration/backup/self-test/benchmark tooling, disaster recovery and release checklist.
 
-- canonical platform SQLite database;
-- deterministic migrations/checksums;
-- WAL/foreign keys/busy timeout/integrity checks;
-- verified backup/restore;
-- platform persistence regression coverage.
+The implementation is deliberately **not** labeled Phase 10–15 PASS until the owner runs the local verification contract on the real machine.
 
-**Phase 5 — Durable Job Engine: COMPLETE.**
+## 14. Verification Contract
 
-- durable job persistence;
-- lifecycle state machine;
-- `UNCERTAIN` execution state;
-- worker leasing/heartbeat;
-- explicit uncertain replay reconciliation;
-- bounded retries/backoff;
-- idempotency;
-- cancellation;
-- parent/child jobs;
-- progress/verification;
-- attempts/events;
-- resource class/priority;
-- supervised worker loop.
+```bash
+python -m unittest discover -s tests -v
+python -m unittest tests.test_phase10_15_gate -v
+python -m compileall -q .
+python -m tools.astra_platform selftest
+python -m tools.astra_platform benchmark
+python -m tools.astra_platform migrate
+```
 
-**Phase 6 — Confirmed P0 Reliability Fixes: COMPLETE.**
+Then perform a controlled startup/shutdown smoke test and inspect `.health`, `.plugins`, `.diagnostics`, `.reindex`, and backup/restore behavior.
 
-- command ownership conflict fixed;
-- admin gaps fixed;
-- encrypted SecretStore;
-- eval isolation/bounds;
-- archive/logger retention;
-- PMGuard refresh;
-- AFK cooldown;
-- isolated media paths;
-- shared subprocess migration;
-- uncertain-job recovery tests.
+## 15. Definition of Success
 
-**Pre-Phase-7 Gate:** 75/75 tests passed + compile validation passed.
-
-**Phase 7 — Media Platform: COMPLETE.**
-
-- `MediaService` is the authoritative media boundary;
-- unique operation workspaces;
-- input/output/workspace bounds;
-- bounded media concurrency;
-- explicit FFmpeg argv;
-- FFprobe verification;
-- deterministic download manifests;
-- TTS/download output verification;
-- rclone operation allowlist;
-- all seven media consumers migrated;
-- cleanup in failure paths.
-
-**Gate 7:** **81/81 tests passed, 0 failures, 0 errors, compile validation passed.**
-
-**Phase 8 — AI Gateway: IMPLEMENTATION COMPLETE.**
-
-- `AIService` registered in `ApplicationContext`;
-- Groq adapter;
-- Gemini adapter;
-- optional Ollama adapter;
-- optional llama.cpp adapter;
-- provider-neutral chat/summarize/extract/classify/transcribe APIs;
-- bounded input/output/audio/concurrency;
-- shared HttpService transport;
-- cancellation and capability checks;
-- active `.ask`, `.summarize`, `.transcribe` command adapters migrated to `plugins/ai_gateway`;
-- legacy Groq command modules quarantined from discovery;
-- AI remains non-authoritative;
-- no paid AI dependency introduced;
-- 14 dedicated AI gateway regression tests added.
-
-**Gate 8:** implementation complete; final local verification is the only remaining release check. Expected full suite: **95 tests**.
-
-**Next:** Phase 9 — Plugin Migration Program.
-
-## 14. Definition of Success
-
-Astra succeeds when adding the next 100 useful features does not require inventing another HTTP client, scheduler, cache, temp-file strategy, subprocess wrapper, database pattern, or authorization mechanism.
+Astra succeeds when adding the next 100 useful features does not require inventing another HTTP client, scheduler, cache, temp-file strategy, subprocess wrapper, database pattern, search index, metrics path, or authorization mechanism.
 
 > **Power belongs at the plugin edge. Reliability belongs in the platform core.**
