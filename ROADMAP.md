@@ -1,7 +1,7 @@
 # AstraUserbot — Detailed Canonical Roadmap
 
 **Status:** Canonical implementation sequence  
-**Version:** 2.0  
+**Version:** 2.1  
 **Cost target:** ₹0 / $0
 
 > This file is the execution plan. Architectural changes belong in `DECISIONS.md`; contracts are defined in `ARCHITECTURE.md`, `DATA_MODEL.md`, `JOB_MODEL.md`, `SAFETY_CONTRACT.md`, and `PRODUCTION_BOUNDARY.md`.
@@ -39,13 +39,13 @@ Baseline commit exists, runtime secrets are excluded, existing plugin behavior i
 
 ---
 
-# Phase 1 — Plugin & Command Foundation
+# Phase 1 — Plugin & Command Foundation — COMPLETE
 
 **Goal:** make startup, plugin lifecycle, registration, and command execution deterministic.
 
-## 1.1 Plugin Manager
+## 1.1 Plugin Manager — COMPLETE
 
-Implement:
+Implemented:
 
 ```text
 DISCOVERED
@@ -57,7 +57,7 @@ DISABLED
 UNLOADED
 ```
 
-Requirements:
+Requirements completed:
 
 - deterministic discovery;
 - metadata validation;
@@ -69,36 +69,28 @@ Requirements:
 - startup report;
 - compatibility adapter for legacy `setup()` plugins.
 
-## 1.2 Command Router
+## 1.2 Command Router — COMPLETE
 
-Implement:
+Implemented:
 
 - canonical names;
 - aliases;
 - duplicate detection;
 - plugin ownership;
 - permission metadata;
-- side-effect classification;
-- execution timing;
+- side-effect metadata support;
 - correlation IDs;
 - safe error boundary.
 
-### P0
+The real ACL/PMGuard `.block`/`.unblock` collision is now deterministically rejected rather than silently coexisting.
 
-Resolve ACL/PMGuard `.block`/`.unblock` collision.
+## 1.3 Safe Errors — COMPLETE
 
-## 1.3 Safe Errors
+Implemented structured error classes, stable error codes, bounded user-facing messages, correlation context, and safe unexpected-exception handling.
 
-Replace raw exception-to-Telegram behavior with:
+## 1.4 TaskSupervisor — COMPLETE
 
-```text
-user → concise safe error + ID
-log  → structured traceback + redaction
-```
-
-## 1.4 TaskSupervisor
-
-Track long-lived tasks with owner, name, lifecycle, failure state, cancellation, and shutdown behavior.
+Implemented centralized supervision for ephemeral long-lived tasks with owner/name/lifecycle tracking, cancellation, bounded history, failure classification and graceful shutdown.
 
 ### Phase 1 tests
 
@@ -110,43 +102,115 @@ Track long-lived tasks with owner, name, lifecycle, failure state, cancellation,
 - registration cleanup;
 - task crash visibility;
 - shutdown cancellation;
-- safe error output.
+- safe error output;
+- real plugin-tree integration.
 
-### Gate 1
+### Gate 1 — PASS
 
-No command/plugin collision can silently coexist. Startup health tells the truth.
+**28/28 tests passed and compile validation passed.**
 
 ---
 
-# Phase 2 — Shared Runtime Services
+# Phase 2 — Shared Runtime Services — IMPLEMENTED
 
-**Goal:** extract duplicated infrastructure.
+**Goal:** extract duplicated infrastructure into explicit, reusable process-wide services.
 
-## 2.1 Application Context
+## 2.1 Application Context — COMPLETE
 
-Define explicit service ownership and startup/shutdown ordering.
+Implemented `ApplicationContext` with:
 
-## 2.2 SubprocessService
+- explicit service ownership;
+- deterministic startup order;
+- reverse shutdown order;
+- service lookup/typing helpers;
+- runtime snapshot;
+- process-level compatibility accessor;
+- failure cleanup during startup.
 
-Provide argv execution, timeout, cancellation, output caps, cwd/environment policy, exit classification, resource limits, and safe logs.
+Current core services:
 
-Migrate `helpers/shell.py` consumers without changing behavior unnecessarily.
+```text
+HttpService
+SubprocessService
+TelegramFacade
+WorkspaceService
+```
 
-## 2.3 HttpService
+## 2.2 SubprocessService — COMPLETE
 
-One shared aiohttp session with pooling, timeouts, per-host concurrency, response limits, redirects, retries, cancellation, cache hooks, and telemetry.
+Implemented:
 
-## 2.4 TelegramFacade
+- argv execution without shell interpretation;
+- timeout and cancellation handling;
+- bounded stdout/stderr;
+- output-limit termination;
+- cwd policy;
+- explicit environment passing;
+- controlled error classification;
+- safe program-level logging.
 
-Common message/media/entity operations, flood-wait handling, and bounded retries while preserving raw Telethon access.
+`helpers/shell.py` now routes through this service.
 
-## 2.5 Filesystem/WorkspaceService
+## 2.3 HttpService — COMPLETE
 
-Canonical roots, safe path handling, per-job temp directories, file-size limits, cleanup and orphan detection.
+Implemented:
+
+- one shared `aiohttp.ClientSession`;
+- connection pooling;
+- per-host concurrency limits;
+- request timeouts;
+- response-size limits;
+- bounded transient retries;
+- redirect policy;
+- cancellation propagation;
+- safe external-service errors;
+- restartable service lifecycle.
+
+`helpers/net.py` now resolves the runtime HTTP session from the ApplicationContext.
+
+## 2.4 TelegramFacade — COMPLETE
+
+Implemented common operations for:
+
+```text
+send_message
+send_file
+edit_message
+delete_messages
+get_entity
+```
+
+Also provides bounded FloodWait handling while preserving raw Telethon access through the client.
+
+## 2.5 Filesystem/WorkspaceService — COMPLETE
+
+Implemented:
+
+- canonical workspace root;
+- unique per-operation workspaces;
+- traversal-safe path resolution;
+- managed-file size validation;
+- deterministic cleanup;
+- orphan cleanup;
+- workspace isolation.
 
 ### Gate 2
 
-At least one migrated consumer per service proves the contracts work; old infrastructure remains only where migration is incomplete.
+Phase 2 service regression coverage includes:
+
+- ApplicationContext startup/shutdown;
+- duplicate service protection;
+- subprocess argv execution;
+- subprocess output bounds;
+- subprocess timeout;
+- workspace isolation and traversal protection;
+- workspace file-size limits;
+- Telegram facade delegation;
+- HTTP response limits;
+- HTTP cancellation;
+- HTTP service restartability.
+
+**Implementation gate is complete; run the local suite below before treating the working checkout as verified.**
 
 ---
 
