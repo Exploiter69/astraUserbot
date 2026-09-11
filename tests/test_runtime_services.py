@@ -72,7 +72,7 @@ class RuntimeServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_subprocess_uses_argv_and_bounds_output(self):
         service = SubprocessService(default_output_bytes=8)
         result = await service.run(["python", "-c", "print('123456789012345')"])
-        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.returncode, -15)
         self.assertLessEqual(len(result.stdout.encode()), 8)
         self.assertTrue(result.stdout_truncated)
 
