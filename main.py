@@ -7,7 +7,7 @@ from pathlib import Path
 from client import create_client
 from config import config
 from core import bootstrap, loader
-from helpers.net import close_session
+from core.context import ApplicationContext, set_application_context
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 os.chdir(PROJECT_ROOT)
@@ -50,12 +50,19 @@ async def main():
     logger.info("Persistent log: %s", LOG_FILE)
     client = create_client()
     plugin_manager = None
+    context: ApplicationContext | None = None
 
     try:
         await client.start()
         if not await client.is_user_authorized():
             raise RuntimeError("Telegram session is not authorized")
         logger.info("Telethon client connected and authorized.")
+
+        context = ApplicationContext(client, PROJECT_ROOT)
+        set_application_context(context)
+        client.application_context = context
+        await context.start()
+        logger.info("Shared runtime services initialized: %s", context.snapshot()["services"])
 
         loop = asyncio.get_running_loop()
         bootstrap.install_signal_handlers(loop, client)
@@ -68,7 +75,9 @@ async def main():
         if plugin_manager is not None:
             await plugin_manager.shutdown()
         await bootstrap.shutdown(client)
-        await close_session()
+        if context is not None:
+            await context.close()
+        set_application_context(None)
 
 
 if __name__ == "__main__":
