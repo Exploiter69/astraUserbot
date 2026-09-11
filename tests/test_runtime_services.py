@@ -1,6 +1,5 @@
 import asyncio
 import tempfile
-from pathlib import Path
 import unittest
 
 from aiohttp import web
@@ -16,7 +15,6 @@ from core.services.workspace import WorkspaceService
 class FakeTelegram:
     def __init__(self):
         self.calls = []
-        self.flood_wait = None
 
     async def send_message(self, entity, message, **kwargs):
         self.calls.append(("send_message", entity, message, kwargs))
@@ -55,16 +53,15 @@ class RuntimeServiceTests(unittest.IsolatedAsyncioTestCase):
             await context.start()
 
             self.assertEqual(context.snapshot()["state"], "RUNNING")
-            self.assertIn("http", context.services)
-            self.assertIn("subprocess", context.services)
-            self.assertIn("telegram", context.services)
-            self.assertIn("workspace", context.services)
+            self.assertEqual(
+                set(context.services), {"http", "subprocess", "telegram", "workspace"}
+            )
             self.assertIsNotNone(context.get("http").session)
             self.assertTrue(context.get("workspace").root.exists())
 
             await context.close()
             self.assertEqual(context.snapshot()["state"], "CLOSED")
-            self.assertTrue(context.get("http").session is None)
+            self.assertIsNone(context.get("http").session)
 
     async def test_context_rejects_duplicate_service_names(self):
         context = ApplicationContext(object(), tempfile.gettempdir())
@@ -125,12 +122,22 @@ class RuntimeServiceTests(unittest.IsolatedAsyncioTestCase):
             response = await service.get(f"http://127.0.0.1:{port}/")
             self.assertEqual(response.status, 200)
             self.assertEqual(response.body, b"0123456789")
-            self.assertIs(response.body, response.body)
             with self.assertRaises(ResourceError):
                 await service.get(f"http://127.0.0.1:{port}/", response_limit=4)
         finally:
             await service.close()
             await runner.cleanup()
+
+    async def test_http_service_can_restart_after_close(self):
+        service = HttpService(retries=0)
+        first = await service.start()
+        await service.close()
+        second = await service.start()
+        try:
+            self.assertIsNot(first, second)
+            self.assertFalse(second.closed)
+        finally:
+            await service.close()
 
     async def test_http_cancellation_does_not_leave_request_running(self):
         async def handler(_request):
