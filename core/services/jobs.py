@@ -109,7 +109,8 @@ class JobEngine:
         async with self.storage.lock:
             assert self.storage.conn is not None
             if idempotency_key:
-                row = await self.storage.conn.execute_fetchone("SELECT * FROM jobs WHERE idempotency_key=?", (idempotency_key,))
+                async with self.storage.conn.execute("SELECT * FROM jobs WHERE idempotency_key=?", (idempotency_key,)) as cursor:
+                    row = await cursor.fetchone()
                 if row:
                     return self._row_to_job(row)
             await self.storage.conn.execute("INSERT INTO jobs(id,type,state,payload_json,owner,parent_id,idempotency_key,resource_class,priority,created_at,updated_at,available_at,max_attempts,verify_required) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (job_id, job_type, JobState.QUEUED.value, payload_json, owner, parent_id, idempotency_key, resource_class, priority, now, now, now + max(0.0, delay), max(1, max_attempts), int(verify_required)))
@@ -138,7 +139,8 @@ class JobEngine:
         async with self.storage.lock:
             assert self.storage.conn is not None
             await self.storage.conn.execute("BEGIN IMMEDIATE")
-            row = await self.storage.conn.execute_fetchone("SELECT * FROM jobs WHERE state=? AND available_at<=? ORDER BY priority DESC, created_at LIMIT 1", (JobState.QUEUED.value, now))
+            async with self.storage.conn.execute("SELECT * FROM jobs WHERE state=? AND available_at<=? ORDER BY priority DESC, created_at LIMIT 1", (JobState.QUEUED.value, now)) as cursor:
+                row = await cursor.fetchone()
             if row is None:
                 await self.storage.conn.rollback()
                 return None
@@ -151,7 +153,8 @@ class JobEngine:
             await self.storage.conn.execute("INSERT INTO job_attempts(job_id,attempt,state,started_at) SELECT id,attempt_count,'RUNNING',? FROM jobs WHERE id=?", (now, job_id))
             await self._event_locked(job_id, "CLAIMED", {"worker_id": self.worker_id})
             await self.storage.conn.commit()
-            updated = await self.storage.conn.execute_fetchone("SELECT * FROM jobs WHERE id=?", (job_id,))
+            async with self.storage.conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)) as cursor:
+                updated = await cursor.fetchone()
             return self._row_to_job(updated)
 
     async def heartbeat(self, job_id: str) -> bool:
@@ -186,7 +189,7 @@ class JobEngine:
 
     async def cancel(self, job_id: str) -> None:
         now = time.time()
-        job = await self.get(job_id)
+        await self.get(job_id)
         await self.storage.execute("UPDATE jobs SET state=?,updated_at=?,completed_at=? WHERE id=? AND state IN (?,?,?,?)", (JobState.CANCELLED.value, now, now, job_id, JobState.QUEUED.value, JobState.RUNNING.value, JobState.PAUSED.value, JobState.VERIFYING.value))
         await self.storage.execute("DELETE FROM leases WHERE job_id=?", (job_id,))
         task = self._active_tasks.get(job_id)
@@ -198,7 +201,7 @@ class JobEngine:
         now = time.time()
         async with self.storage.lock:
             assert self.storage.conn is not None
-            rows = await self.storage.conn.execute_fetchall("SELECT job_id FROM leases WHERE expires_at<?", (now,))
+            rows = await self.storage.fetchall("SELECT job_id FROM leases WHERE expires_at<?", (now,))
             for row in rows:
                 await self.storage.conn.execute("UPDATE jobs SET state=?,available_at=?,updated_at=? WHERE id=? AND state=?", (JobState.QUEUED.value, now, now, row[0], JobState.RUNNING.value))
                 await self.storage.conn.execute("DELETE FROM leases WHERE job_id=?", (row[0],))
