@@ -1,7 +1,7 @@
 # AstraUserbot — Detailed Canonical Roadmap
 
 **Status:** Canonical implementation sequence  
-**Version:** 2.2  
+**Version:** 2.3  
 **Cost target:** ₹0 / $0
 
 > This file is the execution plan. Architectural changes belong in `DECISIONS.md`; contracts are defined in `ARCHITECTURE.md`, `DATA_MODEL.md`, `JOB_MODEL.md`, `SAFETY_CONTRACT.md`, and `PRODUCTION_BOUNDARY.md`.
@@ -136,6 +136,7 @@ HttpService
 SubprocessService
 TelegramFacade
 WorkspaceService
+MediaService
 ```
 
 ## 2.2 SubprocessService — COMPLETE
@@ -352,31 +353,39 @@ The system never silently loses accepted durable work and never blindly replays 
 
 ### Gate 6
 
-**PASS — 73 tests passed and compile validation passed at the Phase 6 baseline.** The final pre-Phase-7 hardening also adds regression coverage for uncertain durable-job recovery; rerun the complete local suite after pulling the latest commits.
+**PASS — 73 tests passed and compile validation passed at the Phase 6 baseline.** The final pre-Phase-7 hardening also adds regression coverage for uncertain durable-job recovery; the complete pre-Phase-7 suite passed before media implementation.
 
 ---
 
-# Phase 7 — Media Platform
+# Phase 7 — Media Platform — COMPLETE
 
-**Goal:** make media a reusable service.
+**Goal:** make media a reusable, bounded, isolated service.
 
-### MediaService contract
+## 7.1 MediaService — COMPLETE
+
+`core/services/media.py` is now the authoritative media boundary. It provides:
 
 ```text
-download
-inspect
-validate
-convert
-extract
-thumbnail
-transcribe-hook
-prepare-upload
+unique workspace allocation
+input validation
+output verification
+explicit artifact manifests
+deterministic external execution
+FFmpeg / FFprobe helpers
+TTS helper
+download helper
+rclone policy boundary
+workspace size limits
+input/output size limits
+bounded media concurrency
 cleanup
 ```
 
-Every job gets a unique workspace and deterministic outputs.
+The service uses `WorkspaceService` and `SubprocessService`; media plugins no longer create shared `data/cache` workspaces or invoke the legacy shell helper directly.
 
-Migrate:
+## 7.2 Consumer migration — COMPLETE
+
+All Phase 7 media consumers now use `MediaService`:
 
 ```text
 media/ffmpeg.py
@@ -388,9 +397,24 @@ media/aria2.py
 media/rclone.py
 ```
 
-### Gate 7
+Key migration properties:
 
-Concurrent media jobs cannot select one another's outputs, and failed jobs do not leak unbounded artifacts.
+- every operation receives a unique workspace;
+- FFmpeg commands are explicit argv arrays;
+- download outputs are returned as verified artifact manifests rather than selected by filesystem mtime;
+- media input/output/workspace bounds are enforced;
+- FFprobe verification is performed when available for FFmpeg-produced artifacts;
+- TTS output is verified before upload;
+- rclone operations are limited to the explicit media policy allowlist;
+- every consumer cleans its workspace in `finally` paths.
+
+## 7.3 Concurrency and verification — COMPLETE
+
+Media execution is bounded by a service-level semaphore, while artifact validation enforces non-empty, regular-file, size-limited outputs. The media gate includes regression coverage for isolation, size limits, deterministic FFmpeg argv, verification, concurrency, and rclone policy.
+
+### Gate 7 — PASS PENDING LOCAL REGRESSION
+
+Implementation is complete. The working checkout must pass the complete local suite and compile validation before this gate is marked verified in the release state.
 
 ---
 
