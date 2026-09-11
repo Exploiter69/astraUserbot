@@ -7,7 +7,8 @@ from helpers.hud import render
 from config import config
 
 PATTERN = rf"^{re.escape(config.PREFIX)}vault(?:\s+(.*))?$"
-
+_MAX_KEY = 128
+_MAX_VALUE = 4096
 
 async def setup(client):
     register_cmd(
@@ -21,12 +22,10 @@ async def setup(client):
 
 def _store() -> SecretStore:
     from core.context import get_application_context
-
     context = get_application_context()
     if context is not None:
         return context.get("secrets")
     return SecretStore()
-
 
 async def handle_vault(event):
     args = event.pattern_match.group(1)
@@ -41,14 +40,22 @@ async def handle_vault(event):
         if action == "set":
             if len(parts) < 3:
                 raise CommandError("Please provide a key and a value.")
-            key, value = parts[1], parts[2]
+            key, value = parts[1].strip(), parts[2]
+            if not key or len(key) > _MAX_KEY:
+                raise CommandError(f"Secret key must be 1-{_MAX_KEY} characters.")
+            if len(value) > _MAX_VALUE:
+                raise CommandError(f"Secret value must be {_MAX_VALUE} characters or fewer.")
             await store.set(key, value)
-            await event.edit(render("VAULT", [f"Secret '{key}' stored encrypted."] , footer="security | vault"))
+            await event.edit(render("VAULT", [f"Secret '{key}' stored encrypted."], footer="security | vault"))
 
         elif action == "get":
+            if not event.is_private:
+                raise CommandError("Secret values can only be revealed in Saved Messages/private chat.")
             if len(parts) < 2:
                 raise CommandError("Please provide a key.")
-            key = parts[1]
+            key = parts[1].strip()
+            if not key or len(key) > _MAX_KEY:
+                raise CommandError(f"Secret key must be 1-{_MAX_KEY} characters.")
             value = await store.get(key)
             if value is None:
                 raise CommandError(f"No secret found for key '{key}'.")
@@ -57,13 +64,17 @@ async def handle_vault(event):
         elif action == "rm":
             if len(parts) < 2:
                 raise CommandError("Please provide a key.")
-            key = parts[1]
+            key = parts[1].strip()
+            if not key or len(key) > _MAX_KEY:
+                raise CommandError(f"Secret key must be 1-{_MAX_KEY} characters.")
             await store.delete(key)
             await event.edit(render("VAULT", [f"Secret '{key}' deleted."], footer="security | vault"))
 
         elif action == "list":
             keys = await store.keys()
-            rows = [f"- {key}" for key in keys] if keys else ["Vault is empty."]
+            rows = [f"- {key}" for key in keys[:100]] if keys else ["Vault is empty."]
+            if len(keys) > 100:
+                rows.append(f"... and {len(keys) - 100} more")
             await event.edit(render("VAULT KEYS", rows, footer="security | vault"))
 
         else:
