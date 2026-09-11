@@ -12,18 +12,14 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from core.context import get_application_context
 from core.registry import register_cmd, COMMANDS
 from helpers.hud import render
-from helpers.net import get_session
-from helpers.shell import run
 from config import config
 
 logger = logging.getLogger("astra.testall")
 PATTERN = rf"^{re.escape(config.PREFIX)}testall(?:\s+(safe|report|network|static))?$"
 
-# Commands that are safe to exercise automatically. Everything else is inspected,
-# parsed and dependency-checked but not executed because it may mutate Telegram,
-# the filesystem, a cloud remote, a database, or the host.
 SAFE_COMMANDS = {
     "ping",
     "sysinfo",
@@ -61,7 +57,6 @@ def _command_names(pattern: str) -> list[str]:
     if match:
         return [x for x in match.group(1).split("|") if not x.startswith("?") and x]
     return [raw] if raw else []
-
 
 
 def _all_commands() -> list[str]:
@@ -146,11 +141,6 @@ class _PatternMatch:
 
 
 class _SyntheticEvent:
-    """In-process event used for non-mutating handler smoke tests.
-
-    It never sends a Telegram message, deletes anything, or calls client APIs.
-    Handlers that need a live Telegram event are excluded from this direct tier.
-    """
     out = True
     is_reply = False
     reply_to_msg_id = None
