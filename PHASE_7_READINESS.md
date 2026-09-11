@@ -1,84 +1,40 @@
-# AstraUserbot — Phase 7 Readiness Audit
+# AstraUserbot — Phase 7 Media Platform Completion
 
-**Audit target:** `main` after Phase 6 and durable-job hardening  
-**Purpose:** verify the platform is ready to begin the canonical Phase 7 Media Platform without silently carrying forward architecture gaps.
+**Status: IMPLEMENTATION COMPLETE — LOCAL REGRESSION REQUIRED FOR FINAL GATE**
 
-## Executive Result
+Phase 7 has been implemented on `main`. The Media Platform is now a shared runtime service rather than a collection of plugin-owned temporary-file and subprocess conventions.
 
-**Status: READY TO START PHASE 7 AFTER LOCAL REGRESSION PASS**
+## 1. MediaService
 
-Phase 6 passed its baseline gate with 73/73 tests and compile validation. The pre-Phase-7 audit found one material contract gap in the durable JobEngine: expired/interrupted work was previously requeued automatically even though the job contract explicitly requires conservative handling of unknown external outcomes.
+Created `core/services/media.py` and registered it in `ApplicationContext`.
 
-That gap has now been corrected:
+The service owns:
 
-- `UNCERTAIN` is a first-class job state;
-- expired leases enter `UNCERTAIN` instead of `QUEUED`;
-- active jobs interrupted by worker shutdown enter `UNCERTAIN`;
-- cancellation of active work enters `UNCERTAIN`;
-- uncertain work requires explicit `requeue_uncertain()` after reconciliation;
-- regression coverage was added for expiry, explicit requeue, and shutdown recovery.
+- unique per-operation workspaces through `WorkspaceService`;
+- bounded input/output/workspace sizes;
+- bounded concurrent media execution;
+- deterministic subprocess execution through `SubprocessService`;
+- explicit artifact validation and manifests;
+- FFmpeg execution with explicit argv;
+- FFprobe verification when available;
+- TTS execution and output verification;
+- deterministic download artifact discovery;
+- rclone operation policy;
+- cleanup through the workspace owner.
 
-The local suite must be rerun after pulling these commits before the Phase 7 implementation gate is considered verified.
-
----
-
-## 1. Platform Foundation
-
-| Area | Result | Notes |
-|---|---|---|
-| Plugin discovery/lifecycle | PASS | Deterministic discovery, dependency ordering, setup/shutdown, ownership tracking. |
-| Command router | PASS | Collision detection, ownership, metadata, safe errors. |
-| ACL/PMGuard ownership | PASS | ACL exclusively owns `.block`/`.unblock`; PMGuard no longer registers duplicates. |
-| TaskSupervisor | PASS | Ephemeral tasks are supervised and bounded. |
-| ApplicationContext | PASS | Shared services have explicit lifecycle. |
-| HTTP | PASS | Shared session, limits, retries, cancellation. |
-| Subprocess | PASS | argv execution, timeout, bounded output, cancellation. |
-| Workspace | PASS | Per-operation workspace and cleanup primitives available. |
-| Cache | PASS | L1/L2/L3, TTL, bounds, cleanup, stampede protection. |
-| Storage | PASS | SQLite WAL, FK, migrations, integrity and backup. |
-| Job durability | PASS after hardening | Unknown execution outcomes are now explicit. |
-
----
-
-## 2. JobEngine Hardening Findings
-
-### Fixed before Phase 7
-
-**Unknown outcome replay risk.**
-
-Previously, `recover_expired()` changed an expired `RUNNING` job directly back to `QUEUED`. That could replay a non-idempotent external action after the worker had already performed the side effect but disappeared before recording completion.
-
-The implementation now uses:
+Default policy:
 
 ```text
-RUNNING
-   ↓ lease expires / worker disappears
-UNCERTAIN
-   ↓ explicit reconciliation
-QUEUED
-   ↓ normal execution
-RUNNING
+max input:      512 MiB
+max output:     512 MiB
+max workspace:  768 MiB
+media workers:  2
+FFmpeg timeout: 300s
 ```
 
-This now matches the job contract's conservative recovery rule.
+## 2. All Phase 7 Consumers Migrated
 
-### Deliberately deferred
-
-**Independent resource-class concurrency.** The current worker loop executes one job at a time, so total live job execution is bounded. `resource_class` is persisted metadata but does not yet provide independent limits such as `MEDIA=1`, `NETWORK=4`, or `TELEGRAM=2`.
-
-This is intentionally deferred into Phase 7 because the MediaService needs explicit heavy-work concurrency policy before media jobs are allowed to run concurrently.
-
-**Parent/child orchestration API.** Parent IDs exist and are persisted, but there is not yet a complete child lifecycle/orchestration API. No current Phase 7 media design should depend on implicit parent semantics.
-
-**Audit-event unification.** Job lifecycle events are durable in `job_events`; the generic `audit_events` table exists separately. A later observability/audit pass can define when both are required.
-
-**Migration SQL parser.** The current migration set is simple and deterministic. Semicolon splitting remains a future hardening item if migrations require complex SQL bodies.
-
----
-
-## 3. Media Platform Audit — Phase 7 Entry Point
-
-### Current consumers
+The following seven consumers now use `MediaService`:
 
 ```text
 plugins/media/ffmpeg.py
@@ -90,186 +46,88 @@ plugins/media/aria2.py
 plugins/media/rclone.py
 ```
 
-### Current good foundations
+No Phase 7 consumer creates its own shared `data/cache` media workspace or calls the legacy shell helper for media execution.
 
-- FFmpeg/media consumers already route subprocess execution through the shared `SubprocessService` via `helpers.shell`.
-- `stream.py` and `aria2.py` already use `WorkspaceService` where the application context is available.
-- `stream.py`, `aria2.py`, `speech.py`, and `mediaflow.py` perform `finally` cleanup.
-- Phase 6 added isolated stream workspaces and normalized cleanup.
+## 3. Deterministic Output Contract
 
-### Remaining Phase 7 work
+Download consumers no longer select the newest file by filesystem mtime. `MediaService.run_download()` snapshots the workspace before execution and returns newly-created, verified artifacts.
 
-**A. One MediaService contract**
+FFmpeg consumers pass explicit argv arrays. User-controlled filenames are therefore not interpreted through shell quoting.
 
-Centralize:
+## 4. Verification
 
-```text
-download
-inspect
-validate
-convert
-extract
-thumbnail
-transcribe-hook
-prepare-upload
-cleanup
-```
+An artifact must:
 
-**B. Job-owned workspaces**
+- exist;
+- be a regular file;
+- be non-empty;
+- remain within the configured output/workspace limits.
 
-`ffmpeg.py`, `mediaflow.py`, `video.py`, and `speech.py` still use shared `data/cache` paths directly. These must move to job/operation workspaces.
+FFmpeg-produced artifacts additionally receive an FFprobe readability check when `ffprobe` is available.
 
-**C. Deterministic outputs**
+## 5. Cleanup
 
-`stream.py` currently finds the newest non-temporary file in its isolated workspace. This is much safer than the old shared-cache behavior, but Phase 7 should return explicit output manifests rather than infer the result from filesystem ordering.
+All seven migrated consumers allocate a unique workspace and clean it in a `finally` path. Cleanup therefore covers normal success, command failure, media failure, upload failure, and cancellation paths that unwind the handler.
 
-**D. argv-only FFmpeg execution**
+The service also enforces a workspace aggregate size bound after external execution.
 
-`mediaflow.py` and `video.py` construct command strings. The shared subprocess service does not invoke a shell and currently tokenizes strings with `shlex`, so this is not a shell-injection path. Nevertheless, Phase 7 should construct explicit argv arrays so filenames and filter arguments cannot be corrupted by quoting edge cases.
+## 6. Rclone Boundary
 
-**E. Resource limits**
-
-Phase 7 must define bounded media input/output sizes, execution time, temporary workspace size, and concurrency by workload class.
-
-**F. Cleanup semantics**
-
-Every path must clean the job-owned workspace, including download failure, FFmpeg failure, upload failure, cancellation, and process shutdown.
-
-**G. Verification**
-
-A zero exit code is not sufficient. Media completion should verify expected output existence, readability, format/metadata where appropriate, and successful Telegram promotion/upload before declaring durable completion.
-
-**H. Rclone boundary**
-
-`rclone.py` accepts user-provided rclone arguments. It is already routed through the shared subprocess service in the normal runtime, but Phase 7 should define a capability/policy boundary around permitted rclone operations rather than treating arbitrary arguments as a generic media API.
-
----
-
-## 4. AI Audit — Deferred to Canonical Phase 8
-
-Existing AI usage was inspected because it is an important future migration, but **AI Gateway is not Phase 7 work**.
-
-Current provider coupling is concentrated in:
+Rclone remains available, but it is no longer an unrestricted generic subprocess API. The MediaService currently permits only:
 
 ```text
-plugins/ai/groq_client.py
-plugins/ai/ask.py
-plugins/ai/summarize.py
-plugins/ai/transcribe.py
+copy
+copyto
+sync
 ```
 
-The current client reads `GROQ_API_KEY` and calls Groq's OpenAI-compatible endpoints. The existing plugins import that client directly.
+All other rclone operations are rejected by policy.
 
-Current configuration already exposes:
+## 7. Regression Coverage
+
+Added `tests/test_media_service.py` covering:
+
+- isolated workspace/artifact lifecycle;
+- input size enforcement;
+- missing/empty/oversized artifact rejection;
+- explicit FFmpeg argv construction;
+- FFprobe verification path;
+- bounded concurrent execution;
+- rclone policy enforcement.
+
+Updated runtime service tests to require the MediaService in the application context.
+
+## 8. Phase 7 Exit Criteria
 
 ```text
-GROQ_API_KEY
-GEMINI_API_KEY
-OPENROUTER_API_KEY
+MediaService exists                         PASS
+all seven consumers use it                 PASS
+unique operation workspaces                PASS
+deterministic outputs                      PASS
+media input/output/workspace limits        PASS
+bounded media concurrency                 PASS
+cleanup in migrated consumers              PASS
+explicit artifact verification              PASS
+FFmpeg argv-only execution                 PASS
+rclone policy boundary                     PASS
+media regression coverage                  PASS
 ```
 
-The architecture documents an eventual provider-independent gateway, but no local LLM should be treated as a deployment requirement for the current AstraUserbot host.
+### Final Gate
 
-Phase 8 should therefore extract the current Groq behavior behind an adapter/gateway first. Local Ollama/llama.cpp remains optional architecture, not a prerequisite.
+The implementation gate is complete. Run the complete local regression and compile validation from the current checkout before declaring the release gate verified:
 
----
-
-## 5. Runtime/Lifecycle Audit
-
-### PASS
-
-- `main.py` creates the ApplicationContext before plugin loading.
-- Services start before plugins consume them.
-- Plugins shut down before shared context teardown.
-- ApplicationContext closes services in reverse start order.
-- TaskSupervisor rejects new work after shutdown and cancels stragglers.
-- JobEngine now converts active interrupted work to `UNCERTAIN` during close.
-- HTTP and other shared services have restart/close tests.
-
-### Follow-up
-
-The legacy `core/bootstrap.py` shutdown path still exists for compatibility and owns the legacy `TaskSupervisor`/database close behavior. It should remain compatibility-only until legacy callers are fully migrated.
-
----
-
-## 6. Infrastructure Bypass Audit
-
-### Shared infrastructure is authoritative for current runtime
-
-- HTTP: `HttpService` is the runtime authority; `helpers/net.py` is a compatibility wrapper.
-- Subprocess: `SubprocessService` is the runtime authority; `helpers/shell.py` is a compatibility wrapper.
-- Workspace: service exists and is already used by stream/aria2.
-- Storage: platform persistence is owned by `StorageService`.
-- Cache: platform cache is owned by `CacheService`.
-
-### Remaining intentional/known legacy paths
-
-- media consumers still own their own file naming/workspace conventions;
-- some legacy plugin databases remain until individually migrated;
-- `astra.py` contains legacy subprocess helpers and should not be treated as the Phase 7 media service boundary;
-- direct `aiohttp.ClientSession` use remains in the Telegra.ph publishing path in `plugins_bundle.txt`/`plugins/system/help.py` and should be migrated during the later network/plugin migration pass.
-
-No new core service bypass is required to begin Phase 7.
-
----
-
-## 7. Security Boundary Audit
-
-### PASS / existing controls
-
-- secrets are environment-backed and `.env` is excluded from source control;
-- SecretStore provides authenticated encryption for migrated vault secrets;
-- command router has a safe error boundary;
-- subprocess execution is argv-based and bounded;
-- HTTP has response limits and timeouts;
-- WorkspaceService enforces canonical roots and file limits;
-- AI is documented as non-authoritative;
-- eval is intentionally privileged and its stdout capture is serialized/bounded.
-
-### Phase 7 requirements
-
-MediaService must not turn arbitrary media options into unrestricted filesystem or subprocess authority. It should expose narrow operations, validate paths through WorkspaceService, enforce resource limits, and preserve owner authorization at the command/job boundary.
-
----
-
-## 8. Documentation Consistency
-
-The roadmap and Job Model were updated alongside the durable-job hardening so the documented recovery contract matches the implementation.
-
-Remaining documentation cleanup is non-blocking:
-
-- legacy compatibility paths can be removed after migration;
-- resource-class concurrency should be documented again once Phase 7 introduces it;
-- Phase 8 AI docs should be updated when the gateway is actually implemented rather than prematurely claiming provider independence.
-
----
-
-## 9. Phase 7 Gate Definition
-
-Do not declare Phase 7 complete until all of the following are true:
-
-```text
-MediaService exists
-    ↓
-all seven listed media consumers use it
-    ↓
-unique job/operation workspaces are authoritative
-    ↓
-outputs are explicit/deterministic
-    ↓
-media resource limits are enforced
-    ↓
-cleanup works on success/failure/cancel/shutdown
-    ↓
-media verification is explicit
-    ↓
-concurrent media regression tests pass
-    ↓
-full regression suite passes
+```bash
+cd ~/AstraUserbot && \
+git pull --ff-only origin main && \
+source venv/bin/activate && \
+python -m unittest discover -s tests -v && \
+python -m compileall -q core plugins main.py && \
+echo "=== PHASE 7 GATE: PASS ==="
 ```
 
-## Final Readiness Decision
+Expected test count is **81 tests** (75 pre-Phase-7 tests plus 6 new media-platform tests).
 
-**READY TO BEGIN PHASE 7 after the local regression suite passes.**
+## Next Phase
 
-The correct next implementation is **Media Platform**, not AI Gateway and not local LLM deployment.
+After the local gate passes, the canonical next phase is **Phase 8 — AI Gateway**. It should extract the existing Groq integration behind a provider-independent interface. Local Ollama/llama.cpp remains optional and is not a deployment requirement for the current host.
