@@ -1,9 +1,10 @@
-import re
 import asyncio
+import re
+
+from core.context import get_application_context
 from core.registry import register_cmd
 from core.errors import CommandError
 from helpers.hud import render
-from helpers.net import get_session
 from config import config
 
 PATTERN = rf"^{re.escape(config.PREFIX)}osint(?:\s+(\S+))?$"
@@ -27,13 +28,12 @@ async def setup(client):
         description="Scan username across public social platforms. Usage: .osint <username>"
     )
 
-async def _check_profile(session, name: str, platform: str, url_template: str) -> tuple[str, bool]:
+async def _check_profile(http, name: str, platform: str, url_template: str) -> tuple[str, bool]:
     url = url_template.format(name)
     headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"}
     try:
-        async with session.get(url, headers=headers, allow_redirects=True, timeout=5) as resp:
-            # 200 OK generally indicates a hit, some platforms might return 404 for missing
-            return platform, resp.status == 200
+        response = await http.get(url, headers=headers, allow_redirects=True, timeout=5, response_limit=64 * 1024)
+        return platform, response.status == 200
     except Exception:
         return platform, False
 
@@ -42,14 +42,18 @@ async def handle_osint(event):
     if not username:
         raise CommandError("Please provide a username to scan. Usage: .osint <username>")
 
+    context = get_application_context()
+    if context is None:
+        raise CommandError("HTTP service is unavailable.")
+    http = context.get("http")
+
     await event.edit(render(
         title="OSINT RECON",
         rows=[f"Target: {username}", "Scanning public platforms..."],
         footer="advanced | osint"
     ))
 
-    session = get_session()
-    tasks = [_check_profile(session, username, platform, template) for platform, template in PLATFORMS.items()]
+    tasks = [_check_profile(http, username, platform, template) for platform, template in PLATFORMS.items()]
     results = await asyncio.gather(*tasks)
 
     rows = [f"Target: `{username}`", "---"]
