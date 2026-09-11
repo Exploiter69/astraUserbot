@@ -2,23 +2,21 @@ import re
 import time
 from telethon import events
 from telethon.tl.functions.contacts import GetContactsRequest
-from telethon.tl.functions.contacts import BlockRequest, UnblockRequest
+from telethon.tl.functions.contacts import BlockRequest
 from core.registry import register_cmd
 from core.database import Database
+from core.errors import CommandError
 from helpers.hud import render
 from helpers.entity import resolve_target
 from config import config
 
-# .block/.unblock are owned exclusively by security/acl.py. PM Guard keeps
-# automatic Telegram blocking internally but does not register duplicate commands.
 db = Database.get("pmguard")
 PATTERN = rf"^{re.escape(config.PREFIX)}(pmpermit|allow|approve|disallow|disapprove|listallowed|listdisallowed)(?:\s+(.*))?$"
-
 _warn_throttle = {}
 _cached_contacts = set()
 _last_contact_refresh = 0.0
 _CONTACT_REFRESH_SECONDS = 300
-
+_MAX_LIST = 100
 
 async def _refresh_contacts(client, *, force=False):
     global _last_contact_refresh
@@ -31,9 +29,7 @@ async def _refresh_contacts(client, *, force=False):
         _cached_contacts.update(contact.id for contact in contacts.users)
         _last_contact_refresh = now
     except Exception:
-        # Keep the previous cache on transient Telegram failures.
         return
-
 
 async def setup(client):
     await db.init_schema("""
@@ -46,74 +42,64 @@ async def setup(client):
     client.add_event_handler(pm_watcher, events.NewMessage(incoming=True, func=lambda e: e.is_private))
     await _refresh_contacts(client, force=True)
 
-
 async def handle_pmguard(event):
     cmd = event.pattern_match.group(1).lower()
-    arg = event.pattern_match.group(2)
-
+    arg = (event.pattern_match.group(2) or "").strip()
     if cmd == "pmpermit":
-        state = 1 if arg and arg.lower() == "on" else 0
+        if arg.lower() not in {"", "on", "off"}:
+            raise CommandError("Usage: .pmpermit [on|off]")
+        state = 1 if arg.lower() == "on" else 0
         await db.execute("UPDATE pm_settings SET enabled = ? WHERE id = 1", (state,))
         await event.edit(render("PM GUARD", [f"Status: {'ENABLED' if state else 'DISABLED'}"]))
         return
-
     if cmd in ("listallowed", "listdisallowed"):
         table = "pm_whitelist" if cmd == "listallowed" else "pm_strikes WHERE blocked = 1"
-        rows = await db.fetchall(f"SELECT user_id FROM {table}")
+        rows = await db.fetchall(f"SELECT user_id FROM {table} LIMIT ?", (_MAX_LIST,))
         text_rows = [f"- {r[0]}" for r in rows] if rows else ["No records found."]
         await event.edit(render(cmd.upper(), text_rows))
         return
-
+    if cmd not in {"allow", "approve", "disallow", "disapprove"}:
+        raise CommandError("Unknown PM Guard command.")
     target = await resolve_target(event)
-
+    if target.id == config.OWNER_ID:
+        raise CommandError("Cannot modify the owner authorization.")
     if cmd in ("allow", "approve"):
         await db.execute("INSERT OR REPLACE INTO pm_whitelist (user_id) VALUES (?)", (target.id,))
         await db.execute("DELETE FROM pm_strikes WHERE user_id = ?", (target.id,))
         await event.edit(render("PM GUARD", [f"User {target.id} whitelisted."]))
-    elif cmd in ("disallow", "disapprove"):
+    else:
         await db.execute("DELETE FROM pm_whitelist WHERE user_id = ?", (target.id,))
         await db.execute("DELETE FROM pm_strikes WHERE user_id = ?", (target.id,))
         await event.edit(render("PM GUARD", [f"User {target.id} authorization revoked."]))
 
-
 async def pm_watcher(event):
     if not event.is_private or event.sender_id == config.OWNER_ID:
         return
-
     await _refresh_contacts(event.client)
     if event.sender_id in _cached_contacts:
         return
-
     status = await db.fetchone("SELECT enabled FROM pm_settings WHERE id = 1")
     if not status or status[0] == 0:
         return
-
     wl = await db.fetchone("SELECT user_id FROM pm_whitelist WHERE user_id = ?", (event.sender_id,))
     if wl:
         return
-
     strike_data = await db.fetchone("SELECT strikes, blocked FROM pm_strikes WHERE user_id = ?", (event.sender_id,))
     strikes = strike_data[0] if strike_data else 0
     blocked = strike_data[1] if strike_data else 0
     if blocked:
         return
-
-    now = time.time()
-    last_warn = _warn_throttle.get(event.sender_id, 0)
-
+    now = time.time(); last_warn = _warn_throttle.get(event.sender_id, 0)
     if strikes >= 3:
         await db.execute("UPDATE pm_strikes SET strikes = 4, blocked = 1 WHERE user_id = ?", (event.sender_id,))
         await event.reply(render("PM GUARD: BLOCKED", ["You have exceeded the warning limit.", "Automated block executed."]))
-        await event.client(BlockRequest(event.sender_id))
+        try:
+            await event.client(BlockRequest(event.sender_id))
+        except Exception:
+            return
         return
-
     if now - last_warn > 30:
         strikes += 1
         await db.execute("INSERT OR REPLACE INTO pm_strikes (user_id, strikes, blocked) VALUES (?, ?, 0)", (event.sender_id, strikes))
         _warn_throttle[event.sender_id] = now
-        await event.reply(render("PM GUARD INTERVENTION", [
-            "I am currently unavailable.",
-            "Please wait for approval before sending further messages.",
-            "---",
-            f"Strike {strikes}/3. Further spam will result in a ban."
-        ]))
+        await event.reply(render("PM GUARD INTERVENTION", ["I am currently unavailable.", "Please wait for approval before sending further messages.", "---", f"Strike {strikes}/3. Further spam will result in a ban."]))
