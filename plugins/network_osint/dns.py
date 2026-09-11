@@ -9,6 +9,8 @@ from config import config
 
 PATTERN = rf"^{re.escape(config.PREFIX)}dns(?:\s+(\S+))?(?:\s+(\S+))?$"
 ALLOWED_TYPES = frozenset({"A", "AAAA", "MX", "TXT", "NS", "CNAME"})
+_MAX_DOMAIN = 253
+_MAX_ANSWERS = 20
 
 async def setup(client):
     register_cmd(
@@ -20,11 +22,15 @@ async def setup(client):
     )
 
 async def handle_dns(event):
-    domain = event.pattern_match.group(1)
+    domain = (event.pattern_match.group(1) or "").strip()
     record_type = (event.pattern_match.group(2) or "A").upper()
 
     if not domain:
         raise CommandError("Please provide a domain. Usage: .dns <domain> [A|AAAA|MX|TXT|NS|CNAME]")
+    if len(domain) > _MAX_DOMAIN:
+        raise CommandError("Domain name is too long.")
+    if any(char.isspace() for char in domain):
+        raise CommandError("Domain name must not contain whitespace.")
     if record_type not in ALLOWED_TYPES:
         raise CommandError("Unsupported DNS record type. Use A, AAAA, MX, TXT, NS, or CNAME.")
 
@@ -64,10 +70,12 @@ async def handle_dns(event):
         return
 
     rows = [f"Domain: {domain}", f"Type: {record_type}", "---"]
-    for ans in answers:
-        data_val = ans.get("data", "")
+    for ans in answers[:_MAX_ANSWERS]:
+        data_val = str(ans.get("data", ""))[:1000]
         ttl = ans.get("TTL", "")
         rows.append(f"• {data_val} (TTL: {ttl}s)")
+    if len(answers) > _MAX_ANSWERS:
+        rows.append(f"[truncated: {len(answers) - _MAX_ANSWERS} more records]")
 
     await event.edit(render(
         title="DNS LOOKUP",
