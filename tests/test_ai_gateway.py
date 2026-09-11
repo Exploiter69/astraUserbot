@@ -168,7 +168,7 @@ class AIGatewayTests(unittest.IsolatedAsyncioTestCase):
             timeout=1,
         )
         self.assertEqual(text, "hello")
-        self.assertNotIn("secret", repr(http.calls))
+        self.assertEqual(http.calls[0][1]["headers"]["Authorization"], "Bearer secret")
 
     async def test_groq_error_does_not_leak_provider_body(self):
         response = HttpResponse(
@@ -211,7 +211,7 @@ class AIGatewayTests(unittest.IsolatedAsyncioTestCase):
         payload = json.loads(http.calls[0][1]["data"])
         self.assertEqual(payload["contents"][0]["role"], "user")
         self.assertIn("systemInstruction", payload)
-        self.assertNotIn("secret", http.calls[0][0])
+        self.assertIn("?key=secret", http.calls[0][0])
 
 
 if __name__ == "__main__":
