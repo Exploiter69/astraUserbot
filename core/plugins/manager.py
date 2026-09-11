@@ -53,9 +53,6 @@ class PluginDependencyError(PluginError):
 class PluginManager:
     """Own plugin discovery and lifecycle without changing plugin behavior."""
 
-    # The Phase 8 command adapters live in plugins/ai_gateway. These legacy
-    # Groq-specific command modules remain in the tree as a compatibility
-    # reference but must not register duplicate commands at runtime.
     _QUARANTINED_MODULES = frozenset({
         "plugins.ai.ask",
         "plugins.ai.summarize",
@@ -231,51 +228,88 @@ class PluginManager:
     async def unload(self, name: str) -> PluginRecord:
         """Run shutdown and remove all registrations owned by the plugin."""
         record = self.records[name]
-        if record.module is not None:
-            shutdown = getattr(record.module, "shutdown", None)
-            if shutdown is not None:
-                token_plugin = self._current_plugin.set(name)
-                token_manager = self._current_manager.set(self)
-                try:
-                    result = shutdown(self.client)
-                    if inspect.isawaitable(result):
-                        await result
-                finally:
-                    self._current_manager.reset(token_manager)
-                    self._current_plugin.reset(token_plugin)
-        try:
-            from core.registry import unregister_owner
-            unregister_owner(name)
-        except ImportError:
-            logger.exception("Could not clean registrations for plugin %s", name)
-        record.registrations.clear()
+        if record.state not in {PluginState.RUNNING, PluginState.FAILED_SETUP}:
+            return record
+        shutdown = getattr(record.module, "shutdown", None)
+        if shutdown is not None:
+            token_plugin = self._current_plugin.set(name)
+            token_manager = self._current_manager.set(self)
+            try:
+                result = shutdown(self.client)
+                if inspect.isawaitable(result):
+                    await result
+            finally:
+                self._current_manager.reset(token_manager)
+                self._current_plugin.reset(token_plugin)
+
+        if record.registrations:
+            from core.registry import get_registration
+
+            for registration_id in list(record.registrations):
+                registration = get_registration(registration_id)
+                registration.unregister(self.client)
+            record.registrations.clear()
+
         record.state = PluginState.UNLOADED
         return record
 
+    async def shutdown(self) -> None:
+        """Unload running plugins in reverse dependency order."""
+        names = [name for name in reversed(self._load_order) if self.records[name].state == PluginState.RUNNING]
+        for name in names:
+            try:
+                await self.unload(name)
+            except Exception:
+                logger.error("Plugin shutdown failed: %s", name, exc_info=True)
+
     def disable(self, name: str) -> None:
-        self._disabled.add(name)
         if name in self.records:
+            self._disabled.add(name)
             self.records[name].state = PluginState.DISABLED
 
     def enable(self, name: str) -> None:
         self._disabled.discard(name)
+        if name in self.records and self.records[name].state == PluginState.DISABLED:
+            self.records[name].state = PluginState.DISCOVERED
 
-    def startup_report(self) -> dict[str, str]:
-        return {name: record.state.value for name, record in sorted(self.records.items())}
+    def get(self, name: str) -> PluginRecord:
+        return self.records[name]
+
+    def snapshot(self) -> list[dict[str, Any]]:
+        """Return safe, serialization-friendly lifecycle information."""
+        return [
+            {
+                "name": record.name,
+                "state": record.state.value,
+                "dependencies": list(record.dependencies),
+                "critical": record.critical,
+                "error": record.error,
+                "registrations": sorted(record.registrations),
+            }
+            for record in sorted(self.records.values(), key=lambda item: item.name)
+        ]
+
+    def register_ownership(self, registration: str) -> None:
+        """Associate a command/event registration with the active plugin."""
+        owner = self.current_plugin()
+        if owner and owner in self.records:
+            self.records[owner].registrations.add(registration)
 
     def _log_report(self) -> None:
-        summary = ", ".join(
-            f"{name}={record.state.value}"
-            for name, record in sorted(self.records.items())
-        )
-        logger.info("Plugin startup report: %s", summary)
+        counts: dict[str, int] = {}
+        for record in self.records.values():
+            counts[record.state.value] = counts.get(record.state.value, 0) + 1
+        logger.info("Plugin startup report: %s", ", ".join(
+            f"{state}={counts[state]}" for state in sorted(counts)
+        ))
 
-    async def shutdown(self) -> None:
-        """Unload running plugins in reverse load order."""
-        for name in reversed(self._load_order):
-            record = self.records.get(name)
-            if record and record.state == PluginState.RUNNING:
-                try:
-                    await self.unload(name)
-                except Exception:
-                    logger.exception("Plugin shutdown failed: %s", name)
+
+@asynccontextmanager
+async def managed_plugins(client: Any, plugin_root: Path) -> AsyncIterator[PluginManager]:
+    """Convenience lifecycle context for tests and future bootstrap wiring."""
+    manager = PluginManager(client, plugin_root)
+    await manager.load_all()
+    try:
+        yield manager
+    finally:
+        await manager.shutdown()
