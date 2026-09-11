@@ -201,7 +201,10 @@ class JobEngine:
         now = time.time()
         async with self.storage.lock:
             assert self.storage.conn is not None
-            rows = await self.storage.fetchall("SELECT job_id FROM leases WHERE expires_at<?", (now,))
+            # Do not call StorageService.fetchall() while holding storage.lock;
+            # that helper acquires the same non-reentrant lock and would deadlock.
+            async with self.storage.conn.execute("SELECT job_id FROM leases WHERE expires_at<?", (now,)) as cursor:
+                rows = await cursor.fetchall()
             for row in rows:
                 await self.storage.conn.execute("UPDATE jobs SET state=?,available_at=?,updated_at=? WHERE id=? AND state=?", (JobState.QUEUED.value, now, now, row[0], JobState.RUNNING.value))
                 await self.storage.conn.execute("DELETE FROM leases WHERE job_id=?", (row[0],))
@@ -281,8 +284,7 @@ class JobEngine:
 
     async def _event_locked(self, job_id: str, event_type: str, payload: dict[str, Any]) -> None:
         assert self.storage.conn is not None
-        await self.storage.conn.execute("INSERT INTO job_events(job_id,event_type,payload_json,created_at) VALUES (?,?,?,?)", (job_id, event_type, json.dumps(payload, separators=(",", ":"), default=str), time.time()))
+        await self.storage.conn.execute("INSERT INTO job_events(job_id,event_type,payload_json,created_at) VALUES (?,?,?,?)", (job_id, event_type, json.dumps(payload, separators=(",", ":")), time.time()))
 
-    @staticmethod
-    def _row_to_job(row: Any) -> Job:
-        return Job(id=row["id"], type=row["type"], state=JobState(row["state"]), payload=json.loads(row["payload_json"]), result=json.loads(row["result_json"]) if row["result_json"] else None, error_code=row["error_code"], error_message=row["error_message"], owner=row["owner"], parent_id=row["parent_id"], attempt_count=row["attempt_count"], max_attempts=row["max_attempts"], progress=row["progress"], resource_class=row["resource_class"], priority=row["priority"], verify_required=bool(row["verify_required"]))
+    def _row_to_job(self, row: Any) -> Job:
+        return Job(id=row["id"], type=row["type"], state=JobState(row["state"]), payload=json.loads(row["payload_json"]), result=json.loads(row["result_json"]) if row["result_json"] else None, error_code=row["error_code"], error_message=row["error_message"], owner=row["owner"], parent_id=row["parent_id"], attempt_count=int(row["attempt_count"]), max_attempts=int(row["max_attempts"]), progress=float(row["progress"]), resource_class=row["resource_class"], priority=int(row["priority"]), verify_required=bool(row["verify_required"]))
