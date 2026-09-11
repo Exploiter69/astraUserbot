@@ -1,7 +1,7 @@
 # AstraUserbot — Detailed Job Model
 
 **Status:** Mandatory execution contract  
-**Version:** 2.0  
+**Version:** 2.1  
 **Scope:** Durable asynchronous work, scheduling, workers, retries, leases, verification, recovery, cancellation, idempotency
 
 ## 1. Purpose
@@ -111,6 +111,7 @@ QUEUED
 RUNNING
 PAUSED
 VERIFYING
+UNCERTAIN
 COMPLETED
 FAILED
 CANCELLED
@@ -122,13 +123,16 @@ Normal path:
 
 Transient failure may return to `QUEUED` after retry scheduling.
 
+`UNCERTAIN` means the executor stopped or was interrupted after durable acceptance while the external outcome cannot be proven. It is intentionally non-runnable until explicitly reconciled and requeued.
+
 ## 7. Transition Matrix
 
 ```text
 QUEUED    → RUNNING | CANCELLED
-RUNNING   → QUEUED | PAUSED | VERIFYING | FAILED | CANCELLED
+RUNNING   → QUEUED | PAUSED | VERIFYING | FAILED | UNCERTAIN
 PAUSED    → QUEUED | CANCELLED
-VERIFYING → COMPLETED | QUEUED | FAILED
+VERIFYING → COMPLETED | QUEUED | FAILED | UNCERTAIN
+UNCERTAIN → QUEUED (explicit reconciliation/requeue only)
 COMPLETED → terminal
 FAILED    → terminal unless explicit retry creates/reopens according to policy
 CANCELLED → terminal
@@ -192,14 +196,15 @@ execution outcome = UNKNOWN
 Recovery:
 
 1. detect expired lease;
-2. mark recovery candidate;
+2. mark the job `UNCERTAIN`;
 3. inspect attempt history;
 4. determine whether external side effects may have occurred;
 5. reconcile where possible;
 6. retry only when safe;
-7. audit decision.
+7. explicitly requeue only after reconciliation;
+8. audit the decision.
 
-Never automatically replay an uncertain external mutation merely because a worker disappeared.
+**Never automatically replay an uncertain external mutation merely because a worker disappeared.**
 
 ## 12. Retry Policy
 
@@ -301,7 +306,7 @@ Cancellation is persisted.
 
 A worker should stop cooperatively at safe checkpoints. For subprocess/media work, cancellation terminates the controlled child process and cleans the workspace.
 
-If cancellation occurs after an uncertain external side effect, the job records that uncertainty and may require reconciliation.
+If cancellation interrupts active work, the job is `UNCERTAIN` rather than falsely terminal, because an external side effect may already have occurred. Queued work can be safely marked `CANCELLED`.
 
 ## 18. Scheduling
 
@@ -347,6 +352,7 @@ Startup recovery inspects:
 - RUNNING jobs without workers;
 - overdue retry times;
 - VERIFYING jobs;
+- UNCERTAIN jobs awaiting reconciliation;
 - orphaned child jobs;
 - abandoned media workspaces.
 
@@ -366,7 +372,7 @@ STORAGE
 TELEGRAM
 ```
 
-Each class can have independent concurrency limits. This prevents, for example, several FFmpeg jobs from consuming all resources needed for Telegram responsiveness.
+The current engine uses one local execution lane, which bounds total live job concurrency but does not yet expose independent per-class limits. Phase 7 must introduce explicit media/resource concurrency policy before enabling concurrent heavy media jobs.
 
 ## 23. Failure Codes
 
@@ -384,6 +390,8 @@ TIMEOUT
 RESOURCE_LIMIT
 INTEGRITY_FAILED
 LEASE_EXPIRED
+CANCELLATION_UNCERTAIN
+WORKER_SHUTDOWN
 CANCELLED
 UNSUPPORTED
 INTERNAL_ERROR
@@ -409,6 +417,10 @@ VERIFIED
 COMPLETED
 FAILED
 CANCELLED
+CANCELLED_UNCERTAIN
+LEASE_EXPIRED_UNCERTAIN
+WORKER_SHUTDOWN_UNCERTAIN
+UNCERTAIN_REQUEUED
 RECOVERED
 ```
 
@@ -479,6 +491,8 @@ Mandatory tests include:
 - process restart recovery;
 - lease acquisition/race;
 - lease expiry;
+- uncertain-state recovery;
+- explicit uncertain requeue;
 - retry exhaustion;
 - backoff bounds;
 - cancellation;
