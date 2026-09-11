@@ -53,8 +53,8 @@ Telegram / external systems
    │        ├── L1        ├── Tasks      ├── HTTP
    │        ├── L2        └── Durable    ├── Subprocess
    │        └── L3            Jobs       ├── Telegram
-   │                                     └── Workspace
-   └── SQLite WAL / migrations
+   │                                     ├── Workspace
+   └── SQLite WAL / migrations            └── Media
 ```
 
 ## 5. Platform Before Plugins
@@ -75,6 +75,10 @@ Storage / migration foundation
 Durable jobs
       ↓
 Confirmed reliability fixes
+      ↓
+Media Platform
+      ↓
+AI Gateway
       ↓
 Plugin migration batches
       ↓
@@ -245,8 +249,9 @@ Diagnostics are therefore part of the platform design, not an afterthought.
 
 - durable job persistence;
 - canonical `QUEUED/RUNNING/PAUSED/VERIFYING/COMPLETED/FAILED/CANCELLED` states;
+- `UNCERTAIN` state for unknown external outcomes;
 - worker leasing and heartbeat;
-- expired-lease recovery;
+- explicit reconciliation before uncertain replay;
 - bounded retry/backoff and stable failure codes;
 - idempotency keys;
 - cancellation;
@@ -259,7 +264,7 @@ Diagnostics are therefore part of the platform design, not an afterthought.
 - ApplicationContext lifecycle integration;
 - no-handler and unexpected-failure containment.
 
-**Phase 6 — Confirmed P0 Reliability Fixes: IMPLEMENTED; gate pending local verification.**
+**Phase 6 — Confirmed P0 Reliability Fixes: COMPLETE.**
 
 - `.block` / `.unblock` now have one command owner;
 - advertised admin `demote` and `slow` commands are implemented;
@@ -271,10 +276,29 @@ Diagnostics are therefore part of the platform design, not an afterthought.
 - AFK auto-replies have a bounded per-sender cooldown;
 - stream downloads use unique workspaces and deterministic cleanup;
 - media temporary files clean up on failure paths;
-- rclone/aria2 use the shared SubprocessService when the runtime context is available;
-- Phase 6 regression coverage covers command ownership, admin surface, secrets, eval concurrency, retention, cooldowns, media isolation, cleanup and subprocess routing.
+- rclone/aria2 use the shared SubprocessService;
+- durable-job uncertainty recovery is explicitly tested.
 
-**Gate 6:** run the full test and compile gate locally. No bot restart is required for test-only verification.
+**Pre-Phase-7 Gate:** **75/75 tests passing + compile validation passing.**
+
+**Phase 7 — Media Platform: IMPLEMENTATION COMPLETE.**
+
+- new `MediaService` is registered in `ApplicationContext`;
+- unique operation workspaces are authoritative;
+- media input/output/workspace limits are enforced;
+- media concurrency is bounded;
+- FFmpeg commands use explicit argv;
+- FFprobe verification is used when available;
+- deterministic download artifact manifests replace newest-file selection;
+- TTS and download outputs are verified before upload;
+- rclone is governed by a media operation allowlist;
+- all seven Phase 7 media consumers use `MediaService`;
+- every migrated consumer cleans its operation workspace in `finally` paths;
+- dedicated media regression coverage was added.
+
+**Gate 7:** implementation complete; final local regression verification is required. Expected suite: **81 tests**.
+
+**Next:** Phase 8 — AI Gateway. The first target is provider-independent extraction of the existing Groq integration; local inference remains optional.
 
 ## 13. Definition of Success
 
