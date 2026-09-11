@@ -156,14 +156,47 @@ class StorageAndJobsGateTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await engine.get(job.id)).state, JobState.CANCELLED)
         self.assertFalse(ran)
 
-    async def test_expired_lease_recovers_to_queue(self):
+    async def test_expired_lease_becomes_uncertain_not_queue(self):
         engine = JobEngine(self.storage, worker_id='worker-a', lease_seconds=5)
         job = await engine.enqueue('TEST')
         await engine.claim()
         await self.storage.execute("UPDATE leases SET expires_at=0 WHERE job_id=?", (job.id,))
         recovered = await engine.recover_expired()
         self.assertEqual(recovered, 1)
-        self.assertEqual((await engine.get(job.id)).state, JobState.QUEUED)
+        recovered_job = await engine.get(job.id)
+        self.assertEqual(recovered_job.state, JobState.UNCERTAIN)
+        self.assertEqual(recovered_job.error_code, 'LEASE_EXPIRED')
+
+    async def test_uncertain_job_requires_explicit_requeue(self):
+        engine = JobEngine(self.storage, worker_id='worker-a', lease_seconds=5)
+        job = await engine.enqueue('TEST')
+        await engine.claim()
+        await self.storage.execute("UPDATE leases SET expires_at=0 WHERE job_id=?", (job.id,))
+        await engine.recover_expired()
+        with self.assertRaises(ValueError):
+            await engine.claim()
+        requeued = await engine.requeue_uncertain(job.id)
+        self.assertEqual(requeued.state, JobState.QUEUED)
+        claimed = await engine.claim()
+        self.assertEqual(claimed.id, job.id)
+
+    async def test_shutdown_marks_active_job_uncertain(self):
+        engine = JobEngine(self.storage, poll_seconds=0.01)
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def handler(_job):
+            started.set()
+            await release.wait()
+
+        engine.register_handler('TEST', handler)
+        job = await engine.enqueue('TEST')
+        await engine.start()
+        await asyncio.wait_for(started.wait(), timeout=1)
+        await engine.close()
+        done = await engine.get(job.id)
+        self.assertEqual(done.state, JobState.UNCERTAIN)
+        self.assertEqual(done.error_code, 'WORKER_SHUTDOWN')
 
     async def test_verify_required_enters_verifying(self):
         engine = JobEngine(self.storage)
