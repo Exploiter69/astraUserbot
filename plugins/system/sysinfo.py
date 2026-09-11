@@ -1,8 +1,9 @@
 import re
 
+from core.context import get_application_context
 from core.registry import register_cmd
 from helpers.hud import render
-from helpers.shell import run
+from core.errors import CommandError
 from config import config
 
 PATTERN = rf"^{re.escape(config.PREFIX)}sysinfo$"
@@ -19,16 +20,28 @@ async def setup(client):
 
 
 async def handle_sysinfo(event):
+    context = get_application_context()
+    if context is None:
+        raise CommandError("Subprocess service is unavailable.")
+    subprocess = context.get("subprocess")
+
     await event.edit(render(title="SYSINFO", rows=["Gathering telemetry..."]))
 
-    rc_uname, out_uname, _ = await run(["uname", "-r"])
-    rc_uptime, out_uptime, _ = await run(["uptime", "-p"])
-    rc_mem, out_mem, _ = await run(["free", "-m"])
+    try:
+        results = await __import__("asyncio").gather(
+            subprocess.run(["uname", "-r"], timeout=5, max_output_bytes=16 * 1024),
+            subprocess.run(["uptime", "-p"], timeout=5, max_output_bytes=16 * 1024),
+            subprocess.run(["free", "-m"], timeout=5, max_output_bytes=16 * 1024),
+        )
+    except Exception as exc:
+        raise CommandError("Failed to collect system telemetry.") from exc
 
-    os_info = out_uname.strip() if rc_uname == 0 else "Unknown"
-    uptime_info = out_uptime.strip() if rc_uptime == 0 else "Unknown"
-    if rc_mem == 0:
-        mem_line = next((line for line in out_mem.splitlines() if line.startswith("Mem:")), "")
+    uname_result, uptime_result, mem_result = results
+    os_info = uname_result.stdout.strip() if uname_result.returncode == 0 else "Unknown"
+    uptime_info = uptime_result.stdout.strip() if uptime_result.returncode == 0 else "Unknown"
+
+    if mem_result.returncode == 0:
+        mem_line = next((line for line in mem_result.stdout.splitlines() if line.startswith("Mem:")), "")
         mem_parts = mem_line.split()
         mem_info = f"{mem_parts[2]}MB / {mem_parts[1]}MB" if len(mem_parts) >= 3 else "Unknown"
     else:
