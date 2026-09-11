@@ -13,80 +13,15 @@ import aiosqlite
 
 MIGRATIONS: tuple[tuple[int, str], ...] = (
     (1, """
-    CREATE TABLE IF NOT EXISTS plugins (
-        name TEXT PRIMARY KEY,
-        module TEXT NOT NULL,
-        state TEXT NOT NULL,
-        updated_at REAL NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS commands (
-        pattern TEXT PRIMARY KEY,
-        plugin_name TEXT,
-        aliases_json TEXT NOT NULL DEFAULT '[]',
-        metadata_json TEXT NOT NULL DEFAULT '{}',
-        updated_at REAL NOT NULL,
-        FOREIGN KEY(plugin_name) REFERENCES plugins(name) ON DELETE SET NULL
-    );
-    CREATE TABLE IF NOT EXISTS jobs (
-        id TEXT PRIMARY KEY,
-        type TEXT NOT NULL,
-        state TEXT NOT NULL,
-        payload_json TEXT NOT NULL,
-        result_json TEXT,
-        error_code TEXT,
-        error_message TEXT,
-        owner TEXT,
-        parent_id TEXT,
-        idempotency_key TEXT UNIQUE,
-        resource_class TEXT NOT NULL DEFAULT 'default',
-        priority INTEGER NOT NULL DEFAULT 0,
-        progress REAL NOT NULL DEFAULT 0,
-        created_at REAL NOT NULL,
-        updated_at REAL NOT NULL,
-        available_at REAL NOT NULL,
-        started_at REAL,
-        completed_at REAL,
-        max_attempts INTEGER NOT NULL DEFAULT 3,
-        attempt_count INTEGER NOT NULL DEFAULT 0,
-        verify_required INTEGER NOT NULL DEFAULT 0,
-        FOREIGN KEY(parent_id) REFERENCES jobs(id) ON DELETE SET NULL
-    );
+    CREATE TABLE IF NOT EXISTS plugins (name TEXT PRIMARY KEY, module TEXT NOT NULL, state TEXT NOT NULL, updated_at REAL NOT NULL);
+    CREATE TABLE IF NOT EXISTS commands (pattern TEXT PRIMARY KEY, plugin_name TEXT, aliases_json TEXT NOT NULL DEFAULT '[]', metadata_json TEXT NOT NULL DEFAULT '{}', updated_at REAL NOT NULL, FOREIGN KEY(plugin_name) REFERENCES plugins(name) ON DELETE SET NULL);
+    CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, type TEXT NOT NULL, state TEXT NOT NULL, payload_json TEXT NOT NULL, result_json TEXT, error_code TEXT, error_message TEXT, owner TEXT, parent_id TEXT, idempotency_key TEXT UNIQUE, resource_class TEXT NOT NULL DEFAULT 'default', priority INTEGER NOT NULL DEFAULT 0, progress REAL NOT NULL DEFAULT 0, created_at REAL NOT NULL, updated_at REAL NOT NULL, available_at REAL NOT NULL, started_at REAL, completed_at REAL, max_attempts INTEGER NOT NULL DEFAULT 3, attempt_count INTEGER NOT NULL DEFAULT 0, verify_required INTEGER NOT NULL DEFAULT 0, FOREIGN KEY(parent_id) REFERENCES jobs(id) ON DELETE SET NULL);
     CREATE INDEX IF NOT EXISTS idx_jobs_ready ON jobs(state, available_at, priority DESC, created_at);
     CREATE INDEX IF NOT EXISTS idx_jobs_parent ON jobs(parent_id);
-    CREATE TABLE IF NOT EXISTS job_attempts (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        job_id TEXT NOT NULL,
-        attempt INTEGER NOT NULL,
-        state TEXT NOT NULL,
-        started_at REAL NOT NULL,
-        finished_at REAL,
-        error_code TEXT,
-        error_message TEXT,
-        FOREIGN KEY(job_id) REFERENCES jobs(id) ON DELETE CASCADE
-    );
-    CREATE TABLE IF NOT EXISTS job_events (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        job_id TEXT NOT NULL,
-        event_type TEXT NOT NULL,
-        payload_json TEXT NOT NULL DEFAULT '{}',
-        created_at REAL NOT NULL,
-        FOREIGN KEY(job_id) REFERENCES jobs(id) ON DELETE CASCADE
-    );
-    CREATE TABLE IF NOT EXISTS leases (
-        job_id TEXT PRIMARY KEY,
-        worker_id TEXT NOT NULL,
-        leased_at REAL NOT NULL,
-        heartbeat_at REAL NOT NULL,
-        expires_at REAL NOT NULL,
-        FOREIGN KEY(job_id) REFERENCES jobs(id) ON DELETE CASCADE
-    );
-    CREATE TABLE IF NOT EXISTS audit_events (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        kind TEXT NOT NULL,
-        subject_id TEXT,
-        payload_json TEXT NOT NULL DEFAULT '{}',
-        created_at REAL NOT NULL
-    );
+    CREATE TABLE IF NOT EXISTS job_attempts (id INTEGER PRIMARY KEY AUTOINCREMENT, job_id TEXT NOT NULL, attempt INTEGER NOT NULL, state TEXT NOT NULL, started_at REAL NOT NULL, finished_at REAL, error_code TEXT, error_message TEXT, FOREIGN KEY(job_id) REFERENCES jobs(id) ON DELETE CASCADE);
+    CREATE TABLE IF NOT EXISTS job_events (id INTEGER PRIMARY KEY AUTOINCREMENT, job_id TEXT NOT NULL, event_type TEXT NOT NULL, payload_json TEXT NOT NULL DEFAULT '{}', created_at REAL NOT NULL, FOREIGN KEY(job_id) REFERENCES jobs(id) ON DELETE CASCADE);
+    CREATE TABLE IF NOT EXISTS leases (job_id TEXT PRIMARY KEY, worker_id TEXT NOT NULL, leased_at REAL NOT NULL, heartbeat_at REAL NOT NULL, expires_at REAL NOT NULL, FOREIGN KEY(job_id) REFERENCES jobs(id) ON DELETE CASCADE);
+    CREATE TABLE IF NOT EXISTS audit_events (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, subject_id TEXT, payload_json TEXT NOT NULL DEFAULT '{}', created_at REAL NOT NULL);
     CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_events(created_at);
     """),
 )
@@ -97,7 +32,7 @@ class StorageError(RuntimeError):
 
 
 class StorageService:
-    """Own the canonical platform database and its migration lifecycle."""
+    """Own the canonical platform database and deterministic migration lifecycle."""
 
     def __init__(self, project_root: str | Path) -> None:
         self.project_root = Path(project_root).resolve()
@@ -132,7 +67,8 @@ class StorageService:
                 continue
             try:
                 await self.conn.execute("BEGIN")
-                await self.conn.executescript(sql)
+                for statement in (part.strip() for part in sql.split(";") if part.strip()):
+                    await self.conn.execute(statement)
                 await self.conn.execute("INSERT INTO schema_migrations(version, checksum, applied_at) VALUES (?, ?, strftime('%s','now'))", (version, checksum))
                 await self.conn.commit()
             except Exception:
@@ -186,7 +122,11 @@ class StorageService:
         if target == self.path:
             raise StorageError("Backup destination must differ from source")
         await self.conn.commit()
-        await self.conn.backup(aiosqlite.Connection(await aiosqlite.connect(target)))
+        target_conn = sqlite3.connect(target)
+        try:
+            await self.conn.backup(target_conn)
+        finally:
+            target_conn.close()
         return target
 
     async def close(self) -> None:
