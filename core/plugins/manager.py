@@ -57,6 +57,7 @@ class PluginManager:
         "plugins.ai.ask",
         "plugins.ai.summarize",
         "plugins.ai.transcribe",
+        "plugins.ai.groq_client",
     })
 
     _current_plugin: ContextVar[str | None] = ContextVar(

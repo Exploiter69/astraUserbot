@@ -1,10 +1,11 @@
 import os
+import json
 import re
 import html
-import aiohttp
 from pathlib import Path
 from telethon import events
 from core.registry import register_cmd, COMMANDS
+from core.context import get_application_context
 from helpers.hud import render
 from config import config
 
@@ -705,32 +706,50 @@ async def _publish_telegraph_manual() -> str:
                 
             nodes.append({"tag": "hr"})
 
-    timeout = aiohttp.ClientTimeout(total=8)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.post(
-            "https://api.telegra.ph/createAccount",
-            json={"short_name": "Astra", "author_name": "Astra Engine"}
-        ) as resp:
-            acc_data = await resp.json()
-            token = acc_data.get("result", {}).get("access_token")
+    context = get_application_context()
+    if context is None:
+        raise RuntimeError("Application context is unavailable.")
 
-        if not token:
-            raise RuntimeError("Failed to obtain Telegraph token.")
+    http = context.get("http")
 
-        async with session.post(
-            "https://api.telegra.ph/createPage",
-            json={
-                "access_token": token,
-                "title": "Astra Userbot // Command Manual",
-                "author_name": "Astra System",
-                "content": nodes,
-                "return_content": False
-            }
-        ) as post_resp:
-            res_json = await post_resp.json()
-            if not res_json.get("ok"):
-                raise RuntimeError(f"Telegraph Error: {res_json.get('error', 'Unknown')}")
-            return res_json["result"]["url"]
+    account_response = await http.post(
+        "https://api.telegra.ph/createAccount",
+        data=json.dumps({
+            "short_name": "Astra",
+            "author_name": "Astra Engine",
+        }),
+        headers={"Content-Type": "application/json"},
+        timeout=8,
+        response_limit=128 * 1024,
+    )
+
+    acc_data = json.loads(account_response.text)
+    token = acc_data.get("result", {}).get("access_token")
+
+    if not token:
+        raise RuntimeError("Failed to obtain Telegraph token.")
+
+    page_response = await http.post(
+        "https://api.telegra.ph/createPage",
+        data=json.dumps({
+            "access_token": token,
+            "title": "Astra Userbot // Command Manual",
+            "author_name": "Astra System",
+            "content": nodes,
+            "return_content": False,
+        }),
+        headers={"Content-Type": "application/json"},
+        timeout=8,
+        response_limit=256 * 1024,
+    )
+
+    res_json = json.loads(page_response.text)
+    if not res_json.get("ok"):
+        raise RuntimeError(
+            f"Telegraph Error: {res_json.get('error', 'Unknown')}"
+        )
+
+    return res_json["result"]["url"]
 
 async def setup(client):
     register_cmd(

@@ -31,3 +31,10 @@ Storage migrations are numbered and checksum-protected. A changed historical mig
 ## Command compatibility
 
 The command registry remains the authority. A new plugin must not silently take an existing command or alias.
+
+## Legacy AI compatibility quarantine
+
+`plugins.ai.groq_client` is retained only as a legacy compatibility surface and
+is explicitly quarantined by the plugin manager. The active AI architecture is
+the provider-independent `AIService`; the legacy Groq module is not loaded as
+an active plugin.
