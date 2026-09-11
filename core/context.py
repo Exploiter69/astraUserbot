@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from typing import Any, Protocol, TypeVar
 
-from core.services import CacheService, HttpService, JobEngine, StorageService, SubprocessService, TelegramFacade, WorkspaceService
+from core.services import CacheService, HttpService, JobEngine, SecretStore, StorageService, SubprocessService, TelegramFacade, WorkspaceService
 
 logger = logging.getLogger("astra.context")
 
@@ -36,6 +36,7 @@ class ApplicationContext:
         self.register("telegram", TelegramFacade(client))
         self.register("workspace", WorkspaceService(self.project_root))
         self.register("jobs", JobEngine(self.get("storage")))
+        self.register("secrets", SecretStore())
 
     def register(self, name: str, service: Any) -> Any:
         if not name or name in self.services:
