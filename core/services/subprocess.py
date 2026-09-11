@@ -9,7 +9,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from core.errors import AstraError, ErrorCode, TimeoutError
+from core.errors import ExternalServiceError, NotFoundError, TimeoutError
 
 logger = logging.getLogger("astra.services.subprocess")
 
@@ -64,9 +64,9 @@ class SubprocessService:
                 env=process_env,
             )
         except FileNotFoundError as exc:
-            raise AstraError("Executable not found", code=ErrorCode.NOT_FOUND) from exc
+            raise NotFoundError("Executable not found") from exc
         except OSError as exc:
-            raise AstraError("Unable to start subprocess", code=ErrorCode.SUBPROCESS) from exc
+            raise ExternalServiceError("Unable to start subprocess") from exc
 
         stdout_task = asyncio.create_task(self._read_stream(process.stdout, limit), name="subprocess.stdout")
         stderr_task = asyncio.create_task(self._read_stream(process.stderr, limit), name="subprocess.stderr")
@@ -83,8 +83,6 @@ class SubprocessService:
                     await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
                     raise TimeoutError(f"Subprocess timed out after {timeout_value:g}s")
 
-                stdout_done = stdout_task.done()
-                stderr_done = stderr_task.done()
                 truncated = any(
                     task.done() and not task.cancelled() and task.result()[1]
                     for task in (stdout_task, stderr_task)
