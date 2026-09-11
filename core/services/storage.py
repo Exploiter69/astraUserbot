@@ -24,6 +24,12 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
     CREATE TABLE IF NOT EXISTS audit_events (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, subject_id TEXT, payload_json TEXT NOT NULL DEFAULT '{}', created_at REAL NOT NULL);
     CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_events(created_at);
     """),
+    (2, """
+    CREATE TABLE IF NOT EXISTS feature_flags (name TEXT PRIMARY KEY, enabled INTEGER NOT NULL, metadata_json TEXT NOT NULL DEFAULT '{}', updated_at REAL NOT NULL);
+    CREATE TABLE IF NOT EXISTS search_documents (id TEXT PRIMARY KEY, source TEXT NOT NULL, ref TEXT NOT NULL, title TEXT NOT NULL, content TEXT NOT NULL, updated_at REAL NOT NULL);
+    CREATE INDEX IF NOT EXISTS idx_search_documents_source ON search_documents(source);
+    CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts5(id UNINDEXED, title, content, tokenize='unicode61');
+    """),
 )
 
 
