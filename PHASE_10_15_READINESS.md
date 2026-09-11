@@ -2,7 +2,7 @@
 
 **Scope:** Search & Knowledge, Observability, Feature Expansion, Performance, Optional Isolation, Platform Maturity
 **Cost target:** ₹0 / $0
-**Status:** Implementation complete; local verification is intentionally pending until the owner returns.
+**Status:** PASS — implementation and local verification complete.
 
 ## Phase 10 — Search & Knowledge
 
@@ -105,10 +105,10 @@ python -m tools.astra_platform benchmark
 python -m tools.astra_platform migrate
 ```
 
-If the bot is installed as a service, also perform a controlled startup/shutdown smoke test before declaring production verification complete.
+Controlled startup/shutdown smoke test completed successfully on the owner host.
 
 ## Global completion rule
 
-Implementation completion is not the same as local runtime verification. The phases are not labeled PASS until the owner runs the full suite and the dedicated gate on the actual machine.
+Implementation completion is not the same as local runtime verification. The phases are now labeled PASS after successful owner-host verification.
 
 No paid API, hosted service, or mandatory local LLM was introduced.
