@@ -63,6 +63,7 @@ class PluginManager:
         self.project_root = self.plugin_root.parent
         self.records: dict[str, PluginRecord] = {}
         self._disabled: set[str] = set()
+        self._load_order: list[str] = []
 
     @classmethod
     def current_plugin(cls) -> str | None:
@@ -72,6 +73,7 @@ class PluginManager:
     def discover(self) -> list[PluginRecord]:
         """Discover Python plugin modules in deterministic path order."""
         self.records.clear()
+        self._load_order.clear()
         if not self.plugin_root.exists():
             logger.warning("Plugin directory %s not found.", self.plugin_root)
             return []
@@ -80,8 +82,7 @@ class PluginManager:
             if path.name == "__init__.py" or path.name.startswith("_"):
                 continue
             name = self._module_name(path)
-            record = PluginRecord(name=name)
-            self.records[name] = record
+            self.records[name] = PluginRecord(name=name)
 
         logger.info("Discovered %d plugins.", len(self.records))
         return list(self.records.values())
@@ -134,7 +135,6 @@ class PluginManager:
         if not self.records:
             self.discover()
 
-        # Import first so dependency metadata is available before setup order.
         for name in sorted(self.records):
             record = self.records[name]
             if name in self._disabled:
@@ -161,14 +161,13 @@ class PluginManager:
                     record.error = str(exc)
             raise
 
+        self._load_order = order
         for name in order:
             record = self.records[name]
             if record.state != PluginState.LOADED:
                 continue
             setup = getattr(record.module, "setup", None)
             if setup is None:
-                # Keep legacy behavior: import-only modules are harmless, but
-                # they are not reported as running plugins.
                 record.state = PluginState.RUNNING
                 continue
             token = self._current_plugin.set(name)
@@ -192,11 +191,7 @@ class PluginManager:
         return list(self.records.values())
 
     async def unload(self, name: str) -> PluginRecord:
-        """Run plugin shutdown hook and mark the plugin unloaded.
-
-        Event-handler deregistration is deliberately delegated to the command
-        router/registration layer; the manager only owns plugin lifecycle.
-        """
+        """Run shutdown and remove all registrations owned by the plugin."""
         record = self.records[name]
         if record.state not in {PluginState.RUNNING, PluginState.FAILED_SETUP}:
             return record
@@ -209,13 +204,22 @@ class PluginManager:
                     await result
             finally:
                 self._current_plugin.reset(token)
+
+        if record.registrations:
+            from core.registry import get_registration
+
+            for registration_id in list(record.registrations):
+                registration = get_registration(registration_id)
+                registration.unregister(self.client)
+            record.registrations.clear()
+
         record.state = PluginState.UNLOADED
         return record
 
     async def shutdown(self) -> None:
         """Unload running plugins in reverse dependency order."""
-        running = [name for name, record in self.records.items() if record.state == PluginState.RUNNING]
-        for name in reversed(running):
+        names = [name for name in reversed(self._load_order) if self.records[name].state == PluginState.RUNNING]
+        for name in names:
             try:
                 await self.unload(name)
             except Exception:
