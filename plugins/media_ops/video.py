@@ -1,5 +1,4 @@
 import re
-import os
 from core.context import get_application_context
 from core.registry import register_cmd
 from core.errors import CommandError
@@ -37,7 +36,7 @@ async def handle_video(event):
 
         if cmd == "round":
             output_name = "output.mp4"
-            options = ["-vf", "crop=w=min(in_w\,in_h):h=min(in_w\,in_h),scale=512:512", "-c:v", "libx264", "-crf", "24", "-an"]
+            options = ["-vf", r"crop=w=min(in_w\,in_h):h=min(in_w\,in_h),scale=512:512", "-c:v", "libx264", "-crf", "24", "-an"]
         elif cmd == "ss":
             sec = arg or "00:00:01"
             if len(sec) > 32 or any(ch not in "0123456789:." for ch in sec):
