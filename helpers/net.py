@@ -1,25 +1,39 @@
+"""Compatibility access to the shared HttpService session."""
+
+from __future__ import annotations
+
 import aiohttp
 
-_session: aiohttp.ClientSession | None = None
+
+async def get_http_service():
+    """Return the process ApplicationContext HTTP service when available."""
+    try:
+        from core.context import get_application_context
+
+        context = get_application_context()
+        if context is not None:
+            return context.get("http")
+    except (ImportError, LookupError):
+        pass
+    return None
 
 
 def get_session() -> aiohttp.ClientSession:
-    global _session
-    if _session is None or _session.closed:
-        _session = aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=30, connect=10, sock_connect=10, sock_read=25),
-            connector=aiohttp.TCPConnector(
-                limit=20,
-                limit_per_host=5,
-                ttl_dns_cache=300,
-                keepalive_timeout=30,
-            ),
-        )
-    return _session
+    """Legacy synchronous accessor backed by the shared service when started."""
+    try:
+        from core.context import get_application_context
+
+        context = get_application_context()
+        if context is not None:
+            service = context.get("http")
+            session = service.session
+            if session is not None and not session.closed:
+                return session
+    except (ImportError, LookupError):
+        pass
+    raise RuntimeError("Shared HttpService is not started")
 
 
-async def close_session():
-    global _session
-    if _session and not _session.closed:
-        await _session.close()
-    _session = None
+async def close_session() -> None:
+    """Compatibility no-op; ApplicationContext owns HTTP session shutdown."""
+    return None
