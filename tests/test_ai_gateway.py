@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 
 from core.errors import ConfigurationError, ExternalServiceError, ResourceError
-from core.services.ai import AIService, GeminiProvider, GroqProvider, OllamaProvider
+from core.services.ai import AIService, GeminiProvider, GroqProvider
 from core.services.http import HttpResponse
 
 
@@ -46,7 +46,7 @@ class FakeHttp:
 
 class AIGatewayTests(unittest.IsolatedAsyncioTestCase):
     def make_service(self, provider=None, **kwargs):
-        service = AIService(object(), provider="ollama", **kwargs)
+        service = AIService(object(), provider="groq", **kwargs)
         fake = provider or FakeProvider()
         service._providers["fake"] = fake
         service.provider_name = "fake"
@@ -97,8 +97,8 @@ class AIGatewayTests(unittest.IsolatedAsyncioTestCase):
         service, _ = self.make_service()
         self.assertIn("groq", service.available_providers)
         self.assertIn("gemini", service.available_providers)
-        self.assertIn("ollama", service.available_providers)
-        self.assertIn("llama.cpp", service.available_providers)
+        self.assertNotIn("ollama", service.available_providers)
+        self.assertNotIn("llama.cpp", service.available_providers)
 
     async def test_unknown_provider_is_rejected(self):
         with self.assertRaises(ConfigurationError):
@@ -106,9 +106,12 @@ class AIGatewayTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_transcription_capability_is_enforced(self):
         service, _ = self.make_service()
-        service._providers["no-transcribe"] = OllamaProvider(object(), "http://127.0.0.1:11434/v1")
-        with self.assertRaises(ConfigurationError):
-            await service.transcribe("/does/not/exist", provider="no-transcribe")
+        service._providers["no-transcribe"] = GeminiProvider(object(), "secret")
+        with tempfile.NamedTemporaryFile(suffix=".ogg") as handle:
+            handle.write(b"audio")
+            handle.flush()
+            with self.assertRaises(ConfigurationError):
+                await service.transcribe(handle.name, provider="no-transcribe")
 
     async def test_transcription_is_bounded_and_provider_neutral(self):
         service, fake = self.make_service()
@@ -211,7 +214,8 @@ class AIGatewayTests(unittest.IsolatedAsyncioTestCase):
         payload = json.loads(http.calls[0][1]["data"])
         self.assertEqual(payload["contents"][0]["role"], "user")
         self.assertIn("systemInstruction", payload)
-        self.assertIn("?key=secret", http.calls[0][0])
+        self.assertEqual(http.calls[0][1]["headers"]["x-goog-api-key"], "secret")
+        self.assertNotIn("?key=secret", http.calls[0][0])
 
 
 if __name__ == "__main__":
