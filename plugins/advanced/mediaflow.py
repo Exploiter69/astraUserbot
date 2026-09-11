@@ -8,7 +8,7 @@ from helpers.reply import get_text_and_media
 from helpers.progress import ProgressCallback
 from config import config
 
-PATTERN = rf"^{re.escape(config.PREFIX)}mediaflow(?:\s+(compress|extract|square))?$"
+PATTERN = rf"^{re.escape(config.PREFIX)}mediaflow(?:\s+(compress|extract|square|mute))?$"
 
 
 async def setup(client):
@@ -19,7 +19,7 @@ async def setup(client):
         pattern=PATTERN,
         handler=handle_mediaflow,
         category="advanced",
-        description="Advanced media transformation. Usage: .mediaflow [compress|extract|square]"
+        description="Advanced media transformation. Usage: .mediaflow [compress|extract|square|mute]"
     )
 
 
@@ -56,8 +56,11 @@ async def handle_mediaflow(event):
         elif mode == "square":
             options = ["-vf", r"crop=w=min(in_w\,in_h):h=min(in_w\,in_h)", "-c:v", "libx264", "-crf", "23", "-c:a", "copy"]
             output_name = "output.mp4"
+        elif mode == "mute":
+            options = ["-c:v", "libx264", "-crf", "23", "-preset", "fast", "-an"]
+            output_name = "output.mp4"
         else:
-            raise CommandError("Invalid mode. Use: compress, extract, or square")
+            raise CommandError("Invalid mode. Use: compress, extract, square, or mute")
 
         await service.run_ffmpeg(
             workspace=workspace,
