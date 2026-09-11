@@ -54,7 +54,6 @@ class CommandRegistration:
                 _COMMAND_OWNERS.pop(command, None)
 
 
-# Kept public for existing help/introspection plugins.
 COMMANDS: Dict[str, Dict[str, Any]] = {}
 _REGISTRATIONS: Dict[str, CommandRegistration] = {}
 _COMMAND_OWNERS: Dict[str, str] = {}
@@ -125,12 +124,30 @@ def register_cmd(
             return
         correlation_id = _new_correlation_id()
         start_time = time.perf_counter()
+        metrics = None
         try:
-            result = handler(event)
-            if inspect.isawaitable(result):
-                await result
+            # Runtime import avoids a core.registry <-> core.context import cycle.
+            from core.context import get_application_context
+            context = get_application_context()
+            if context is not None:
+                metrics = context.get("metrics")
+                metrics.increment("commands.total")
+        except Exception:
+            metrics = None
+        try:
+            if metrics is not None:
+                with metrics.timer(f"command.{category}"):
+                    result = handler(event)
+                    if inspect.isawaitable(result):
+                        await result
+            else:
+                result = handler(event)
+                if inspect.isawaitable(result):
+                    await result
         except Exception as exc:
             elapsed = time.perf_counter() - start_time
+            if metrics is not None:
+                metrics.increment("commands.failed")
             error = as_astra_error(
                 exc,
                 operation="command",
