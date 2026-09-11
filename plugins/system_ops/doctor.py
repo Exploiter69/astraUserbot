@@ -12,13 +12,11 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from core.context import get_application_context
 from core.registry import register_cmd
-from core.database import Database
 from core.errors import CommandError
 from core.registry import COMMANDS
 from helpers.hud import render
-from helpers.shell import run
-from helpers.net import get_session
 from config import config
 
 logger = logging.getLogger("astra.doctor")
@@ -38,10 +36,14 @@ def _report_path(prefix: str = "doctor") -> Path:
 
 
 async def _cmd(command: list[str], timeout: int = 5) -> tuple[bool, str]:
+    context = get_application_context()
+    if context is None:
+        return False, "Subprocess service unavailable"
+    subprocess = context.get("subprocess")
     try:
-        rc, out, err = await run(command, timeout=timeout)
-        text = (out.strip() or err.strip()).strip()
-        return rc == 0, _redact(text[-1000:])
+        result = await subprocess.run(command, timeout=timeout, max_output_bytes=64 * 1024)
+        text = (result.stdout.strip() or result.stderr.strip()).strip()
+        return result.returncode == 0, _redact(text[-1000:])
     except Exception as exc:
         return False, f"{type(exc).__name__}: {_redact(str(exc))}"
 
@@ -64,10 +66,13 @@ async def _network_checks(client) -> list[dict]:
         except Exception as exc:
             checks.append({"name": f"DNS {host}", "ok": False, "detail": type(exc).__name__})
 
+    context = get_application_context()
     try:
-        session = get_session()
-        async with session.get("https://www.google.com/generate_204", timeout=5) as resp:
-            checks.append({"name": "HTTPS", "ok": resp.status < 500, "detail": f"HTTP {resp.status}"})
+        if context is None:
+            raise RuntimeError("HTTP service unavailable")
+        http = context.get("http")
+        response = await http.get("https://www.google.com/generate_204", timeout=5, response_limit=1024)
+        checks.append({"name": "HTTPS", "ok": response.status < 500, "detail": f"HTTP {response.status}"})
     except Exception as exc:
         checks.append({"name": "HTTPS", "ok": False, "detail": f"{type(exc).__name__}: {_redact(str(exc))}"})
 
