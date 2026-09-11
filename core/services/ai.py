@@ -126,20 +126,6 @@ class GroqProvider(_HTTPProvider):
         return text.strip()
 
 
-class OllamaProvider(_HTTPProvider):
-    """Optional local OpenAI-compatible Ollama adapter; never required at startup."""
-
-    def __init__(self, http: HttpService, base_url: str) -> None:
-        super().__init__("ollama", http, base_url)
-
-
-class LlamaCppProvider(_HTTPProvider):
-    """Optional local llama.cpp OpenAI-compatible server adapter."""
-
-    def __init__(self, http: HttpService, base_url: str) -> None:
-        super().__init__("llama.cpp", http, base_url)
-
-
 class GeminiProvider:
     """Google Gemini Developer API adapter kept separate from OpenAI-compatible APIs."""
 
@@ -180,8 +166,8 @@ class GeminiProvider:
         if system_parts:
             payload["systemInstruction"] = {"parts": [{"text": "\n\n".join(system_parts)}]}
         response = await self.http.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self.api_key}",
-            headers={"Content-Type": "application/json"},
+            f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+            headers={"Content-Type": "application/json", "x-goog-api-key": self.api_key},
             data=json.dumps(payload).encode("utf-8"),
             timeout=timeout,
             response_limit=2 * 1024 * 1024,
@@ -202,17 +188,15 @@ class GeminiProvider:
 
 
 def _json_object(response: HttpResponse, provider: str) -> dict[str, Any]:
+    if response.status >= 400:
+        logger.warning("AI provider rejected request provider=%s status=%s", provider, response.status)
+        raise ExternalServiceError(f"{provider} rejected the AI request (HTTP {response.status}).")
     try:
         data = json.loads(response.body.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ExternalServiceError(f"{provider} returned invalid JSON.") from exc
     if not isinstance(data, dict):
         raise ExternalServiceError(f"{provider} returned an invalid response.")
-    if response.status >= 400:
-        detail = data.get("error")
-        # Keep provider response bodies out of user-facing errors; logs may contain only status.
-        logger.warning("AI provider rejected request provider=%s status=%s", provider, response.status)
-        raise ExternalServiceError(f"{provider} rejected the AI request (HTTP {response.status}).")
     return data
 
 
@@ -234,8 +218,6 @@ class AIService:
 
     DEFAULT_GROQ_MODEL = "openai/gpt-oss-20b"
     DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
-    DEFAULT_OLLAMA_MODEL = "qwen2.5:7b"
-    DEFAULT_LLAMA_CPP_MODEL = "local-model"
     DEFAULT_TRANSCRIBE_MODEL = "whisper-large-v3"
 
     def __init__(
@@ -261,8 +243,6 @@ class AIService:
         self._providers: dict[str, AIProvider] = {
             "groq": GroqProvider(http, os.getenv("GROQ_API_KEY", "")),
             "gemini": GeminiProvider(http, os.getenv("GEMINI_API_KEY", "")),
-            "ollama": OllamaProvider(http, os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434/v1")),
-            "llama.cpp": LlamaCppProvider(http, os.getenv("LLAMA_CPP_BASE_URL", "http://127.0.0.1:8080/v1")),
         }
         if self.provider_name not in self._providers:
             raise ConfigurationError(f"Unknown AI provider '{self.provider_name}'.")
@@ -301,14 +281,12 @@ class AIService:
         env_name = {
             "groq": "ASTRA_AI_GROQ_MODEL",
             "gemini": "ASTRA_AI_GEMINI_MODEL",
-            "ollama": "ASTRA_AI_OLLAMA_MODEL",
-            "llama.cpp": "ASTRA_AI_LLAMA_CPP_MODEL",
-        }[provider]
+        }.get(provider)
+        if env_name is None:
+            return "default"
         defaults = {
             "groq": self.DEFAULT_GROQ_MODEL,
             "gemini": self.DEFAULT_GEMINI_MODEL,
-            "ollama": self.DEFAULT_OLLAMA_MODEL,
-            "llama.cpp": self.DEFAULT_LLAMA_CPP_MODEL,
         }
         return os.getenv(env_name, defaults[provider])
 
@@ -425,8 +403,11 @@ class AIService:
         if path.stat().st_size <= 0 or path.stat().st_size > max_audio_bytes:
             raise ResourceError("Audio file exceeds the configured AI size limit.")
         selected_model = self._model(selected_provider, model, transcription=True)
-        async with self._semaphore:
-            text = await adapter.transcribe(str(path), model=selected_model, timeout=self.timeout)
+        try:
+            async with self._semaphore:
+                text = await adapter.transcribe(str(path), model=selected_model, timeout=self.timeout)
+        except asyncio.TimeoutError as exc:
+            raise TimeoutError("AI transcription timed out.") from exc
         if len(text) > self.max_output_chars:
             text = text[: self.max_output_chars].rstrip()
         return AIResponse(text, selected_provider, selected_model, 0, len(text))
