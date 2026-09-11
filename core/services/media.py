@@ -25,6 +25,8 @@ class MediaArtifact:
 class MediaService:
     """Own media workspaces and deterministic external media execution."""
 
+    ALLOWED_RCLONE_OPERATIONS = frozenset({"copy", "copyto", "sync"})
+
     def __init__(
         self,
         workspace: WorkspaceService,
@@ -78,6 +80,14 @@ class MediaService:
         media_type = mimetypes.guess_type(path.name)[0]
         return MediaArtifact(path=path, size_bytes=size, media_type=media_type)
 
+    def discover_new_artifacts(self, workspace: Workspace, before: set[Path]) -> list[MediaArtifact]:
+        artifacts: list[MediaArtifact] = []
+        for path in sorted(workspace.path.iterdir(), key=lambda item: item.name):
+            if not path.is_file() or path in before or path.name.endswith((".part", ".ytdl", ".tmp")):
+                continue
+            artifacts.append(self.artifact(workspace, path.name))
+        return artifacts
+
     async def run(
         self,
         argv: Sequence[str],
@@ -93,6 +103,37 @@ class MediaService:
                 timeout=self.default_timeout if timeout is None else timeout,
                 cwd=workspace.path,
             )
+
+    async def run_download(
+        self,
+        argv: Sequence[str],
+        *,
+        workspace: Workspace,
+        timeout: float = 600.0,
+    ) -> tuple[SubprocessResult, list[MediaArtifact]]:
+        before = {path for path in workspace.path.iterdir() if path.is_file()}
+        result = await self.run(argv, workspace=workspace, timeout=timeout)
+        if result.returncode != 0:
+            detail = result.stderr[-500:] or result.stdout[-500:]
+            raise CommandError(f"Download failed:\n{detail}")
+        artifacts = self.discover_new_artifacts(workspace, before)
+        if not artifacts:
+            raise CommandError("Download completed but produced no verified artifact.")
+        return result, artifacts
+
+    async def run_rclone(
+        self,
+        argv: Sequence[str],
+        *,
+        workspace: Workspace,
+        timeout: float = 900.0,
+    ) -> SubprocessResult:
+        if len(argv) < 2 or argv[0] != "rclone":
+            raise ValueError("Rclone command must begin with rclone")
+        operation = argv[1].lower()
+        if operation not in self.ALLOWED_RCLONE_OPERATIONS:
+            raise CommandError(f"Rclone operation '{operation}' is not allowed by media policy.")
+        return await self.run(argv, workspace=workspace, timeout=timeout)
 
     async def run_ffmpeg(
         self,
