@@ -1,6 +1,6 @@
+import asyncio
 import tempfile
 import unittest
-from pathlib import Path
 from unittest.mock import AsyncMock
 
 from core.errors import CommandError, ResourceError
@@ -64,9 +64,12 @@ class MediaServiceTests(unittest.IsolatedAsyncioTestCase):
             source.write_bytes(b"source")
 
             async def fake_run(argv, *, workspace, timeout=None):
-                self.assertEqual(argv[:5], ["ffmpeg", "-hide_banner", "-y", "-i", str(source)])
-                self.assertIn("-c:v", argv)
-                job.resolve("output.mp4").write_bytes(b"result")
+                if argv[0] == "ffmpeg":
+                    self.assertEqual(argv[:5], ["ffmpeg", "-hide_banner", "-y", "-i", str(source)])
+                    self.assertIn("-c:v", argv)
+                    job.resolve("output.mp4").write_bytes(b"result")
+                else:
+                    self.assertEqual(argv[0], "ffprobe")
                 return SubprocessResult(0, "", "")
 
             service.run = AsyncMock(side_effect=fake_run)
@@ -77,7 +80,7 @@ class MediaServiceTests(unittest.IsolatedAsyncioTestCase):
                 options=["-c:v", "libx264"],
             )
             self.assertEqual(artifact.size_bytes, 6)
-            service.run.assert_awaited_once()
+            self.assertEqual(service.run.await_count, 2)
             await service.cleanup(job)
 
     async def test_concurrency_slots_bound_media_execution(self):
@@ -92,15 +95,26 @@ class MediaServiceTests(unittest.IsolatedAsyncioTestCase):
                 nonlocal active, peak
                 active += 1
                 peak = max(peak, active)
-                import asyncio
                 await asyncio.sleep(0.02)
                 active -= 1
                 return SubprocessResult(0, "", "")
 
             service.subprocess.run = AsyncMock(side_effect=fake_run)
-            await __import__("asyncio").gather(
+            await asyncio.gather(
                 service.run(["tool", "one"], workspace=job),
                 service.run(["tool", "two"], workspace=job),
             )
             self.assertEqual(peak, 1)
+            await service.cleanup(job)
+
+    async def test_rclone_policy_rejects_unsafe_operations(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = WorkspaceService(tmp)
+            service = MediaService(workspace, SubprocessService())
+            job = await service.create_workspace()
+            with self.assertRaises(CommandError):
+                await service.run_rclone(["rclone", "delete", "remote:path"], workspace=job)
+            service.subprocess.run = AsyncMock(return_value=SubprocessResult(0, "ok", ""))
+            result = await service.run_rclone(["rclone", "copy", "/src", "remote:path"], workspace=job)
+            self.assertEqual(result.returncode, 0)
             await service.cleanup(job)
