@@ -1,32 +1,25 @@
 import asyncio
-import functools
 import logging
 import signal
 from collections.abc import Coroutine
 from typing import Any
 
 from core.database import Database
+from core.tasks import TaskSupervisor
 
 logger = logging.getLogger(__name__)
-_background_tasks: set[asyncio.Task] = set()
+_supervisor = TaskSupervisor()
 _teardown_started = False
 
 
-def _log_task_result(task: asyncio.Task, name: str):
-    try:
-        task.result()
-    except asyncio.CancelledError:
-        pass
-    except Exception as exc:
-        logger.error("Background task '%s' failed: %s", name, exc, exc_info=True)
+def supervise(coro: Coroutine[Any, Any, Any], *, name: str) -> asyncio.Task[Any]:
+    """Compatibility wrapper for legacy callers; all tasks are centrally supervised."""
+    return _supervisor.create_task(coro, name=name)
 
 
-def supervise(coro: Coroutine[Any, Any, Any], *, name: str) -> asyncio.Task:
-    task = asyncio.create_task(coro, name=name)
-    _background_tasks.add(task)
-    task.add_done_callback(_background_tasks.discard)
-    task.add_done_callback(functools.partial(_log_task_result, name=name))
-    return task
+def get_task_supervisor() -> TaskSupervisor:
+    """Return the process-level supervisor used by legacy bootstrap callers."""
+    return _supervisor
 
 
 async def shutdown(client=None):
@@ -36,19 +29,7 @@ async def shutdown(client=None):
     _teardown_started = True
 
     logger.info("Initiating graceful teardown sequence...")
-
-    current = asyncio.current_task()
-    pending_tasks = {
-        task for task in _background_tasks
-        if task is not current and not task.done()
-    }
-    if pending_tasks:
-        logger.info("Waiting for %d background tasks...", len(pending_tasks))
-        _, pending = await asyncio.wait(pending_tasks, timeout=8.0)
-        for task in pending:
-            task.cancel()
-        if pending:
-            await asyncio.gather(*pending, return_exceptions=True)
+    await _supervisor.shutdown(timeout=8.0)
 
     await Database.close_all()
 
