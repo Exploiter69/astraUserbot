@@ -33,7 +33,9 @@ Read these before making structural changes:
 - `SAFETY_CONTRACT.md` — mandatory safety rules;
 - `PRODUCTION_BOUNDARY.md` — authority and runtime boundaries;
 - `DECISIONS.md` — accepted architecture decisions;
-- `ROADMAP.md` — canonical implementation sequence.
+- `ROADMAP.md` — canonical implementation sequence;
+- `PHASE_7_READINESS.md` — completed Media Platform gate;
+- `PHASE_8_READINESS.md` — AI Gateway completion record and final gate.
 
 ## 4. Current Platform Shape
 
@@ -46,15 +48,16 @@ Telegram / external systems
             ▼
       ApplicationContext
             │
-   ┌────────┼────────────────────────────┐
-   ▼        ▼             ▼              ▼
- Storage   Cache       Supervisors    Shared Services
-   │        │             │              │
-   │        ├── L1        ├── Tasks      ├── HTTP
-   │        ├── L2        └── Durable    ├── Subprocess
-   │        └── L3            Jobs       ├── Telegram
-   │                                     ├── Workspace
-   └── SQLite WAL / migrations            └── Media
+   ┌────────┼───────────────────────────────┐
+   ▼        ▼             ▼                 ▼
+ Storage   Cache       Supervisors      Shared Services
+   │        │             │                 │
+   │        ├── L1        ├── Tasks         ├── HTTP
+   │        ├── L2        └── Durable       ├── Subprocess
+   │        └── L3            Jobs          ├── Telegram
+   │                                         ├── Workspace
+   └── SQLite WAL / migrations               ├── Media
+                                             └── AI Gateway
 ```
 
 ## 5. Platform Before Plugins
@@ -87,7 +90,7 @@ Feature expansion
 
 ## 6. Platform Services
 
-The target shared services are:
+The shared service layer now includes:
 
 ```text
 ApplicationContext
@@ -103,15 +106,31 @@ SubprocessService
 Filesystem/WorkspaceService
 TelegramFacade
 MediaService
-AI Gateway
-SearchService
-AuditService
-DiagnosticsService
+AIService
 ```
 
 A service is introduced when it removes duplicated infrastructure or establishes a contract needed by multiple features.
 
-## 7. Documentation Set
+## 7. AI Gateway
+
+`AIService` is the only active application boundary for AI features.
+
+```text
+.ask / .summarize / .transcribe
+              │
+              ▼
+          AIService
+              │
+      ┌───────┼───────────┬───────────┐
+      ▼       ▼           ▼           ▼
+    Groq    Gemini      Ollama     llama.cpp
+```
+
+Provider-specific API details, model configuration, response parsing, retries, capability checks and transcription behavior remain inside adapters. The active command plugins do not know the Groq HTTP API.
+
+Local providers are optional; no local model is required on the current host.
+
+## 8. Documentation Set
 
 | File | Role |
 |---|---|
@@ -122,10 +141,11 @@ A service is introduced when it removes duplicated infrastructure or establishes
 | `PRODUCTION_BOUNDARY.md` | Runtime and external-system boundaries |
 | `DECISIONS.md` | Accepted architecture decisions |
 | `ROADMAP.md` | Canonical implementation sequence |
+| `PHASE_8_READINESS.md` | AI Gateway completion and gate contract |
 
 These files are the root engineering specification. Code should conform to them; intentional deviations require a recorded decision.
 
-## 8. Migration Philosophy
+## 9. Migration Philosophy
 
 ```text
 Protect baseline
@@ -147,7 +167,7 @@ Measure and optimize
 
 No mass rewrite occurs merely to make code look uniform.
 
-## 9. Zero-Cost Architecture
+## 10. Zero-Cost Architecture
 
 The foundation uses free/open-source or already available components:
 
@@ -157,11 +177,12 @@ The foundation uses free/open-source or already available components:
 - SQLite;
 - aiohttp;
 - FFmpeg/Linux tools;
-- local Ollama/llama.cpp where useful.
+- optional local Ollama/llama.cpp;
+- optional genuinely free hosted AI providers.
 
-Hosted AI/API adapters may be used only when genuinely free and configured by the user. No paid service is a required dependency.
+No paid AI SDK, hosted service, or infrastructure is a required dependency.
 
-## 10. Security Position
+## 11. Security Position
 
 Astra is a privileged process. Plugins are not security-isolated from one another.
 
@@ -173,12 +194,15 @@ The platform therefore uses:
 - safe subprocess boundaries;
 - filesystem policy;
 - HTTP limits;
+- bounded AI execution;
 - auditability;
 - explicit destructive-operation contracts.
 
 Eval is privileged and is not represented as a sandbox.
 
-## 11. Operational Model
+AI output is untrusted data and cannot authorize privileged actions.
+
+## 12. Operational Model
 
 A healthy Astra runtime should be able to explain:
 
@@ -194,113 +218,114 @@ which failures are recent
 
 Diagnostics are therefore part of the platform design, not an afterthought.
 
-## 12. Current Development Stage
+## 13. Current Development Stage
 
 **Phase 1 — Plugin & Command Foundation: COMPLETE.**
 
-- Plugin Manager: complete;
-- Command Router: complete;
-- Safe Errors: complete;
-- TaskSupervisor: complete;
-- Gate 1: **28/28 tests passing + compile gate passing**.
+- Plugin Manager;
+- Command Router;
+- Safe Errors;
+- TaskSupervisor;
+- Gate 1 passed.
 
 **Phase 2 — Shared Runtime Services: COMPLETE.**
 
-- ApplicationContext with explicit service ownership/lifecycle;
+- ApplicationContext;
 - bounded/cancellable SubprocessService;
-- shared pooled HttpService with per-host limits, retries and response caps;
-- TelegramFacade with bounded FloodWait handling;
-- Filesystem/WorkspaceService with safe paths, per-operation workspaces, size limits and orphan cleanup;
-- legacy `helpers/shell.py` routed through SubprocessService;
-- legacy `helpers/net.py` routed through the ApplicationContext HTTP service;
-- runtime startup/shutdown wired through the shared context;
-- dedicated Phase 2 service regression suite;
-- Gate 2: **37/37 tests passing + compile gate passing**.
+- shared pooled HttpService;
+- TelegramFacade;
+- WorkspaceService;
+- runtime lifecycle integration;
+- Phase 2 regression suite passed.
 
 **Phase 3 — Cache Foundation: COMPLETE.**
 
-- bounded L1 in-memory LRU cache;
-- persistent L2 SQLite cache with WAL, TTL and access metadata;
-- filesystem L3 artifact cache with SQLite metadata;
-- namespace and version isolation;
-- explicit invalidation and cleanup;
-- entry and byte limits at every tier;
-- safe JSON value serialization;
-- per-key stampede protection through `get_or_set()`;
-- cache statistics and diagnostics;
-- atomic artifact writes and orphan-safe artifact metadata handling;
-- dedicated cache regression coverage;
-- ApplicationContext lifecycle integration;
-- Gate 3: **49/49 full regression tests passing**.
+- bounded L1 memory cache;
+- persistent L2 SQLite cache;
+- filesystem L3 artifacts;
+- namespaces/versioning;
+- invalidation/cleanup;
+- stampede protection;
+- diagnostics;
+- Gate 3: 49/49 tests passed.
 
 **Phase 4 — Storage & Migration Foundation: COMPLETE.**
 
 - canonical platform SQLite database;
-- deterministic migration runner with schema versions and checksums;
-- WAL, foreign keys, busy timeout and integrity checks;
-- transactional migration execution;
-- platform tables for plugins, commands, jobs, attempts, events, leases and audit records;
-- verified SQLite backup/restore support;
-- ApplicationContext integration through `StorageService`;
-- dedicated Phase 4/5 storage regression coverage;
-- Gate 4/5 validation included in the combined 64-test suite.
+- deterministic migrations/checksums;
+- WAL/foreign keys/busy timeout/integrity checks;
+- verified backup/restore;
+- platform persistence regression coverage.
 
 **Phase 5 — Durable Job Engine: COMPLETE.**
 
 - durable job persistence;
-- canonical `QUEUED/RUNNING/PAUSED/VERIFYING/COMPLETED/FAILED/CANCELLED` states;
-- `UNCERTAIN` state for unknown external outcomes;
-- worker leasing and heartbeat;
-- explicit reconciliation before uncertain replay;
-- bounded retry/backoff and stable failure codes;
-- idempotency keys;
+- lifecycle state machine;
+- `UNCERTAIN` execution state;
+- worker leasing/heartbeat;
+- explicit uncertain replay reconciliation;
+- bounded retries/backoff;
+- idempotency;
 - cancellation;
-- parent/child job relationship support;
-- progress tracking;
-- verification state;
-- attempt and event history;
-- resource class and priority metadata;
-- handler registration and supervised worker loop;
-- ApplicationContext lifecycle integration;
-- no-handler and unexpected-failure containment.
+- parent/child jobs;
+- progress/verification;
+- attempts/events;
+- resource class/priority;
+- supervised worker loop.
 
 **Phase 6 — Confirmed P0 Reliability Fixes: COMPLETE.**
 
-- `.block` / `.unblock` now have one command owner;
-- advertised admin `demote` and `slow` commands are implemented;
-- security vault now uses AES-256-GCM SecretStore with an external master key and transparent legacy base64 migration;
-- eval output capture is serialized, isolated from module globals, bounded, and timeout-controlled;
-- account archiver now surfaces persistence failures and has age/count retention plus orphan pruning;
-- logger has bounded L1 plus persistent bounded/retained message cache;
-- PMGuard refreshes contacts periodically instead of caching only at startup;
-- AFK auto-replies have a bounded per-sender cooldown;
-- stream downloads use unique workspaces and deterministic cleanup;
-- media temporary files clean up on failure paths;
-- rclone/aria2 use the shared SubprocessService;
-- durable-job uncertainty recovery is explicitly tested.
+- command ownership conflict fixed;
+- admin gaps fixed;
+- encrypted SecretStore;
+- eval isolation/bounds;
+- archive/logger retention;
+- PMGuard refresh;
+- AFK cooldown;
+- isolated media paths;
+- shared subprocess migration;
+- uncertain-job recovery tests.
 
-**Pre-Phase-7 Gate:** **75/75 tests passing + compile validation passing.**
+**Pre-Phase-7 Gate:** 75/75 tests passed + compile validation passed.
 
-**Phase 7 — Media Platform: IMPLEMENTATION COMPLETE.**
+**Phase 7 — Media Platform: COMPLETE.**
 
-- new `MediaService` is registered in `ApplicationContext`;
-- unique operation workspaces are authoritative;
-- media input/output/workspace limits are enforced;
-- media concurrency is bounded;
-- FFmpeg commands use explicit argv;
-- FFprobe verification is used when available;
-- deterministic download artifact manifests replace newest-file selection;
-- TTS and download outputs are verified before upload;
-- rclone is governed by a media operation allowlist;
-- all seven Phase 7 media consumers use `MediaService`;
-- every migrated consumer cleans its operation workspace in `finally` paths;
-- dedicated media regression coverage was added.
+- `MediaService` is the authoritative media boundary;
+- unique operation workspaces;
+- input/output/workspace bounds;
+- bounded media concurrency;
+- explicit FFmpeg argv;
+- FFprobe verification;
+- deterministic download manifests;
+- TTS/download output verification;
+- rclone operation allowlist;
+- all seven media consumers migrated;
+- cleanup in failure paths.
 
-**Gate 7:** implementation complete; final local regression verification is required. Expected suite: **81 tests**.
+**Gate 7:** **81/81 tests passed, 0 failures, 0 errors, compile validation passed.**
 
-**Next:** Phase 8 — AI Gateway. The first target is provider-independent extraction of the existing Groq integration; local inference remains optional.
+**Phase 8 — AI Gateway: IMPLEMENTATION COMPLETE.**
 
-## 13. Definition of Success
+- `AIService` registered in `ApplicationContext`;
+- Groq adapter;
+- Gemini adapter;
+- optional Ollama adapter;
+- optional llama.cpp adapter;
+- provider-neutral chat/summarize/extract/classify/transcribe APIs;
+- bounded input/output/audio/concurrency;
+- shared HttpService transport;
+- cancellation and capability checks;
+- active `.ask`, `.summarize`, `.transcribe` command adapters migrated to `plugins/ai_gateway`;
+- legacy Groq command modules quarantined from discovery;
+- AI remains non-authoritative;
+- no paid AI dependency introduced;
+- 14 dedicated AI gateway regression tests added.
+
+**Gate 8:** implementation complete; final local verification is the only remaining release check. Expected full suite: **95 tests**.
+
+**Next:** Phase 9 — Plugin Migration Program.
+
+## 14. Definition of Success
 
 Astra succeeds when adding the next 100 useful features does not require inventing another HTTP client, scheduler, cache, temp-file strategy, subprocess wrapper, database pattern, or authorization mechanism.
 
