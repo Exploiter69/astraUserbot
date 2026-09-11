@@ -1,19 +1,16 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 import json
 import logging
-import os
 import re
 import shutil
-import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 from core.context import get_application_context
-from core.registry import register_cmd, COMMANDS
+from core.registry import register_cmd, COMMANDS, get_registration
 from helpers.hud import render
 from config import config
 
@@ -21,30 +18,13 @@ logger = logging.getLogger("astra.testall")
 PATTERN = rf"^{re.escape(config.PREFIX)}testall(?:\s+(safe|report|network|static))?$"
 
 SAFE_COMMANDS = {
-    "ping",
-    "sysinfo",
-    "help",
-    "doctor",
-    "speedtest",
-    "dns",
-    "headers",
-    "ip",
-    "hash",
-    "passgen",
+    "ping", "sysinfo", "help", "doctor", "speedtest", "dns", "headers", "ip", "hash", "passgen",
 }
 
 BINARY_BY_COMMAND = {
-    "ff": ["ffmpeg", "ffprobe"],
-    "mediaflow": ["ffmpeg"],
-    "round": ["ffmpeg"],
-    "compress": ["ffmpeg"],
-    "reverse": ["ffmpeg"],
-    "ss": ["ffmpeg"],
-    "ocr": ["tesseract"],
-    "rclone": ["rclone"],
-    "aria": ["aria2c"],
-    "rip": ["yt-dlp"],
-    "update": ["git", "systemctl"],
+    "ff": ["ffmpeg", "ffprobe"], "mediaflow": ["ffmpeg"], "round": ["ffmpeg"], "compress": ["ffmpeg"],
+    "reverse": ["ffmpeg"], "ss": ["ffmpeg"], "ocr": ["tesseract"], "tts": ["edge-tts"],
+    "rclone": ["rclone"], "aria": ["aria2c"], "rip": ["yt-dlp"], "update": ["git", "systemctl"],
 }
 
 
@@ -147,9 +127,9 @@ class _SyntheticEvent:
     chat_id = 0
     id = 0
 
-    def __init__(self, groups: tuple[str | None, ...]):
+    def __init__(self, client, groups: tuple[str | None, ...]):
         self.pattern_match = _PatternMatch(groups)
-        self.client = None
+        self.client = client
         self.output = ""
 
     async def edit(self, text):
@@ -165,14 +145,8 @@ class _SyntheticEvent:
 
 
 DIRECT_CASES = {
-    "ping": (),
-    "sysinfo": (),
-    "help": (None,),
-    "dns": ("example.com", "A"),
-    "headers": ("https://example.com",),
-    "ip": ("1.1.1.1",),
-    "hash": ("astra-test",),
-    "passgen": ("12",),
+    "ping": (), "sysinfo": (), "help": (None,), "dns": ("example.com", "A"),
+    "headers": ("https://example.com",), "ip": ("1.1.1.1",), "hash": ("astra-test",), "passgen": ("12",),
 }
 
 
@@ -183,53 +157,32 @@ async def _safe_smoke(client) -> list[dict]:
         for name in names:
             if name not in DIRECT_CASES:
                 continue
-            handler_name = meta.get("handler", "")
+            registration_id = meta.get("registration_id")
             handler = None
+            handler_name = meta.get("handler", "")
             module_name = None
-            for module in list(sys.modules.values()):
-                if module is None:
-                    continue
-                candidate = getattr(module, handler_name, None)
-                if candidate is not None and inspect.iscoroutinefunction(candidate):
-                    handler = candidate
-                    module_name = getattr(module, "__name__", "?")
-                    break
-            if handler is None:
-                results.append({"command": name, "ok": False, "phase": "direct", "error": "async handler not found"})
+            try:
+                registration = get_registration(registration_id)
+                handler = registration.handler
+                module_name = getattr(handler, "__module__", None)
+                handler_name = handler.__name__
+            except (KeyError, TypeError):
+                results.append({"command": name, "ok": False, "phase": "direct", "error": "registered handler ownership is unavailable"})
                 continue
-            fake = _SyntheticEvent(DIRECT_CASES[name])
+
+            fake = _SyntheticEvent(client, DIRECT_CASES[name])
             started = time.perf_counter()
             try:
                 await asyncio.wait_for(handler(fake), timeout=12)
-                results.append({
-                    "command": name,
-                    "ok": True,
-                    "phase": "direct",
-                    "module": module_name,
-                    "handler": handler_name,
-                    "elapsed_ms": round((time.perf_counter() - started) * 1000, 1),
-                    "output_bytes": len(fake.output.encode("utf-8")),
-                })
+                results.append({"command": name, "ok": True, "phase": "direct", "module": module_name, "handler": handler_name, "elapsed_ms": round((time.perf_counter() - started) * 1000, 1), "output_bytes": len(fake.output.encode("utf-8"))})
             except Exception as exc:
-                results.append({
-                    "command": name,
-                    "ok": False,
-                    "phase": "direct",
-                    "module": module_name,
-                    "handler": handler_name,
-                    "elapsed_ms": round((time.perf_counter() - started) * 1000, 1),
-                    "error": f"{type(exc).__name__}: {_safe_text(str(exc), 500)}",
-                })
+                results.append({"command": name, "ok": False, "phase": "direct", "module": module_name, "handler": handler_name, "elapsed_ms": round((time.perf_counter() - started) * 1000, 1), "error": f"{type(exc).__name__}: {_safe_text(str(exc), 500)}"})
     return results
 
 
 async def _run_testall(event, mode: str) -> None:
     started = time.perf_counter()
-    await event.edit(render("TESTALL // START", [
-        "Running non-destructive self-test suite...",
-        "No destructive Telegram/system commands will be executed.",
-        "Building plugin, registry, dependency and network checks...",
-    ], footer="system_ops | testall"))
+    await event.edit(render("TESTALL // START", ["Running non-destructive self-test suite...", "No destructive Telegram/system commands will be executed.", "Building plugin, registry, dependency and network checks..."], footer="system_ops | testall"))
 
     static = [] if mode == "network" else await _static_probe()
     deps = [] if mode == "static" else await _dependency_probe()
@@ -240,34 +193,15 @@ async def _run_testall(event, mode: str) -> None:
         network_ok, network_message = await _network_probe(event.client)
 
     commands = _all_commands()
-    counts = {
-        "commands": len(commands),
-        "registry": len(COMMANDS),
-        "static_ok": sum(1 for x in static if x["ok"]),
-        "static_total": len(static),
-        "deps_ok": sum(1 for x in deps if x["ok"]),
-        "deps_total": len(deps),
-        "safe_ok": sum(1 for x in safe if x["ok"]),
-        "safe_total": len(safe),
-        "mutating_skipped": sum(1 for x in commands if _classify(x) == "MUTATING-SKIP"),
-    }
+    counts = {"commands": len(commands), "registry": len(COMMANDS), "static_ok": sum(1 for x in static if x["ok"]), "static_total": len(static), "deps_ok": sum(1 for x in deps if x["ok"]), "deps_total": len(deps), "safe_ok": sum(1 for x in safe if x["ok"]), "safe_total": len(safe), "mutating_skipped": sum(1 for x in commands if _classify(x) == "MUTATING-SKIP")}
 
-    report = {
-        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
-        "mode": mode,
-        "counts": counts,
-        "network": {"ok": network_ok, "message": network_message},
-        "static": static,
-        "dependencies": deps,
-        "safe_smoke": safe,
-        "command_classification": {name: _classify(name) for name in commands},
-    }
+    report = {"timestamp_utc": datetime.now(timezone.utc).isoformat(), "mode": mode, "counts": counts, "network": {"ok": network_ok, "message": network_message}, "static": static, "dependencies": deps, "safe_smoke": safe, "command_classification": {name: _classify(name) for name in commands}}
     report_path = _write_report(report)
 
     failed_static = counts["static_total"] - counts["static_ok"]
     missing_deps = counts["deps_total"] - counts["deps_ok"]
     failed_safe = counts["safe_total"] - counts["safe_ok"]
-    overall = failed_static == 0 and failed_safe == 0 and (network_ok is not False)
+    overall = failed_static == 0 and failed_safe == 0 and missing_deps == 0 and (network_ok is not False)
 
     rows = [
         f"Overall: {'HEALTHY ✓' if overall else 'ATTENTION REQUIRED ⚠'}",
@@ -279,13 +213,9 @@ async def _run_testall(event, mode: str) -> None:
         f"Mutating commands skipped: {counts['mutating_skipped']}",
         f"Report: {report_path}",
     ]
-    if missing_deps:
-        rows.append(f"Missing binaries: {missing_deps}")
-    if failed_static:
-        rows.append(f"Syntax failures: {failed_static}")
-    if failed_safe:
-        rows.append(f"Safe registration failures: {failed_safe}")
-
+    if missing_deps: rows.append(f"Missing binaries: {missing_deps}")
+    if failed_static: rows.append(f"Syntax failures: {failed_static}")
+    if failed_safe: rows.append(f"Safe registration failures: {failed_safe}")
     await event.edit(render("TESTALL // REPORT", rows, footer=f"{time.perf_counter() - started:.2f}s | {mode}"))
 
 
