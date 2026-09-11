@@ -18,9 +18,9 @@ The canonical roadmap remains the sequencing authority. This file records implem
 
 See `PHASE_10_15_READINESS.md` for the exact implementation and verification contract.
 
-## Current GitHub head
+## Current GitHub head at handoff
 
-`30cd5f1eaf69f807ad9eda4a8ffeef1876e9d8f1`
+`361d9ad979b5aed82d0cfb1961c43977669e8032`
 
 ## Important
 
