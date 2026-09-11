@@ -53,7 +53,7 @@ class Phase1GateTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("plugins.security.acl", names)
         self.assertIn("plugins.security.pmguard", names)
 
-    async def test_real_block_unblock_collision_is_rejected(self) -> None:
+    async def test_real_block_unblock_has_single_owner(self) -> None:
         client = FakeClient()
         manager = PluginManager(client, Path(__file__).resolve().parent.parent / "plugins")
         client.plugin_manager = manager
@@ -70,11 +70,11 @@ class Phase1GateTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(manager.get("plugins.security.acl").registrations), 1)
 
         with manager.plugin_context("plugins.security.pmguard", manager):
-            with self.assertRaises(ValueError):
-                await pmguard.setup(client)
+            await pmguard.setup(client)
 
-        # The first registration remains intact; collision handling is atomic.
-        self.assertEqual(len(list_registrations()), 1)
+        # PM Guard must coexist without claiming the ACL-owned commands.
+        self.assertEqual(len(list_registrations()), 2)
+        self.assertEqual(len(manager.get("plugins.security.pmguard").registrations), 1)
         self.assertIn(next(iter(COMMANDS)), COMMANDS)
 
     async def test_plugin_manager_reports_setup_failure_truthfully(self) -> None:
