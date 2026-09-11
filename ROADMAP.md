@@ -23,6 +23,24 @@ Do not claim verification when only execution succeeded.
 
 ---
 
+# Phase 0 — Baseline & Protection — COMPLETE
+
+### Deliverables
+
+- Git/GitHub baseline;
+- secret/session protection;
+- dependency inventory;
+- plugin inventory;
+- source-level plugin audit;
+- architecture specification;
+- data/job/safety/boundary contracts.
+
+### Exit
+
+Baseline commit exists, runtime secrets are excluded, existing plugin behavior is understood, and confirmed defects are recorded.
+
+---
+
 # Phase 1 — Plugin & Command Foundation — COMPLETE
 
 **Goal:** make startup, plugin lifecycle, registration, and command execution deterministic.
