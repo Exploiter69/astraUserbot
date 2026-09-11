@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import sys
+import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 from core.errors import AstraError, ErrorCode, as_astra_error, user_message
 from core.plugins.manager import PluginManager, PluginState
@@ -65,7 +66,7 @@ class Phase1GateTests(unittest.IsolatedAsyncioTestCase):
 
         await acl.setup(client)
         self.assertEqual(len(list_registrations()), 1)
-        self.assertEqual(manager.get("plugins.security.acl").registrations.__len__(), 1)
+        self.assertEqual(len(manager.get("plugins.security.acl").registrations), 1)
 
         with self.assertRaises(ValueError):
             await pmguard.setup(client)
@@ -75,26 +76,40 @@ class Phase1GateTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(next(iter(COMMANDS)), COMMANDS)
 
     async def test_plugin_manager_reports_setup_failure_truthfully(self) -> None:
-        class BadPlugin:
-            async def setup(_client):
-                raise RuntimeError("internal setup detail")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "plugins"
+            root.mkdir()
+            (root / "__init__.py").write_text("", encoding="utf-8")
+            (root / "bad.py").write_text(
+                "async def setup(client):\n"
+                "    raise RuntimeError('internal setup detail')\n",
+                encoding="utf-8",
+            )
 
-        manager = PluginManager(FakeClient(), Path("/tmp/nonexistent"))
-        manager.records = {
-            "bad": type("Record", (), {
-                "name": "bad",
-                "module": BadPlugin,
-                "state": PluginState.LOADED,
-                "dependencies": (),
-                "critical": False,
-                "error": None,
-                "registrations": set(),
-            })()
-        }
-        await manager.load_all()
-        record = manager.get("bad")
-        self.assertEqual(record.state, PluginState.FAILED_SETUP)
-        self.assertEqual(record.error, "internal setup detail")
+            module_name = f"phase1_gate_{id(root)}"
+            package_root = root.parent
+            package = package_root / module_name
+            package.mkdir()
+            (package / "__init__.py").write_text("", encoding="utf-8")
+            (package / "bad.py").write_text(
+                "async def setup(client):\n"
+                "    raise RuntimeError('internal setup detail')\n",
+                encoding="utf-8",
+            )
+
+            sys.path.insert(0, str(package_root))
+            try:
+                manager = PluginManager(FakeClient(), package)
+                records = manager.discover()
+                self.assertEqual([record.name for record in records], [f"{module_name}.bad"])
+                await manager.load_all()
+                record = manager.get(f"{module_name}.bad")
+                self.assertEqual(record.state, PluginState.FAILED_SETUP)
+                self.assertEqual(record.error, "internal setup detail")
+            finally:
+                sys.path.remove(str(package_root))
+                sys.modules.pop(f"{module_name}.bad", None)
+                sys.modules.pop(module_name, None)
 
     async def test_safe_errors_hide_unexpected_details(self) -> None:
         error = as_astra_error(
