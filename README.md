@@ -240,17 +240,29 @@ This becomes the purpose of diagnostics such as:
 
 ## 12. Current Development Stage
 
-**Phase 0 — Baseline and architecture protection is complete.**
+**Phase 0 — Baseline and architecture protection: COMPLETE.**
 
-The next implementation target is **Phase 1 — Plugin and Command Foundation**:
+**Phase 1 — Plugin & Command Foundation: COMPLETE.**
 
-1. plugin lifecycle state;
-2. deterministic dependency/registration handling;
-3. authoritative command router;
-4. duplicate command detection;
-5. safe error boundaries;
-6. truthful startup health;
-7. centralized long-lived task supervision.
+- Plugin Manager: complete;
+- Command Router: complete;
+- Safe Errors: complete;
+- TaskSupervisor: complete;
+- Gate 1: **28/28 tests passing + compile gate passing**.
+
+**Phase 2 — Shared Runtime Services: IMPLEMENTED.**
+
+- ApplicationContext with explicit service ownership/lifecycle;
+- bounded/cancellable SubprocessService;
+- shared pooled HttpService with per-host limits, retries and response caps;
+- TelegramFacade with bounded FloodWait handling;
+- Filesystem/WorkspaceService with safe paths, per-operation workspaces, size limits and orphan cleanup;
+- legacy `helpers/shell.py` routed through SubprocessService;
+- legacy `helpers/net.py` routed through the ApplicationContext HTTP service;
+- runtime startup/shutdown wired through the shared context;
+- dedicated Phase 2 service regression suite.
+
+**Next:** run the local Phase 2 gate, then Phase 3 Cache Foundation.
 
 ## 13. Definition of Success
 
