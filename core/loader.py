@@ -16,5 +16,8 @@ async def load_plugins(client: Any) -> PluginManager | None:
 
     project_root = Path(__file__).resolve().parent.parent
     manager = PluginManager(client, project_root / "plugins")
+    # The registry uses this optional reference to attribute registrations to
+    # the lifecycle manager without changing the legacy register_cmd signature.
+    client.plugin_manager = manager
     await manager.load_all()
     return manager
