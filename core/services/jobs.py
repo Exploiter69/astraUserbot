@@ -322,7 +322,7 @@ class JobEngine:
 
     async def _event_locked(self, job_id: str, event_type: str, payload: dict[str, Any]) -> None:
         assert self.storage.conn is not None
-        await self.storage.conn.execute("INSERT INTO job_events(job_id,event_type,payload_json,created_at) VALUES (?,?,?,?,?)", (job_id, event_type, json.dumps(payload, separators=(",", ":")), time.time()))
+        await self.storage.conn.execute("INSERT INTO job_events(job_id,event_type,payload_json,created_at) VALUES (?,?,?,?)", (job_id, event_type, json.dumps(payload, separators=(",", ":")), time.time()))
 
     def _row_to_job(self, row: Any) -> Job:
         return Job(id=row["id"], type=row["type"], state=JobState(row["state"]), payload=json.loads(row["payload_json"]), result=json.loads(row["result_json"]) if row["result_json"] else None, error_code=row["error_code"], error_message=row["error_message"], owner=row["owner"], parent_id=row["parent_id"], attempt_count=int(row["attempt_count"]), max_attempts=int(row["max_attempts"]), progress=float(row["progress"]), resource_class=row["resource_class"], priority=int(row["priority"]), verify_required=bool(row["verify_required"]))
