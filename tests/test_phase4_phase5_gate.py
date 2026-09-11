@@ -27,8 +27,10 @@ class StorageAndJobsGateTests(unittest.IsolatedAsyncioTestCase):
     async def test_migration_is_idempotent(self):
         await self.storage.close()
         await self.storage.start()
-        row = await self.storage.fetchone("SELECT COUNT(*) FROM schema_migrations")
-        self.assertEqual(row[0], 1)
+        rows = await self.storage.fetchall(
+            "SELECT version FROM schema_migrations ORDER BY version"
+        )
+        self.assertEqual([row[0] for row in rows], [1, 2])
 
     async def test_foreign_keys_are_enabled(self):
         row = await self.storage.fetchone("PRAGMA foreign_keys")
