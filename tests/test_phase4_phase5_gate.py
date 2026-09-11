@@ -86,6 +86,7 @@ class StorageAndJobsGateTests(unittest.IsolatedAsyncioTestCase):
         await engine.fail(job.id, 'TEMP', 'temporary', retryable=True)
         retry = await engine.get(job.id)
         self.assertEqual(retry.state, JobState.QUEUED)
+        await self.storage.execute("UPDATE jobs SET available_at=0 WHERE id=?", (job.id,))
         await engine.claim()
         await engine.fail(job.id, 'TEMP', 'temporary', retryable=True)
         failed = await engine.get(job.id)
