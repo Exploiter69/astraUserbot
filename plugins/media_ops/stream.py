@@ -1,10 +1,7 @@
 import re
-from pathlib import Path
-from telethon import events
+from core.context import get_application_context
 from core.registry import register_cmd
 from helpers.hud import render
-from helpers.shell import run
-from helpers.concurrency import IO_BOUND
 from core.errors import CommandError
 from config import config
 
@@ -33,36 +30,27 @@ async def handle_rip(event):
     if not url:
         raise CommandError(f"Usage: `{config.PREFIX}rip <audio|video|doc|best> <URL>`")
 
-    from core.context import get_application_context
     context = get_application_context()
-    workspace_service = context.get("workspace") if context else None
-    workspace = await workspace_service.create("rip") if workspace_service else None
-    cache_dir = workspace.path if workspace else Path("data/cache")
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    out_tmpl = str(cache_dir / "%(title).50s.%(ext)s")
+    if context is None:
+        raise CommandError("Media service is unavailable.")
+    service = context.get("media")
+    workspace = await service.create_workspace("rip")
+    max_mb = max(1, service.max_output_bytes // (1024 * 1024))
+    max_filesize = f"{max_mb}M"
 
     await event.edit(render("RIP // STREAM", [f"Mode: `{mode}`", f"Target: `{url}`", "Extracting stream..."]))
     if mode == "audio":
-        argv = ["yt-dlp", "-x", "--audio-format", "mp3", "--audio-quality", "0", "-o", out_tmpl, "--no-playlist", "--max-filesize", "1900M", url]
+        argv = ["yt-dlp", "-x", "--audio-format", "mp3", "--audio-quality", "0", "-o", "%(title).50s.%(ext)s", "--no-playlist", "--max-filesize", max_filesize, url]
     elif mode == "doc":
-        argv = ["yt-dlp", "-f", "best", "-o", out_tmpl, "--no-playlist", "--max-filesize", "1900M", url]
+        argv = ["yt-dlp", "-f", "best", "-o", "%(title).50s.%(ext)s", "--no-playlist", "--max-filesize", max_filesize, url]
     else:
-        argv = ["yt-dlp", "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best", "-o", out_tmpl, "--no-playlist", "--max-filesize", "1900M", url]
+        argv = ["yt-dlp", "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best", "-o", "%(title).50s.%(ext)s", "--no-playlist", "--max-filesize", max_filesize, url]
 
     try:
-        async with IO_BOUND:
-            rc, out, err = await run(argv, timeout=600)
-        if rc != 0:
-            raise CommandError(f"yt-dlp extraction failed:\n{err[-300:]}")
-
-        extracted_files = sorted(cache_dir.glob("*"), key=lambda f: f.stat().st_mtime, reverse=True)
-        target_file = next((f for f in extracted_files if f.is_file() and not f.name.endswith(".tmp")), None)
-        if not target_file or not target_file.exists():
-            raise CommandError("Extracted file could not be located on disk.")
-
-        await event.edit(render("RIP // UPLOADING", [f"File: `{target_file.name}`", "Uploading to chat..."]))
-        await event.client.send_file(event.chat_id, file=str(target_file), caption=f"Extracted: `{target_file.name}`", reply_to=event.id)
+        _, artifacts = await service.run_download(argv, workspace=workspace, timeout=600)
+        target = artifacts[0]
+        await event.edit(render("RIP // UPLOADING", [f"File: `{target.path.name}`", "Uploading to chat..."]))
+        await event.client.send_file(event.chat_id, file=str(target.path), caption=f"Extracted: `{target.path.name}`", reply_to=event.id)
         await event.delete()
     finally:
-        if workspace_service and workspace:
-            await workspace_service.cleanup(workspace)
+        await service.cleanup(workspace)
