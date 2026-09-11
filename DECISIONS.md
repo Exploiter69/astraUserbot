@@ -1,7 +1,7 @@
 # AstraUserbot — Detailed Architecture Decisions
 
 **Status:** Living ADR record  
-**Version:** 2.0  
+**Version:** 2.1  
 **Rule:** Accepted decisions constrain implementation until new evidence justifies supersession.
 
 ## ADR-001 — Single-Process Modular Monolith
@@ -234,6 +234,20 @@ giant generic event bus
 ## ADR-030 — Documentation Is an Engineering Contract
 
 **Decision:** Root architecture documents are canonical. Implementation that contradicts a mandatory contract must either be fixed or accompanied by a new ADR explaining the intentional change.
+
+## ADR-031 — AI Gateway Owns Provider Boundaries
+
+**Decision:** All AI feature plugins call `AIService`; provider-specific HTTP, authentication, model defaults, request shaping, response parsing, retries, and transcription capability checks stay inside provider adapters.
+
+**Adapters implemented:** Groq, Google Gemini Developer API, Ollama, and llama.cpp OpenAI-compatible endpoints. Local adapters are optional and never required for startup.
+
+**Resource policy:** input/output character bounds, audio-file bounds, bounded concurrency, bounded transport retries, request timeouts, and cancellation propagation are enforced by the gateway/HTTP service.
+
+**Privacy/security:** API secrets remain environment configuration; provider response bodies are not copied into user-facing errors; AI output is returned as data/metadata and cannot authorize or execute privileged operations.
+
+**Cost:** the gateway has no paid SDK or mandatory hosted dependency. Free providers are opt-in configuration; local adapters remain available for zero-cost operation where hardware permits.
+
+**Compatibility:** the old Groq command modules are quarantined from runtime discovery while the new `plugins/ai_gateway` command adapters provide `.ask`, `.summarize`, and `.transcribe` with the same user-facing command surface.
 
 ## Supersession Procedure
 
