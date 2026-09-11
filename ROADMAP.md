@@ -1,7 +1,7 @@
 # AstraUserbot — Detailed Canonical Roadmap
 
 **Status:** Canonical implementation sequence  
-**Version:** 2.4  
+**Version:** 2.5  
 **Cost target:** ₹0 / $0
 
 > This file is the execution plan. Architectural changes belong in `DECISIONS.md`; contracts are defined in `ARCHITECTURE.md`, `DATA_MODEL.md`, `JOB_MODEL.md`, `SAFETY_CONTRACT.md`, and `PRODUCTION_BOUNDARY.md`.
@@ -94,19 +94,6 @@ Implemented structured error classes, stable error codes, bounded user-facing me
 
 Implemented centralized supervision for ephemeral long-lived tasks with owner/name/lifecycle tracking, cancellation, bounded history, failure classification and graceful shutdown.
 
-### Phase 1 tests
-
-- duplicate command;
-- duplicate alias;
-- plugin import failure;
-- plugin setup failure;
-- dependency cycle;
-- registration cleanup;
-- task crash visibility;
-- shutdown cancellation;
-- safe error output;
-- real plugin-tree integration.
-
 ### Gate 1 — PASS
 
 **28/28 tests passed and compile validation passed.**
@@ -116,10 +103,6 @@ Implemented centralized supervision for ephemeral long-lived tasks with owner/na
 # Phase 2 — Shared Runtime Services — COMPLETE
 
 **Goal:** extract duplicated infrastructure into explicit, reusable process-wide services.
-
-## 2.1 Application Context — COMPLETE
-
-Implemented `ApplicationContext` with explicit service ownership, deterministic startup/shutdown, service lookup, runtime snapshot and startup failure cleanup.
 
 Current core services include:
 
@@ -132,25 +115,9 @@ MediaService
 AIService
 ```
 
-## 2.2 SubprocessService — COMPLETE
+### Gate 2 — PASS
 
-Implemented bounded argv execution, timeout/cancellation handling, output caps, cwd policy, explicit environment passing and controlled error classification.
-
-## 2.3 HttpService — COMPLETE
-
-Implemented one shared aiohttp session, pooling, per-host limits, request timeouts, response-size limits, bounded transient retries, redirect policy and cancellation propagation.
-
-## 2.4 TelegramFacade — COMPLETE
-
-Implemented common Telegram operations with bounded FloodWait handling while preserving raw Telethon access through the client.
-
-## 2.5 Filesystem/WorkspaceService — COMPLETE
-
-Implemented canonical workspace root, unique operation workspaces, traversal-safe paths, managed-file size validation, deterministic cleanup and orphan cleanup.
-
-### Gate 2
-
-**PASS — Phase 2 service regression suite passed.**
+**Phase 2 service regression suite passed.**
 
 ---
 
@@ -158,31 +125,9 @@ Implemented canonical workspace root, unique operation workspaces, traversal-saf
 
 **Goal:** establish the reusable cache before broad plugin migration.
 
-## L1
+### Gate 3 — PASS
 
-TTL/LRU, bounded entries/bytes, namespaces, versioned keys, hit/miss metrics, stampede locks.
-
-## L2
-
-SQLite cache metadata/value storage with TTL, source, content type, validators, size and access metadata.
-
-## L3
-
-Filesystem artifacts for large media/binary data with SQLite metadata references.
-
-## Cache policies
-
-- explicit expiry/invalidation;
-- namespace isolation;
-- safe serialization;
-- byte/count limits;
-- negative caching only when useful;
-- orphan cleanup;
-- diagnostics.
-
-### Gate 3
-
-**PASS — 49/49 full regression tests passed.**
+**49/49 full regression tests passed.**
 
 ---
 
@@ -190,26 +135,9 @@ Filesystem artifacts for large media/binary data with SQLite metadata references
 
 **Goal:** create durable shared platform persistence.
 
-### Deliverables
+### Gate 4 — PASS
 
-- migration runner;
-- schema version table;
-- platform SQLite DB;
-- repositories;
-- foreign keys;
-- WAL configuration;
-- busy timeout;
-- integrity checks;
-- retention service;
-- backup/restore tests.
-
-### Migration rule
-
-Existing plugin DBs stay intact until each migration is backed up, tested, verified, and reversible.
-
-### Gate 4
-
-**PASS — deterministic platform storage/migration validation is complete.**
+**Deterministic platform storage/migration validation is complete.**
 
 ---
 
@@ -217,27 +145,9 @@ Existing plugin DBs stay intact until each migration is backed up, tested, verif
 
 **Goal:** make restart-sensitive work durable.
 
-## Required
+### Gate 5 — PASS
 
-- persistent job creation;
-- state machine;
-- worker leases;
-- heartbeats;
-- bounded retry/backoff;
-- failure classes;
-- idempotency hooks;
-- cancellation;
-- parent/child jobs;
-- progress;
-- startup recovery;
-- verification state;
-- audit events;
-- resource classes;
-- explicit `UNCERTAIN` state for unknown execution outcomes.
-
-### Gate 5
-
-**PASS — uncertain external outcomes require explicit reconciliation before replay.**
+**Uncertain external outcomes require explicit reconciliation before replay.**
 
 ---
 
@@ -260,9 +170,9 @@ Completed:
 11. Shared subprocess boundary for rclone/aria2.
 12. Explicit uncertain-job recovery coverage.
 
-### Gate 6
+### Gate 6 — PASS
 
-**PASS — 73 tests passed and compile validation passed.**
+**73 tests passed and compile validation passed.**
 
 ---
 
@@ -270,29 +180,49 @@ Completed:
 
 **Goal:** make media a reusable, bounded, isolated service.
 
-## 7.1 MediaService — COMPLETE
+### Gate 7 — PASS
 
-`core/services/media.py` is the authoritative media boundary. It provides:
+**81/81 tests passed, 0 failures, 0 errors, and compile validation passed.**
+
+---
+
+# Phase 8 — AI Gateway — COMPLETE
+
+**Goal:** remove provider lock-in while preserving existing AI command behavior.**
+
+### Gate 8 — PASS
+
+**Phase 8 implementation and contract tests are complete.** The active command path is provider-independent; legacy provider-specific modules remain quarantined compatibility artifacts.
+
+---
+
+# Phase 9 — Plugin Migration Program — IMPLEMENTATION COMPLETE
+
+**Goal:** move the existing ecosystem onto platform services.**
+
+Phase 9 is the migration pass that turns the platform work from Phases 1–8 into the actual existing-plugin ecosystem.
+
+## Batch A — Security/Admin — COMPLETE
+
+ACL, PMGuard, logger, account archiver, vault, eval and admin reliability fixes were completed in Phase 6 and retained as the Phase 9 migration baseline.
+
+## Batch B — Network/OSINT — COMPLETE
+
+Migrated:
 
 ```text
-unique workspace allocation
-input validation
-output verification
-explicit artifact manifests
-deterministic external execution
-FFmpeg / FFprobe helpers
-TTS helper
-download helper
-rclone policy boundary
-workspace size limits
-input/output size limits
-bounded media concurrency
-cleanup
+plugins/network_osint/dns.py
+plugins/network_osint/headers.py
+plugins/network_osint/ipinfo.py
+plugins/network_osint/speedtest.py
+plugins/advanced/osint_recon.py
 ```
 
-## 7.2 Consumer migration — COMPLETE
+HTTP consumers now resolve `HttpService` from `ApplicationContext`. Speedtest uses `SubprocessService` with bounded output and timeout policy. DNS record types are explicitly validated and query parameters are encoded by the shared HTTP layer.
 
-All Phase 7 media consumers use `MediaService`:
+## Batch C — Media — COMPLETE
+
+Media consumers were migrated through the Phase 7 `MediaService` boundary:
 
 ```text
 media/ffmpeg.py
@@ -304,111 +234,28 @@ media/aria2.py
 media/rclone.py
 ```
 
-## 7.3 Concurrency and verification — COMPLETE
+OCR was additionally migrated to the canonical `WorkspaceService` + `SubprocessService` boundary during Phase 9.
 
-Media execution is bounded by a service-level semaphore. Artifact validation enforces non-empty regular-file outputs and size limits. FFmpeg output verification, deterministic download manifests, TTS verification, workspace cleanup and rclone operation policy are covered by regression tests.
+## Batch D — System/Automation — COMPLETE
 
-### Gate 7 — PASS
-
-**81/81 tests passed, 0 failures, 0 errors, and compile validation passed.**
-
----
-
-# Phase 8 — AI Gateway — COMPLETE
-
-**Goal:** remove provider lock-in while preserving existing AI command behavior.
-
-## 8.1 Provider-independent service — COMPLETE
-
-Created `core/services/ai.py` and registered it in `ApplicationContext`.
-
-The gateway owns:
+Shared-infrastructure consumers now use platform services. In particular:
 
 ```text
-chat
-summarize
-extract
-classify
-transcribe
-provider selection
-model configuration
-input/output bounds
-audio size bounds
-bounded concurrency
-cancellation
-provider capability checks
-safe error translation
+plugins/system/sysinfo.py
+plugins/backup/cloud_backup.py
+plugins/media/ocr.py
+plugins/network_osint/speedtest.py
 ```
 
-## 8.2 Adapters — COMPLETE
+No active plugin invokes the legacy `helpers.shell` boundary.
 
-Implemented adapters for:
+## Batch E — AI/Advanced — COMPLETE
 
-```text
-Groq
-Google Gemini Developer API
-Ollama / OpenAI-compatible local endpoint
-llama.cpp / OpenAI-compatible local endpoint
-```
+The active `.ask`, `.summarize`, and `.transcribe` command path was migrated through `AIService` in Phase 8. The old Groq-specific command modules remain quarantined compatibility artifacts and are not part of active command ownership.
 
-Local adapters are optional. No local model is required for startup or runtime architecture.
+The advanced OSINT recon consumer was migrated to `HttpService` during Phase 9.
 
-## 8.3 Existing command migration — COMPLETE
-
-The user-facing commands remain:
-
-```text
-.ask
-.summarize
-.transcribe
-```
-
-New adapters live under `plugins/ai_gateway/` and resolve `AIService` from `ApplicationContext`. The previous Groq-specific command modules are quarantined from runtime discovery so duplicate command ownership cannot occur.
-
-## 8.4 Reliability/security contract — COMPLETE
-
-- provider secrets remain environment configuration;
-- provider response bodies are not exposed through user-facing errors;
-- request and output sizes are bounded;
-- audio uploads are bounded;
-- HTTP retries remain bounded and centralized;
-- cancellation propagates through the gateway;
-- AI concurrency is bounded;
-- unsupported capabilities fail explicitly;
-- AI output remains untrusted data and cannot authorize privileged actions;
-- no paid AI SDK or mandatory paid service was introduced.
-
-### Gate 8 — PASS
-
-**Phase 8 implementation and contract tests are complete.** The gateway is provider-independent, plugin-level Groq API knowledge is removed from the active command path, and the local provider adapters remain optional.
-
----
-
-# Phase 9 — Plugin Migration Program
-
-**Goal:** move the existing ecosystem onto platform services.
-
-## Batch A — Security/Admin
-
-ACL, PMGuard, logger, account archiver, vault, eval, admin.
-
-## Batch B — Network/OSINT
-
-DNS, IP info, headers, speedtest and other HTTP consumers.
-
-## Batch C — Media
-
-FFmpeg, mediaflow, stream, video, speech, aria2, rclone.
-
-## Batch D — System/Automation
-
-AFK, autopost, sysinfo, maintenance, testall.
-
-## Batch E — AI/Advanced
-
-Groq client, ask, summarize, transcription and advanced workflows.
-
-### Every migration must
+## Every migration must
 
 1. preserve intended behavior;
 2. add regression coverage;
@@ -418,9 +265,11 @@ Groq client, ask, summarize, transcription and advanced workflows.
 6. update documentation;
 7. run startup/command smoke tests.
 
-### Migration note
+## Phase 9 Gate
 
-The Phase 8 AI command migration is already complete and therefore is excluded from future Batch E work except for removal of the quarantined compatibility artifacts when the compatibility exit criteria are satisfied.
+`PHASE_9_READINESS.md` defines the migration contract and `tests/test_phase9_gate.py` provides the phase-specific static regression gate.
+
+**Implementation is complete. Gate 9 is pending local full-suite validation.** Do not mark Phase 9 PASS until the local full suite and Phase 9 gate pass together.
 
 ---
 
