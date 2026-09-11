@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import mimetypes
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
@@ -34,11 +35,14 @@ class MediaService:
         *,
         max_input_bytes: int = 512 * 1024 * 1024,
         max_output_bytes: int = 512 * 1024 * 1024,
+        max_workspace_bytes: int = 768 * 1024 * 1024,
         max_concurrent_jobs: int = 2,
         default_timeout: float = 300.0,
     ) -> None:
-        if max_input_bytes <= 0 or max_output_bytes <= 0:
+        if min(max_input_bytes, max_output_bytes, max_workspace_bytes) <= 0:
             raise ValueError("Media size limits must be positive")
+        if max_output_bytes > max_workspace_bytes:
+            raise ValueError("max_output_bytes cannot exceed max_workspace_bytes")
         if max_concurrent_jobs <= 0:
             raise ValueError("max_concurrent_jobs must be positive")
         if default_timeout <= 0:
@@ -47,6 +51,7 @@ class MediaService:
         self.subprocess = subprocess
         self.max_input_bytes = int(max_input_bytes)
         self.max_output_bytes = int(max_output_bytes)
+        self.max_workspace_bytes = int(max_workspace_bytes)
         self.default_timeout = float(default_timeout)
         self._slots = asyncio.Semaphore(max_concurrent_jobs)
 
@@ -68,7 +73,13 @@ class MediaService:
             raise ResourceError("Media input exceeds the configured size limit.")
         return candidate
 
+    def _validate_workspace_size(self, workspace: Workspace) -> None:
+        total = sum(path.stat().st_size for path in workspace.path.rglob("*") if path.is_file())
+        if total > self.max_workspace_bytes:
+            raise ResourceError("Media workspace exceeds the configured size limit.")
+
     def artifact(self, workspace: Workspace, relative: str | Path) -> MediaArtifact:
+        self._validate_workspace_size(workspace)
         path = workspace.resolve(relative)
         if not path.is_file():
             raise CommandError("Media operation did not produce an output file.")
@@ -81,6 +92,7 @@ class MediaService:
         return MediaArtifact(path=path, size_bytes=size, media_type=media_type)
 
     def discover_new_artifacts(self, workspace: Workspace, before: set[Path]) -> list[MediaArtifact]:
+        self._validate_workspace_size(workspace)
         artifacts: list[MediaArtifact] = []
         for path in sorted(workspace.path.iterdir(), key=lambda item: item.name):
             if not path.is_file() or path in before or path.name.endswith((".part", ".ytdl", ".tmp")):
@@ -98,11 +110,13 @@ class MediaService:
         if not argv:
             raise ValueError("Media command cannot be empty")
         async with self._slots:
-            return await self.subprocess.run(
+            result = await self.subprocess.run(
                 list(argv),
                 timeout=self.default_timeout if timeout is None else timeout,
                 cwd=workspace.path,
             )
+        self._validate_workspace_size(workspace)
+        return result
 
     async def run_download(
         self,
@@ -153,7 +167,12 @@ class MediaService:
         if result.returncode != 0:
             detail = result.stderr[-500:] or result.stdout[-500:]
             raise CommandError(f"FFmpeg failed:\n{detail}")
-        return result, self.artifact(workspace, output_name)
+        artifact = self.artifact(workspace, output_name)
+        if shutil.which("ffprobe"):
+            probe = await self.run_ffprobe(artifact.path, workspace=workspace)
+            if probe.returncode != 0:
+                raise CommandError("FFmpeg produced an unreadable media artifact.")
+        return result, artifact
 
     async def run_ffprobe(self, path: str | Path, *, workspace: Workspace, timeout: float = 30.0) -> SubprocessResult:
         source = self.validate_input(path)
