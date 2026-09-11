@@ -10,13 +10,13 @@ from __future__ import annotations
 import importlib
 import inspect
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from types import ModuleType
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Iterator
 
 logger = logging.getLogger("astra.plugins")
 
@@ -69,6 +69,16 @@ class PluginManager:
     def current_plugin(cls) -> str | None:
         """Return the plugin whose setup/lifecycle code is currently executing."""
         return cls._current_plugin.get()
+
+    @classmethod
+    @contextmanager
+    def plugin_context(cls, name: str) -> Iterator[None]:
+        """Bind plugin ownership for code that registers resources outside load_all."""
+        token = cls._current_plugin.set(name)
+        try:
+            yield
+        finally:
+            cls._current_plugin.reset(token)
 
     def discover(self) -> list[PluginRecord]:
         """Discover Python plugin modules in deterministic path order."""
