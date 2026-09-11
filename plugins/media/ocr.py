@@ -1,8 +1,6 @@
-import os
 import re
 import shutil
 import logging
-from pathlib import Path
 
 from core.context import get_application_context
 from core.registry import register_cmd
@@ -40,7 +38,7 @@ async def handle_ocr(event):
 
     await event.edit(render(title="OCR", rows=["Downloading image..."], footer="media | ocr"))
 
-    workspace = await workspace_service.create_workspace("ocr")
+    workspace = await workspace_service.create("ocr")
     file_path = workspace.path / "input.jpg"
     downloaded_path = await event.client.download_media(media, file=file_path)
     if not downloaded_path:
