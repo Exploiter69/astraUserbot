@@ -1,8 +1,9 @@
 import re
+
+from core.context import get_application_context
 from core.registry import register_cmd
 from core.errors import CommandError
 from helpers.hud import render
-from helpers.net import get_session
 from config import config
 
 PATTERN = rf"^{re.escape(config.PREFIX)}headers(?:\s+(\S+))?$"
@@ -24,16 +25,20 @@ async def handle_headers(event):
     if not url.startswith(("http://", "https://")):
         url = f"https://{url}"
 
-    session = get_session()
+    context = get_application_context()
+    if context is None:
+        raise CommandError("HTTP service is unavailable.")
+    http = context.get("http")
+
     try:
-        async with session.head(url, allow_redirects=True) as resp:
-            status_code = resp.status
-            headers_dict = dict(resp.headers)
-    except Exception as e:
-        raise CommandError(f"Failed to reach {url}: {e}")
+        response = await http.head(url, allow_redirects=True, response_limit=64 * 1024)
+        status_code = response.status
+        headers_dict = dict(response.headers)
+    except Exception as exc:
+        raise CommandError("Failed to reach the requested URL.") from exc
 
     rows = [
-        f"Target: {url}",
+        f"Target: {response.url}",
         f"Status: {status_code}",
         "---"
     ]
