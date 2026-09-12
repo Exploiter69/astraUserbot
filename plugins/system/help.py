@@ -16,51 +16,29 @@ from helpers.hud import render
 PATTERN = rf"^{re.escape(config.PREFIX)}help(?:\s+(.*))?$"
 
 _CATEGORY_LABELS = {
-    "security": "SECURITY",
-    "stealth": "SECURITY",
-    "crypto": "SECURITY",
-    "backup": "STORAGE",
-    "storage": "STORAGE",
-    "network_osint": "OSINT",
-    "advanced": "OSINT",
-    "ai": "AI / MEDIA",
-    "media": "AI / MEDIA",
-    "media_ops": "AI / MEDIA",
-    "system": "SYSTEM",
-    "system_ops": "SYSTEM",
-    "admin_ops": "SYSTEM",
+    "security": "SECURITY", "stealth": "SECURITY", "crypto": "SECURITY",
+    "backup": "STORAGE", "storage": "STORAGE",
+    "network_osint": "OSINT", "advanced": "OSINT",
+    "ai": "AI / MEDIA", "media": "AI / MEDIA", "media_ops": "AI / MEDIA",
+    "system": "SYSTEM", "system_ops": "SYSTEM", "admin_ops": "SYSTEM",
     "fun": "FUN",
 }
 
 
 def _command_names(registration) -> tuple[str, ...]:
+    """Extract only the command expression immediately after the prefix."""
     names: list[str] = []
     prefix = re.escape(config.PREFIX)
-    raw = registration.pattern
-    raw = re.sub(rf"^\^{prefix}", "", raw, count=1)
-    raw = raw.split("(?", 1)[0].rstrip("$").replace("\\", "")
-
-    if raw.startswith("(") and raw.endswith(")"):
-        names.extend(
-            name
-            for name in raw[1:-1].split("|")
-            if re.fullmatch(r"[A-Za-z0-9_:-]+", name)
-        )
-    elif re.fullmatch(r"[A-Za-z0-9_:-]+", raw):
-        names.append(raw)
-
-    # Some registrations encode command alternatives inside a capturing group
-    # while also having additional regex syntax. Only accept actual command
-    # tokens from that group; never surface regex syntax as a command name.
-    if not names:
-        match = re.search(r"\(([^()]+(?:\|[^()]+)+)\)", registration.pattern)
-        if match:
-            names.extend(
-                name
-                for name in match.group(1).split("|")
-                if re.fullmatch(r"[A-Za-z0-9_:-]+", name)
-            )
-
+    match = re.match(
+        rf"^{prefix}(?:\(([A-Za-z0-9_:-]+(?:\|[A-Za-z0-9_:-]+)*)\)|([A-Za-z0-9_:-]+))",
+        registration.pattern,
+    )
+    if match:
+        grouped, single = match.groups()
+        if grouped:
+            names.extend(grouped.split("|"))
+        elif single:
+            names.append(single)
     names.extend(alias.lstrip(config.PREFIX).lower() for alias in registration.aliases)
     return tuple(dict.fromkeys(name.lower() for name in names if name))
 
@@ -103,13 +81,10 @@ def _find(query: str):
 
 def _rows_for_one(registration) -> list[str]:
     rows = [
-        _display_command(registration),
-        "---",
+        _display_command(registration), "---",
         registration.description or "No description provided.",
-        f"Category: {registration.category}",
-        f"Permission: {registration.permission}",
-        f"Owner: {registration.owner or 'legacy'}",
-        f"Pattern: {registration.pattern}",
+        f"Category: {registration.category}", f"Permission: {registration.permission}",
+        f"Owner: {registration.owner or 'legacy'}", f"Pattern: {registration.pattern}",
     ]
     if registration.aliases:
         rows.append("Aliases: " + ", ".join(registration.aliases))
@@ -117,13 +92,8 @@ def _rows_for_one(registration) -> list[str]:
 
 
 async def setup(client):
-    register_cmd(
-        client,
-        pattern=PATTERN,
-        handler=handle_help,
-        category="system",
-        description="Show the live command registry and canonical command metadata.",
-    )
+    register_cmd(client, pattern=PATTERN, handler=handle_help, category="system",
+                  description="Show the live command registry and canonical command metadata.")
 
 
 async def handle_help(event):
@@ -131,13 +101,7 @@ async def handle_help(event):
     if query:
         registration = _find(query)
         if registration is None:
-            await event.edit(
-                render(
-                    "HELP",
-                    [f"Unknown command: {query}", "Use .help to list registered commands."],
-                    footer="system | help",
-                )
-            )
+            await event.edit(render("HELP", [f"Unknown command: {query}", "Use .help to list registered commands."], footer="system | help"))
             return
         rows = _rows_for_one(registration)
     else:
