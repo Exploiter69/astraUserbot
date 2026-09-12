@@ -277,6 +277,12 @@ class StorageService:
                 finally:
                     target_conn.close()
                 os.replace(temp, self.path)
+                for suffix in ("-wal", "-shm"):
+                    sidecar = Path(str(self.path) + suffix)
+                    try:
+                        sidecar.unlink()
+                    except FileNotFoundError:
+                        pass
             finally:
                 try:
                     temp.unlink()
