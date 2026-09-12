@@ -9,7 +9,7 @@ import sqlite3
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, Callable, Awaitable
+from typing import Any
 
 import aiosqlite
 
