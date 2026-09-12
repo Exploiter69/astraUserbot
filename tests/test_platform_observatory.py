@@ -1,6 +1,7 @@
 import unittest
 from unittest.mock import patch
 
+from core.errors import CommandError
 from plugins.system_ops.platform import (
     _find_plugin,
     _pack,
@@ -31,7 +32,7 @@ class PluginObservatoryTests(unittest.TestCase):
             _find_plugin(records, "system_ops.platform")["name"],
             "plugins.system_ops.platform",
         )
-        with self.assertRaisesRegex(Exception, "ambiguous"):
+        with self.assertRaisesRegex(CommandError, "ambiguous"):
             _find_plugin(records, "system_ops")
 
     def test_overview_reports_states_commands_and_attention(self):
@@ -48,7 +49,6 @@ class PluginObservatoryTests(unittest.TestCase):
         self.assertIn("ATTENTION", text)
         self.assertIn("beta → FAILED_SETUP", text)
         self.assertIn("gamma → DISABLED", text)
-        self.assertIn("system_ops", text) if False else None
 
     def test_command_map_uses_live_registration_ownership(self):
         registrations = [
