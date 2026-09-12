@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import os
 import sqlite3
+import tempfile
+import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Awaitable
 
 import aiosqlite
 
@@ -47,6 +50,10 @@ class StorageError(RuntimeError):
 class StorageService:
     """Own the canonical platform database and deterministic migration lifecycle."""
 
+    BUSY_TIMEOUT_MS = 5000
+    BACKUP_TIMEOUT_SECONDS = 30.0
+    MAX_BACKUP_BYTES = 2 * 1024 * 1024 * 1024
+
     def __init__(self, project_root: str | Path) -> None:
         self.project_root = Path(project_root).resolve()
         self.path = self.project_root / "data" / "databases" / "platform.db"
@@ -58,32 +65,48 @@ class StorageService:
         if self._started:
             return
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = await aiosqlite.connect(self.path)
-        self.conn.row_factory = aiosqlite.Row
-        await self.conn.execute("PRAGMA journal_mode=WAL")
-        await self.conn.execute("PRAGMA synchronous=NORMAL")
-        await self.conn.execute("PRAGMA foreign_keys=ON")
-        await self.conn.execute("PRAGMA busy_timeout=5000")
-        await self.conn.execute("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, checksum TEXT NOT NULL, applied_at REAL NOT NULL)")
-        await self.conn.commit()
-        await self._migrate()
-        self._started = True
+        try:
+            self.conn = await aiosqlite.connect(self.path)
+            self.conn.row_factory = aiosqlite.Row
+            await self.conn.execute("PRAGMA journal_mode=WAL")
+            await self.conn.execute("PRAGMA synchronous=NORMAL")
+            await self.conn.execute("PRAGMA foreign_keys=ON")
+            await self.conn.execute(f"PRAGMA busy_timeout={self.BUSY_TIMEOUT_MS}")
+            await self.conn.execute(
+                "CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, checksum TEXT NOT NULL, applied_at REAL NOT NULL)"
+            )
+            await self.conn.commit()
+            await self._migrate()
+            if not await self.integrity_check():
+                raise StorageError("Platform database integrity check failed after startup")
+            self._started = True
+        except (sqlite3.Error, OSError) as exc:
+            conn, self.conn = self.conn, None
+            if conn is not None:
+                await conn.close()
+            raise StorageError(f"Unable to initialize platform database: {exc}") from exc
 
     async def _migrate(self) -> None:
         assert self.conn is not None
         for version, sql in MIGRATIONS:
             checksum = hashlib.sha256(sql.encode()).hexdigest()
-            async with self.conn.execute("SELECT checksum FROM schema_migrations WHERE version=?", (version,)) as cursor:
-                row = await cursor.fetchone()
-            if row is not None:
-                if row[0] != checksum:
-                    raise StorageError(f"Migration checksum mismatch: {version}")
-                continue
             try:
-                await self.conn.execute("BEGIN")
+                await self.conn.execute("BEGIN IMMEDIATE")
+                async with self.conn.execute(
+                    "SELECT checksum FROM schema_migrations WHERE version=?", (version,)
+                ) as cursor:
+                    row = await cursor.fetchone()
+                if row is not None:
+                    if row[0] != checksum:
+                        raise StorageError(f"Migration checksum mismatch: {version}")
+                    await self.conn.commit()
+                    continue
                 for statement in (part.strip() for part in sql.split(";") if part.strip()):
                     await self.conn.execute(statement)
-                await self.conn.execute("INSERT INTO schema_migrations(version, checksum, applied_at) VALUES (?, ?, strftime('%s','now'))", (version, checksum))
+                await self.conn.execute(
+                    "INSERT INTO schema_migrations(version, checksum, applied_at) VALUES (?, ?, ?)",
+                    (version, checksum, time.time()),
+                )
                 await self.conn.commit()
             except Exception:
                 await self.conn.rollback()
@@ -93,23 +116,33 @@ class StorageService:
         if self.conn is None:
             raise StorageError("StorageService is not started")
         async with self.lock:
-            cursor = await self.conn.execute(sql, params)
-            await self.conn.commit()
-            return cursor
+            try:
+                cursor = await self.conn.execute(sql, params)
+                await self.conn.commit()
+                return cursor
+            except sqlite3.Error as exc:
+                await self.conn.rollback()
+                raise StorageError(f"Database write failed: {exc}") from exc
 
     async def fetchone(self, sql: str, params: tuple[Any, ...] = ()) -> sqlite3.Row | None:
         if self.conn is None:
             raise StorageError("StorageService is not started")
         async with self.lock:
-            async with self.conn.execute(sql, params) as cursor:
-                return await cursor.fetchone()
+            try:
+                async with self.conn.execute(sql, params) as cursor:
+                    return await cursor.fetchone()
+            except sqlite3.Error as exc:
+                raise StorageError(f"Database read failed: {exc}") from exc
 
     async def fetchall(self, sql: str, params: tuple[Any, ...] = ()) -> list[sqlite3.Row]:
         if self.conn is None:
             raise StorageError("StorageService is not started")
         async with self.lock:
-            async with self.conn.execute(sql, params) as cursor:
-                return await cursor.fetchall()
+            try:
+                async with self.conn.execute(sql, params) as cursor:
+                    return await cursor.fetchall()
+            except sqlite3.Error as exc:
+                raise StorageError(f"Database read failed: {exc}") from exc
 
     async def transaction(self, statements: list[tuple[str, tuple[Any, ...]]]) -> None:
         if self.conn is None:
@@ -120,34 +153,148 @@ class StorageService:
                 for sql, params in statements:
                     await self.conn.execute(sql, params)
                 await self.conn.commit()
-            except Exception:
+            except sqlite3.Error as exc:
                 await self.conn.rollback()
-                raise
+                raise StorageError(f"Database transaction failed: {exc}") from exc
 
     async def integrity_check(self) -> bool:
         row = await self.fetchone("PRAGMA integrity_check")
-        return bool(row and row[0] == "ok")
+        return bool(row and str(row[0]).lower() == "ok")
+
+    async def foreign_key_check(self) -> list[sqlite3.Row]:
+        return await self.fetchall("PRAGMA foreign_key_check")
+
+    async def fts_consistency(self) -> dict[str, int | bool]:
+        documents = await self.fetchone("SELECT COUNT(*) FROM search_documents")
+        fts_rows = await self.fetchone("SELECT COUNT(*) FROM search_fts")
+        orphan_fts = await self.fetchone(
+            "SELECT COUNT(*) FROM search_fts f LEFT JOIN search_documents d ON d.id=f.id WHERE d.id IS NULL"
+        )
+        missing_fts = await self.fetchone(
+            "SELECT COUNT(*) FROM search_documents d LEFT JOIN search_fts f ON f.id=d.id WHERE f.id IS NULL"
+        )
+        result = {
+            "documents": int(documents[0]) if documents else 0,
+            "fts_rows": int(fts_rows[0]) if fts_rows else 0,
+            "orphan_fts": int(orphan_fts[0]) if orphan_fts else 0,
+            "missing_fts": int(missing_fts[0]) if missing_fts else 0,
+        }
+        result["consistent"] = (
+            result["orphan_fts"] == 0 and result["missing_fts"] == 0 and result["documents"] == result["fts_rows"]
+        )
+        return result
+
+    async def database_size(self) -> int:
+        """Return the database footprint including WAL/SHM sidecars when present."""
+        total = 0
+        for suffix in ("", "-wal", "-shm"):
+            candidate = Path(str(self.path) + suffix)
+            try:
+                total += candidate.stat().st_size
+            except FileNotFoundError:
+                pass
+        return total
+
+    async def checkpoint(self, *, truncate: bool = False) -> None:
+        if self.conn is None:
+            raise StorageError("StorageService is not started")
+        mode = "TRUNCATE" if truncate else "PASSIVE"
+        async with self.lock:
+            try:
+                await self.conn.execute(f"PRAGMA wal_checkpoint({mode})")
+            except sqlite3.Error as exc:
+                raise StorageError(f"WAL checkpoint failed: {exc}") from exc
 
     async def backup(self, destination: str | Path) -> Path:
+        """Create an integrity-verified SQLite backup and atomically publish it."""
         if self.conn is None:
             raise StorageError("StorageService is not started")
         target = Path(destination).resolve()
         target.parent.mkdir(parents=True, exist_ok=True)
         if target == self.path:
             raise StorageError("Backup destination must differ from source")
-        await self.conn.commit()
-        target_conn = sqlite3.connect(target)
+        if await self.database_size() > self.MAX_BACKUP_BYTES:
+            raise StorageError("Database exceeds configured backup size bound")
+        if not await self.integrity_check():
+            raise StorageError("Refusing backup of an integrity-failed database")
+
+        temp_path: Path | None = None
+        async with self.lock:
+            try:
+                fd, raw_temp = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=target.parent)
+                os.close(fd)
+                temp_path = Path(raw_temp)
+                target_conn = sqlite3.connect(temp_path)
+                try:
+                    await self.conn.commit()
+                    await asyncio.wait_for(
+                        self.conn.backup(target_conn), timeout=self.BACKUP_TIMEOUT_SECONDS
+                    )
+                    target_conn.commit()
+                    check = target_conn.execute("PRAGMA integrity_check").fetchone()
+                    if not check or str(check[0]).lower() != "ok":
+                        raise StorageError("Backup integrity check failed")
+                finally:
+                    target_conn.close()
+                os.replace(temp_path, target)
+                temp_path = None
+                return target
+            except (sqlite3.Error, asyncio.TimeoutError, OSError) as exc:
+                raise StorageError(f"Database backup failed: {exc}") from exc
+            finally:
+                if temp_path is not None:
+                    try:
+                        temp_path.unlink()
+                    except FileNotFoundError:
+                        pass
+
+    async def restore(self, backup: str | Path) -> None:
+        """Restore an integrity-checked backup into this database before normal use."""
+        if self._started or self.conn is not None:
+            raise StorageError("Restore requires a stopped StorageService")
+        source = Path(backup).resolve()
+        if not source.is_file() or source == self.path:
+            raise StorageError("Invalid restore source")
+        if source.stat().st_size > self.MAX_BACKUP_BYTES:
+            raise StorageError("Restore source exceeds configured database size bound")
+        source_conn = sqlite3.connect(source)
         try:
-            await self.conn.backup(target_conn)
+            check = source_conn.execute("PRAGMA integrity_check").fetchone()
+            if not check or str(check[0]).lower() != "ok":
+                raise StorageError("Refusing restore from an integrity-failed backup")
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            fd, raw_temp = tempfile.mkstemp(prefix=f".{self.path.name}.", suffix=".restore", dir=self.path.parent)
+            os.close(fd)
+            temp = Path(raw_temp)
+            try:
+                target_conn = sqlite3.connect(temp)
+                try:
+                    source_conn.backup(target_conn)
+                    target_conn.commit()
+                    check = target_conn.execute("PRAGMA integrity_check").fetchone()
+                    if not check or str(check[0]).lower() != "ok":
+                        raise StorageError("Restored database integrity check failed")
+                finally:
+                    target_conn.close()
+                os.replace(temp, self.path)
+            finally:
+                try:
+                    temp.unlink()
+                except FileNotFoundError:
+                    pass
+        except sqlite3.Error as exc:
+            raise StorageError(f"Database restore failed: {exc}") from exc
         finally:
-            target_conn.close()
-        return target
+            source_conn.close()
 
     async def close(self) -> None:
         if self.conn is None:
+            self._started = False
             return
         async with self.lock:
             conn, self.conn = self.conn, None
-            await conn.execute("PRAGMA optimize")
-            await conn.close()
-        self._started = False
+            try:
+                await conn.execute("PRAGMA optimize")
+                await conn.close()
+            finally:
+                self._started = False
