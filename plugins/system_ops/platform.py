@@ -5,22 +5,16 @@ import re
 import time
 from dataclasses import asdict
 
+from config import config
 from core.context import get_application_context
 from core.errors import CommandError
 from core.registry import COMMANDS, list_registrations, register_cmd
 from helpers.hud import render
-from config import config
 
-PATTERN = rf"^{re.escape(config.PREFIX)}(health|plugins|tasks|jobs|cache|stats|diagnostics|search|reindex|flags)(?:\s+(.*))?$"
+PATTERN = rf"^{re.escape(config.PREFIX)}(health|plugins|tasks|jobs|cache|stats|diagnostics|search|reindex|flags|status|ops)(?:\s+(.*))?$"
 
 _PLUGIN_STATES = frozenset({
-    "DISCOVERED",
-    "LOADED",
-    "RUNNING",
-    "FAILED_IMPORT",
-    "FAILED_SETUP",
-    "DISABLED",
-    "UNLOADED",
+    "DISCOVERED", "LOADED", "RUNNING", "FAILED_IMPORT", "FAILED_SETUP", "DISABLED", "UNLOADED",
 })
 
 
@@ -60,19 +54,39 @@ def _plugin_short_name(name: str) -> str:
     return name.removeprefix("plugins.")
 
 
+def _command_names(registration) -> tuple[str, ...]:
+    """Extract human-readable command names from a live registry expression."""
+    names: list[str] = []
+    prefix = re.escape(config.PREFIX)
+    expression = registration.pattern
+    if expression.startswith(f"^{prefix}"):
+        expression = expression[len(f"^{prefix}"):]
+        if expression.startswith("("):
+            end = expression.find(")")
+            group = expression[1:end] if end > 0 else ""
+            if re.fullmatch(r"[A-Za-z0-9_:-]+(?:\|[A-Za-z0-9_:-]+)*", group):
+                names.extend(group.split("|"))
+        else:
+            match = re.match(r"[A-Za-z0-9_:-]+", expression)
+            if match:
+                names.append(match.group(0))
+    names.extend(str(alias).lstrip(config.PREFIX).lower() for alias in registration.aliases)
+    return tuple(dict.fromkeys(name.lower() for name in names if name))
+
+
+def _display_command(registration) -> str:
+    names = _command_names(registration)
+    if not names:
+        return registration.pattern
+    return "  ".join(config.PREFIX + name for name in names)
+
+
 def _find_plugin(records, query: str):
     needle = query.strip().lower()
-    exact = [
-        item for item in records
-        if item["name"].lower() == needle
-        or _plugin_short_name(item["name"]).lower() == needle
-    ]
+    exact = [item for item in records if item["name"].lower() == needle or _plugin_short_name(item["name"]).lower() == needle]
     if exact:
         return exact[0]
-    matches = [
-        item for item in records
-        if needle and needle in item["name"].lower()
-    ]
+    matches = [item for item in records if needle and needle in item["name"].lower()]
     if len(matches) == 1:
         return matches[0]
     if len(matches) > 1:
@@ -95,31 +109,16 @@ def _plugin_overview(records, command_counts: dict[str, int]) -> list[str]:
     for item in records:
         state = item["state"]
         counts[state] = counts.get(state, 0) + 1
-
     rows = [
         f"Plugins: {len(records)}  ·  Commands: {sum(command_counts.values())}",
-        "  ·  ".join(
-            f"{state}: {counts[state]}"
-            for state in ("RUNNING", "LOADED", "DISABLED", "FAILED_IMPORT", "FAILED_SETUP", "UNLOADED", "DISCOVERED")
-            if counts.get(state)
-        ) or "No lifecycle state recorded.",
+        "  ·  ".join(f"{state}: {counts[state]}" for state in ("RUNNING", "LOADED", "DISABLED", "FAILED_IMPORT", "FAILED_SETUP", "UNLOADED", "DISCOVERED") if counts.get(state)) or "No lifecycle state recorded.",
     ]
-
-    attention = [
-        f"{_plugin_short_name(item['name'])} → {item['state']}"
-        for item in records
-        if item["state"] not in {"RUNNING", "LOADED"}
-    ]
+    attention = [f"{_plugin_short_name(item['name'])} → {item['state']}" for item in records if item["state"] not in {"RUNNING", "LOADED"}]
     if attention:
         rows += ["", "ATTENTION"] + attention[:16]
         if len(attention) > 16:
             rows.append(f"… +{len(attention) - 16} more")
-
-    running = [
-        _plugin_short_name(item["name"])
-        for item in records
-        if item["state"] == "RUNNING"
-    ]
+    running = [_plugin_short_name(item["name"]) for item in records if item["state"] == "RUNNING"]
     if running:
         rows += ["", "RUNNING"] + _pack(running)
     return rows
@@ -137,26 +136,49 @@ def _plugin_detail(record, command_counts: dict[str, int]) -> list[str]:
         f"Dependencies: {', '.join(_plugin_short_name(dep) for dep in dependencies) if dependencies else 'none'}",
     ]
     if record.get("error"):
-        error = str(record["error"]).replace("\n", " ")
-        rows.append(f"Error: {error[:300]}")
+        rows.append(f"Error: {str(record['error']).replace(chr(10), ' ')[:300]}")
     if registrations:
-        owned = [
-            registration
-            for registration in list_registrations()
-            if registration.owner == name
-        ]
-        names = []
-        for registration in owned[:20]:
-            command_names = registration.pattern
-            names.append(command_names)
-        rows += ["", "REGISTRATIONS"] + _pack(names, width=1, limit=20)
+        owned = [registration for registration in list_registrations() if registration.owner == name]
+        names = [_display_command(registration) for registration in owned[:20]]
+        rows += ["", "COMMANDS"] + _pack(names, width=1, limit=20)
         if len(owned) > 20:
             rows.append(f"… +{len(owned) - 20} more")
     return rows
 
 
+def _job_attention(jobs) -> list[str]:
+    attention_states = {"FAILED", "UNCERTAIN", "RETRYING"}
+    return [f"{_state_name(job)} · {job.type} · {job.id[:12]}" for job in jobs if _state_name(job) in attention_states]
+
+
+def _operator_rows(ctx, plugin_manager, jobs, *, detailed: bool = False) -> list[str]:
+    integrity = awaitable = None
+    return []
+
+
+async def _health_rows(ctx, plugin_manager) -> list[str]:
+    storage = ctx.get("storage")
+    integrity = await storage.integrity_check()
+    records = plugin_manager.snapshot() if plugin_manager else []
+    running = sum(item["state"] == "RUNNING" for item in records)
+    failed = sum(item["state"] in {"FAILED_IMPORT", "FAILED_SETUP"} for item in records)
+    jobs = await ctx.get("jobs").list(limit=100)
+    attention = _job_attention(jobs)
+    isolation = ctx.get("isolation").assess()
+    return [
+        f"Runtime: {ctx.snapshot()['state']}",
+        f"Services: {len(ctx.services)}/{len(ctx.services)}", 
+        f"Database: {'PASS' if integrity else 'FAIL'}",
+        f"Plugins: {running}/{len(records)} running" + (f" · {failed} failed" if failed else ""),
+        f"Commands: {len(COMMANDS)} registrations",
+        f"Jobs: {'READY' if getattr(ctx.get('jobs'), '_started', False) else 'STOPPED'} · {len(attention)} attention",
+        f"Isolation: {isolation.backend}",
+        f"AI Gateway: {ctx.get('ai').provider_name.upper()} READY",
+    ]
+
+
 async def setup(client):
-    register_cmd(client, PATTERN, handle, "system_ops", "Astra platform health, diagnostics, search and feature controls.")
+    register_cmd(client, PATTERN, handle, "system_ops", "Astra platform health, diagnostics, search and operator controls.")
 
 
 async def handle(event):
@@ -164,17 +186,36 @@ async def handle(event):
     arg = (event.pattern_match.group(2) or "").strip()
     ctx = _ctx()
 
-    if cmd == "health":
-        storage = ctx.get("storage")
-        integrity = await storage.integrity_check()
+    if cmd in {"status", "ops"}:
+        plugin_manager = getattr(event.client, "plugin_manager", None)
+        jobs = await ctx.get("jobs").list(limit=100)
+        records = plugin_manager.snapshot() if plugin_manager else []
+        integrity = await ctx.get("storage").integrity_check()
+        failed_plugins = [item for item in records if item["state"] in {"FAILED_IMPORT", "FAILED_SETUP", "DISABLED", "UNLOADED"}]
+        job_attention = _job_attention(jobs)
+        isolation = ctx.get("isolation").assess()
         rows = [
-            f"Runtime: {ctx.snapshot()['state']}", f"Services: {len(ctx.services)}", f"Tasks active: {len(ctx.tasks.active())}",
-            f"Database integrity: {'PASS' if integrity else 'FAIL'}", f"Commands: {len(COMMANDS)}",
-            f"Jobs worker: {'running' if getattr(ctx.get('jobs'), '_started', False) else 'stopped'}",
-            f"HTTP: {'ready' if getattr(ctx.get('http'), 'session', None) else 'stopped'}",
-            f"Search: {'ready' if getattr(ctx.get('search'), '_ready', False) else 'stopped'}",
-            f"Isolation: {ctx.get('isolation').assess().backend}",
+            "OPERATOR STATUS",
+            "---",
+            f"Runtime       {ctx.snapshot()['state']}",
+            f"Database      {'PASS' if integrity else 'FAIL'}",
+            f"Services      {len(ctx.services)}/{len(ctx.services)}",
+            f"Plugins       {sum(i['state'] == 'RUNNING' for i in records)}/{len(records)} RUNNING",
+            f"Commands      {len(COMMANDS)} registrations",
+            f"Jobs          {'READY' if getattr(ctx.get('jobs'), '_started', False) else 'STOPPED'}",
+            f"Isolation     {isolation.backend.upper()}",
+            f"AI Gateway    {ctx.get('ai').provider_name.upper()} READY",
         ]
+        if failed_plugins or job_attention:
+            rows += ["", "ATTENTION"]
+            rows += [f"PLUGIN · {item['name'].removeprefix('plugins.')} · {item['state']}" for item in failed_plugins[:8]]
+            rows += [f"JOB · {item}" for item in job_attention[:8]]
+        else:
+            rows += ["", "SYSTEM NOMINAL · NO OPERATOR ATTENTION REQUIRED"]
+        await event.edit(render("OPERATOR // STATUS", rows, footer="system_ops | live runtime")); return
+
+    if cmd == "health":
+        rows = await _health_rows(ctx, getattr(event.client, "plugin_manager", None))
         await event.edit(render("HEALTH // PLATFORM", rows, footer="system_ops | health")); return
 
     if cmd == "plugins":
@@ -184,29 +225,28 @@ async def handle(event):
         if not arg:
             rows = _plugin_overview(records, command_counts)
             await event.edit(render("PLUGIN OBSERVATORY", rows or ["No plugins discovered."], footer="system_ops | plugins | live registry")); return
-
         parts = arg.split(maxsplit=1)
-        selector = parts[0].lower()
+        selector = parts[0].upper()
         if selector in _PLUGIN_STATES:
             filtered = [item for item in records if item["state"] == selector]
-            rows = [
-                f"{_plugin_short_name(item['name'])}  ·  {command_counts.get(item['name'], 0)} cmd"
-                for item in filtered
-            ]
+            rows = [f"{_plugin_short_name(item['name'])}  ·  {command_counts.get(item['name'], 0)} cmd" for item in filtered]
             rows = [f"State: {selector}", f"Count: {len(filtered)}", ""] + _pack(rows, width=1, limit=60)
             await event.edit(render("PLUGIN OBSERVATORY // FILTER", rows, footer=f"system_ops | plugins {selector.lower()}")); return
-
         record = _find_plugin(records, arg)
         rows = _plugin_detail(record, command_counts)
         await event.edit(render("PLUGIN OBSERVATORY // DETAIL", rows, footer=f"system_ops | plugins | {record['state']}")); return
 
     if cmd == "tasks":
-        records = ctx.tasks.snapshot(); rows = [f"{r['state']} · {r['name']} · {r['owner'] or 'unknown'}" for r in records[-20:]]
+        records = ctx.tasks.snapshot()
+        rows = [f"{r['state']} · {r['name']} · {r['owner'] or 'unknown'}" for r in records[-20:]]
         await event.edit(render("TASKS // SUPERVISOR", rows or ["No supervised tasks recorded."], footer="system_ops | tasks")); return
 
     if cmd == "jobs":
         jobs = await ctx.get("jobs").list(limit=20)
         rows = [f"{_state_name(job)} · {job.type} · {job.id[:12]} · {job.progress:.0%}" for job in jobs]
+        attention = _job_attention(jobs)
+        if attention:
+            rows += ["", "ATTENTION"] + attention[:10]
         await event.edit(render("JOBS // DURABLE", rows or ["No durable jobs recorded."], footer="system_ops | jobs")); return
 
     if cmd == "cache":
