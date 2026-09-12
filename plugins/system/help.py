@@ -36,7 +36,7 @@ _CATEGORY_LABELS = {
 def _command_names(registration) -> tuple[str, ...]:
     names: list[str] = []
     prefix = re.escape(config.PREFIX)
-    match = re.search(rf"{prefix}(?:\\()?([A-Za-z0-9_:-]+)", registration.pattern)
+    match = re.search(rf"{prefix}([A-Za-z0-9_:-]+)", registration.pattern)
     if match:
         names.append(match.group(1).lower())
     names.extend(alias.lstrip(config.PREFIX).lower() for alias in registration.aliases)
