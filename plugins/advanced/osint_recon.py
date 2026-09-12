@@ -13,7 +13,7 @@ PLATFORMS = {
     "GitHub": "https://github.com/{}",
     "Twitter": "https://twitter.com/{}",
     "Instagram": "https://instagram.com/{}",
-    "Reddit": "https://reddit.com/r/{}",
+    "Reddit": "https://www.reddit.com/user/{}",
     "Telegram": "https://t.me/{}",
     "TikTok": "https://www.tiktok.com/@{}",
     "Steam": "https://steamcommunity.com/id/{}"
@@ -32,8 +32,27 @@ async def _check_profile(http, name: str, platform: str, url_template: str) -> t
     url = url_template.format(name)
     headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"}
     try:
-        response = await http.get(url, headers=headers, allow_redirects=True, timeout=5, response_limit=64 * 1024)
-        return platform, response.status == 200
+        response = await http.get(
+            url,
+            headers=headers,
+            allow_redirects=True,
+            timeout=5,
+            response_limit=64 * 1024,
+        )
+        if response.status != 200:
+            return platform, False
+        final_url = response.url.rstrip("/")
+        requested_url = url.rstrip("/")
+        if platform == "Reddit" and "/user/" not in final_url:
+            return platform, False
+        if platform == "Telegram" and not final_url.lower().startswith("https://t.me/"):
+            return platform, False
+        if platform == "GitHub" and final_url.lower() in {
+            "https://github.com",
+            "https://github.com/login",
+        }:
+            return platform, False
+        return platform, final_url.lower() == requested_url.lower()
     except Exception:
         return platform, False
 

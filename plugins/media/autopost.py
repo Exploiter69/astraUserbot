@@ -42,19 +42,32 @@ async def handle_autopost(event):
             return
             
         display = ["Scheduled Posts:", "---"]
-        for r in rows:
-            display.append(f"[{r[0]}] {r[1][:30]}...")
+        for r in rows[:50]:
+            preview = r[1][:30] + ("..." if len(r[1]) > 30 else "")
+            display.append(f"[{r[0]}] {preview}")
         await event.edit(render(title="AUTOPOST", rows=display, footer="media | autopost"))
         return
         
     if msg.startswith("rm "):
         try:
-            pid = int(msg.split()[1])
-            await db.execute("DELETE FROM posts WHERE id = ? AND chat_id = ?", (pid, event.chat_id))
-            await event.edit(render(title="AUTOPOST", rows=[f"Deleted post ID {pid}."], footer="media | autopost"))
+            parts = msg.split(maxsplit=1)
+            pid = int(parts[1])
         except (IndexError, ValueError):
             raise CommandError("Invalid ID format. Use: .autopost rm <id>")
+        cursor = await db.execute(
+            "DELETE FROM posts WHERE id = ? AND chat_id = ?",
+            (pid, event.chat_id),
+        )
+        if cursor.rowcount == 0:
+            raise CommandError(f"No scheduled post {pid} exists in this chat.")
+        await event.edit(render(title="AUTOPOST", rows=[f"Deleted post ID {pid}."], footer="media | autopost"))
         return
+
+    msg = msg.strip()
+    if not msg:
+        raise CommandError("Post message cannot be empty.")
+    if len(msg) > 4000:
+        raise CommandError("Post message is too long (max 4000 characters).")
 
     await db.execute("INSERT INTO posts (chat_id, message) VALUES (?, ?)", (event.chat_id, msg))
     await event.edit(render(

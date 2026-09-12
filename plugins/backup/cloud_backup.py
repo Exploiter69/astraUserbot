@@ -1,23 +1,43 @@
+import asyncio
 import re
-import aiosqlite
+import shutil
+import sqlite3
+import tempfile
 from pathlib import Path
 
 from core.context import get_application_context
+from core.errors import CommandError
 from core.registry import register_cmd
 from helpers.hud import render
-from core.errors import CommandError
 from config import config
 
 PATTERN = rf"^{re.escape(config.PREFIX)}backup(?:\s+(.*))?$"
 
+DB_DIR = Path("data/databases")
+
+
+def _snapshot_sqlite(source: Path, destination: Path) -> None:
+    source_conn = sqlite3.connect(f"file:{source.resolve()}?mode=ro", uri=True)
+    destination_conn = sqlite3.connect(destination)
+    try:
+        source_conn.backup(destination_conn)
+        destination_conn.commit()
+    finally:
+        destination_conn.close()
+        source_conn.close()
+
+
 async def setup(client):
+    if not shutil.which("rclone"):
+        return
     register_cmd(
         client,
         pattern=PATTERN,
         handler=handle_backup,
         category="backup",
-        description="Checkpoint local SQLite databases and sync them to the configured Rclone remote."
+        description="Create consistent local SQLite snapshots and copy them to the configured Rclone remote.",
     )
+
 
 async def handle_backup(event):
     context = get_application_context()
@@ -25,44 +45,75 @@ async def handle_backup(event):
         raise CommandError("Subprocess service is unavailable.")
     subprocess = context.get("subprocess")
 
-    await event.edit(render("CLOUD BACKUP", ["Checkpointing SQLite databases (TRUNCATE)..."]))
+    if not DB_DIR.exists():
+        raise CommandError("Database directory does not exist.")
 
-    db_dir = Path("data/databases")
-    if db_dir.exists():
-        for db_file in db_dir.glob("*.db"):
-            try:
-                async with aiosqlite.connect(db_file) as conn:
-                    await conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
-            except Exception as exc:
-                raise CommandError(f"Database checkpoint failed for {db_file.name}.") from exc
-
-    await event.edit(render("CLOUD BACKUP", ["Syncing changed database files to remote..."]))
-
-    remote_target = f"{config.RCLONE_REMOTE}astra_main/backups/"
-    try:
-        result = await subprocess.run(
-            [
-                "rclone", "sync", str(db_dir), remote_target,
-                "--exclude", "*.db-wal",
-                "--exclude", "*.db-shm",
-                "--fast-list",
-                "--transfers", "4"
-            ],
-            timeout=900,
-            max_output_bytes=256 * 1024,
+    await event.edit(
+        render(
+            "CLOUD BACKUP",
+            ["Creating consistent SQLite snapshots..."],
+            footer="backup",
         )
-    except Exception as exc:
-        raise CommandError("Rclone backup execution failed.") from exc
+    )
 
-    if result.returncode != 0:
-        raise CommandError(f"Rclone sync failed (Code {result.returncode}): {result.stderr[-300:]}")
+    with tempfile.TemporaryDirectory(prefix="astra-backup-") as tmp:
+        snapshot_dir = Path(tmp)
 
-    await event.edit(render(
-        title="BACKUP COMPLETE",
-        rows=[
-            "Incremental sync finished successfully.",
-            f"Target Remote: `{remote_target}`",
-            "Excluded transient WAL/SHM locks."
-        ],
-        footer="backup | incremental sync"
-    ))
+        db_files = sorted(DB_DIR.glob("*.db"))
+        if not db_files:
+            raise CommandError("No SQLite databases found.")
+
+        copied = []
+        for db_file in db_files:
+            destination = snapshot_dir / db_file.name
+            try:
+                await asyncio.to_thread(_snapshot_sqlite, db_file, destination)
+                copied.append(destination)
+            except Exception as exc:
+                raise CommandError(
+                    f"Could not snapshot database {db_file.name}."
+                ) from exc
+
+        remote_target = f"{config.RCLONE_REMOTE}astra_main/backups/"
+
+        await event.edit(
+            render(
+                "CLOUD BACKUP",
+                [f"Uploading {len(copied)} consistent database snapshots..."],
+                footer="backup",
+            )
+        )
+
+        try:
+            result = await subprocess.run(
+                [
+                    "rclone",
+                    "copy",
+                    str(snapshot_dir),
+                    remote_target,
+                    "--fast-list",
+                    "--transfers",
+                    "4",
+                ],
+                timeout=900,
+                max_output_bytes=256 * 1024,
+            )
+        except Exception as exc:
+            raise CommandError("Rclone backup execution failed.") from exc
+
+        if result.returncode != 0:
+            raise CommandError(
+                f"Rclone backup failed (code {result.returncode})."
+            )
+
+    await event.edit(
+        render(
+            "BACKUP COMPLETE",
+            [
+                f"Created and uploaded {len(copied)} consistent SQLite snapshots.",
+                f"Target Remote: `{remote_target}`",
+                "Existing remote files were not deleted.",
+            ],
+            footer="backup | safe copy",
+        )
+    )

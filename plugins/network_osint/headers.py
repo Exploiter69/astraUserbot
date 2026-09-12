@@ -34,6 +34,10 @@ async def handle_headers(event):
         response = await http.head(url, allow_redirects=True, response_limit=64 * 1024)
         status_code = response.status
         headers_dict = dict(response.headers)
+        if status_code in {400, 403, 405, 406, 501}:
+            response = await http.get(url, allow_redirects=True, response_limit=64 * 1024)
+            status_code = response.status
+            headers_dict = dict(response.headers)
     except Exception as exc:
         raise CommandError("Failed to reach the requested URL.") from exc
 

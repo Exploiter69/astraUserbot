@@ -1,4 +1,5 @@
 import re
+import shutil
 from core.context import get_application_context
 from core.registry import register_cmd
 from core.errors import CommandError
@@ -10,6 +11,8 @@ PATTERN = rf"^{re.escape(config.PREFIX)}(tts|toaudio)(?:\s+(.*))?$"
 
 
 async def setup(client):
+    if not shutil.which("edge-tts"):
+        return
     register_cmd(client, PATTERN, handle_speech, "media_ops", "Neural TTS and Audio extraction.")
 
 
@@ -31,6 +34,10 @@ async def handle_speech(event):
             parts = arg.split("|")
             text = parts[0].strip()
             voice = parts[1].strip() if len(parts) > 1 else "en-US-ChristopherNeural"
+            if not text:
+                raise CommandError("TTS text cannot be empty.")
+            if len(text) > 3000:
+                raise CommandError("TTS text is too long (max 3000 characters).")
             if not voice or len(voice) > 128:
                 raise CommandError("Invalid TTS voice.")
             await event.edit(render("NEURAL TTS", [f"Voice: {voice}", "Generating..."]))
@@ -44,7 +51,10 @@ async def handle_speech(event):
         elif cmd == "toaudio":
             _, media = await get_text_and_media(event)
             if not media:
-                raise CommandError("Reply to a video.")
+                raise CommandError("Reply to a video with an audio stream.")
+            mime_type = getattr(media, "mime_type", "") or ""
+            if not (getattr(media, "video", False) or mime_type.startswith("video/")):
+                raise CommandError("The replied media is not a video.")
             await event.edit(render("FFMPEG AUDIO", ["Extracting..."]))
             in_file = await event.client.download_media(media, file=workspace.path)
             if not in_file:

@@ -10,7 +10,13 @@ PATTERN = rf"^{re.escape(config.PREFIX)}ff(?:\s+(.*))?$"
 
 
 async def setup(client):
-    register_cmd(client, pattern=PATTERN, handler=handle_ffmpeg, category="media", description="FFmpeg and FFprobe media processing workbench.")
+    register_cmd(
+        client,
+        pattern=PATTERN,
+        handler=handle_ffmpeg,
+        category="media",
+        description="Bounded FFmpeg media workbench. Usage: .ff <ffmpeg arguments> (reply to media).",
+    )
 
 
 async def handle_ffmpeg(event):

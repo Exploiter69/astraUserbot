@@ -30,6 +30,15 @@ async def handle_rclone(event):
     if not tokens:
         raise CommandError("Please provide an rclone operation.")
 
+    operation = tokens[0].lower()
+    if operation not in {"copy", "copyto", "sync"}:
+        raise CommandError("Allowed rclone operations: copy, copyto, sync.")
+
+    if operation == "sync" and len(tokens) < 3:
+        raise CommandError("Usage: .rclone sync <source> <destination>")
+    if operation in {"copy", "copyto"} and len(tokens) < 3:
+        raise CommandError(f"Usage: .rclone {operation} <source> <destination>")
+
     context = get_application_context()
     if context is None:
         raise CommandError("Media service is unavailable.")
