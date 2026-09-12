@@ -51,6 +51,21 @@ async def main():
     client = create_client()
     plugin_manager = None
     context: ApplicationContext | None = None
+    shutdown_lock = asyncio.Lock()
+    shutdown_complete = False
+
+    async def graceful_shutdown() -> None:
+        nonlocal shutdown_complete
+        async with shutdown_lock:
+            if shutdown_complete:
+                return
+            logger.info("Initiating full runtime shutdown...")
+            if plugin_manager is not None:
+                await plugin_manager.shutdown()
+            if context is not None:
+                await context.close()
+            await bootstrap.shutdown(client)
+            shutdown_complete = True
 
     try:
         await client.start()
@@ -64,19 +79,15 @@ async def main():
         await context.start()
         logger.info("Shared runtime services initialized: %s", context.snapshot()["services"])
 
-        loop = asyncio.get_running_loop()
-        bootstrap.install_signal_handlers(loop, client)
-
         plugin_manager = await loader.load_plugins(client)
+
+        loop = asyncio.get_running_loop()
+        bootstrap.install_signal_handlers(loop, client, graceful_shutdown)
 
         logger.info("Startup complete. Running until disconnected.")
         await client.run_until_disconnected()
     finally:
-        if plugin_manager is not None:
-            await plugin_manager.shutdown()
-        await bootstrap.shutdown(client)
-        if context is not None:
-            await context.close()
+        await graceful_shutdown()
         set_application_context(None)
 
 
