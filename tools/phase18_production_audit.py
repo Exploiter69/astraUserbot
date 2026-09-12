@@ -62,8 +62,6 @@ def command_audit() -> dict[str, object]:
                 registrations += 1
                 permission = next((kw.value for kw in node.keywords if kw.arg == "permission"), None)
                 if permission is None:
-                    # The registry default is explicit and secure (owner), but
-                    # recording omissions makes the capability contract auditable.
                     continue
                 if isinstance(permission, ast.Constant) and isinstance(permission.value, str):
                     if permission.value not in ALLOWED_PERMISSIONS:
@@ -96,6 +94,7 @@ def resource_contract() -> dict[str, object]:
         "media": (ROOT / "core/services/media.py").read_text(encoding="utf-8"),
         "workspace": (ROOT / "core/services/workspace.py").read_text(encoding="utf-8"),
         "cache": (ROOT / "core/services/cache.py").read_text(encoding="utf-8"),
+        "jobs": (ROOT / "core/services/jobs.py").read_text(encoding="utf-8"),
     }
 
     required_tokens = {
@@ -106,6 +105,8 @@ def resource_contract() -> dict[str, object]:
         "workspace_file_limit": ("max_file_bytes", "validate_file"),
         "cache_value_limit": ("max_value_bytes",),
         "cache_artifact_limit": ("max_artifact_bytes_per_item",),
+        "job_payload_limit": ("MAX_PAYLOAD_BYTES",),
+        "job_result_limit": ("MAX_RESULT_BYTES",),
     }
     combined = "\n".join(service_text.values())
     for name, tokens in required_tokens.items():
@@ -120,6 +121,8 @@ def resource_contract() -> dict[str, object]:
         "workspace_max_file_bytes": 512 * 1024 * 1024,
         "cache_max_value_bytes": 2 * 1024 * 1024,
         "cache_max_artifact_bytes_per_item": 512 * 1024 * 1024,
+        "job_max_payload_bytes": 1 * 1024 * 1024,
+        "job_max_result_bytes": 2 * 1024 * 1024,
     })
     return {"checks": checks, "details": details}
 
@@ -128,12 +131,14 @@ def shutdown_audit() -> dict[str, object]:
     jobs = (ROOT / "core/services/jobs.py").read_text(encoding="utf-8")
     context = (ROOT / "core/context.py").read_text(encoding="utf-8")
     bootstrap = (ROOT / "core/bootstrap.py").read_text(encoding="utf-8")
+    main = (ROOT / "main.py").read_text(encoding="utf-8")
     return {
         "job_close_has_unbounded_gather": "await asyncio.gather(*self._active_tasks.values(), return_exceptions=True)" in jobs,
         "context_closes_jobs_as_service": 'self.register("jobs", JobEngine' in context,
         "bootstrap_closes_legacy_database": "await Database.close_all()" in bootstrap,
+        "signal_shutdown_routes_full_runtime": "bootstrap.install_signal_handlers(loop, client, graceful_shutdown)" in main,
         "runtime_gate_required": True,
-        "note": "Do not replace the job close path speculatively; reproduce a started-context SIGTERM/shutdown blocker first.",
+        "note": "The live systemd shutdown path must be exercised after the full-runtime signal routing fix; do not change JobEngine cancellation semantics without evidence from the controlled probe.",
     }
 
 
