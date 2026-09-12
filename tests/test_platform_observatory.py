@@ -68,8 +68,8 @@ class PluginObservatoryTests(unittest.TestCase):
         with patch(
             "plugins.system_ops.platform.list_registrations",
             return_value=[
-                FakeRegistration("plugins.alpha", r"^\\.alpha(?:\\s+(.*))?$"),
-                FakeRegistration("plugins.alpha", r"^\\.a$", aliases=(".alias",)),
+                FakeRegistration("plugins.alpha", r"^\.alpha(?:\s+(.*))?$"),
+                FakeRegistration("plugins.alpha", r"^\.a$", aliases=(".alias",)),
             ],
         ):
             rows = _plugin_detail(record, {"plugins.alpha": 2})
@@ -86,7 +86,7 @@ class PluginObservatoryTests(unittest.TestCase):
 
     def test_command_names_support_grouped_commands_and_aliases(self):
         registration = FakeRegistration(
-            "plugins.alpha", r"^\\.(health|status|ops)(?:\\s+(.*))?$", aliases=(".h",)
+            "plugins.alpha", r"^\.(health|status|ops)(?:\s+(.*))?$", aliases=(".h",)
         )
         self.assertEqual(_command_names(registration), ("health", "status", "ops", "h"))
         self.assertEqual(_display_command(registration), ".health  .status  .ops  .h")
