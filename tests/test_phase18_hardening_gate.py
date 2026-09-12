@@ -47,7 +47,11 @@ class Phase18HardeningGateTests(unittest.TestCase):
         audit = load_audit()
         result = audit.shutdown_audit()
         self.assertTrue(result["context_closes_jobs_as_service"])
-        self.assertTrue(result["job_close_has_unbounded_gather"])
+        # The legacy JobEngine implementation is now bounded too; the old
+        # compatibility-only diagnostic must not require the historical gather.
+        self.assertFalse(result["job_close_has_unbounded_gather"])
+        self.assertFalse(result["legacy_job_close_is_compatibility_only"])
+        self.assertTrue(result["production_job_close_is_bounded"])
         self.assertTrue(result["runtime_gate_required"])
 
 
