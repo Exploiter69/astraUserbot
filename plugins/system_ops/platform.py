@@ -66,7 +66,7 @@ async def handle(event):
         await event.edit(render("JOBS // DURABLE", rows or ["No durable jobs recorded."], footer="system_ops | jobs")); return
 
     if cmd == "cache":
-        stats = ctx.get("cache").stats(); rows = [f"{key}: {value}" for key, value in sorted(stats.items())]
+        stats = await ctx.get("cache").stats(); rows = [f"{key}: {value}" for key, value in sorted(asdict(stats).items())]
         await event.edit(render("CACHE // STATE", rows[:20] or ["No cache statistics available."], footer="system_ops | cache")); return
 
     if cmd == "stats":
@@ -89,7 +89,7 @@ async def handle(event):
         jobs = await ctx.get("jobs").list(limit=100); search = ctx.get("search"); metrics = ctx.get("metrics").snapshot()
         states = {}
         for job in jobs: states[_state_name(job)] = states.get(_state_name(job), 0) + 1
-        report = {"timestamp": time.time(), "context": ctx.snapshot(), "plugins": plugin_manager.snapshot() if plugin_manager else [], "commands": len(COMMANDS), "tasks": ctx.tasks.snapshot(), "jobs": {"count": len(jobs), "states": states}, "cache": ctx.get("cache").stats(), "db_integrity": await ctx.get("storage").integrity_check(), "metrics": asdict(metrics), "isolation": asdict(ctx.get("isolation").assess()), "search_ready": getattr(search, "_ready", False)}
+        report = {"timestamp": time.time(), "context": ctx.snapshot(), "plugins": plugin_manager.snapshot() if plugin_manager else [], "commands": len(COMMANDS), "tasks": ctx.tasks.snapshot(), "jobs": {"count": len(jobs), "states": states}, "cache": asdict(await ctx.get("cache").stats()), "db_integrity": await ctx.get("storage").integrity_check(), "metrics": asdict(metrics), "isolation": asdict(ctx.get("isolation").assess()), "search_ready": getattr(search, "_ready", False)}
         path = ctx.project_root / "data" / "logs" / f"diagnostics_{int(time.time())}.json"; path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(_redact(json.dumps(report, indent=2, default=str))[:200_000], encoding="utf-8")
         await event.edit(render("DIAGNOSTICS // REPORT", [f"Written: {path.relative_to(ctx.project_root)}", f"DB integrity: {'PASS' if report['db_integrity'] else 'FAIL'}", f"Plugins: {len(report['plugins'])}", f"Commands: {report['commands']}", f"Jobs sampled: {len(jobs)}"], footer="system_ops | diagnostics")); return
