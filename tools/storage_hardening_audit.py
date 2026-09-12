@@ -10,10 +10,6 @@ ROOT = Path(__file__).resolve().parents[1]
 PLUGIN_ROOT = ROOT / "plugins"
 
 
-def _python_files() -> list[Path]:
-    return sorted(ROOT.rglob("*.py"))
-
-
 def plugin_database_inventory() -> list[dict[str, object]]:
     records: list[dict[str, object]] = []
     for path in sorted(PLUGIN_ROOT.rglob("*.py")):
@@ -45,7 +41,7 @@ def plugin_database_inventory() -> list[dict[str, object]]:
 
 def migration_audit() -> dict[str, object]:
     source = (ROOT / "core/services/storage.py").read_text(encoding="utf-8")
-    checks = {
+    return {
         "numbered_migrations": "MIGRATIONS:" in source and "tuple[tuple[int, str]" in source,
         "migration_checksum": "hashlib.sha256" in source and "Migration checksum mismatch" in source,
         "migration_lock": "BEGIN IMMEDIATE" in source,
@@ -56,7 +52,6 @@ def migration_audit() -> dict[str, object]:
         "integrity_check": "PRAGMA integrity_check" in source,
         "database_size_observable": "async def database_size" in source,
     }
-    return checks
 
 
 def transaction_audit() -> dict[str, object]:
@@ -103,7 +98,9 @@ def retention_audit() -> dict[str, object]:
     jobs = (ROOT / "core/services/jobs.py").read_text(encoding="utf-8")
     database = (ROOT / "core/database.py").read_text(encoding="utf-8")
     return {
-        "job_retention": "TERMINAL_RETENTION_SECONDS" in jobs and "async def cleanup" in jobs,
+        # Job retention is owned and audited by tools/job_hardening_audit.py.
+        # Storage audit verifies the storage-level retention safety contract here.
+        "job_retention_delegated": "TERMINAL_RETENTION_SECONDS" in jobs and "async def cleanup" in jobs,
         "uncertain_preserved": "JobState.UNCERTAIN" in jobs and "UNCERTAIN" in jobs,
         "lease_aware_cleanup": "leases" in jobs and "DELETE FROM jobs" in jobs,
         "plugin_database_size_bound": "MAX_BACKUP_BYTES" in database,
