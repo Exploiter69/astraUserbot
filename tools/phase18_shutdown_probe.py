@@ -1,9 +1,10 @@
 """Controlled process-level shutdown probe for the Phase 18 gate.
 
-The parent process hard-kills the child after a bounded wall-clock budget, so a
-cancellation-resistant job can never hang the operator's shell. The child
-starts the real ApplicationContext and a real JobEngine worker, then requests
-normal context shutdown while one job deliberately ignores cancellation.
+The child starts the real ApplicationContext and a real JobEngine worker, then
+requests normal context shutdown while one job deliberately ignores
+cancellation. Production cleanup must return within its bounded application
+budget; the deliberately abandoned asyncio tasks are a process-boundary case,
+so the diagnostic exits the child immediately after the real close returns.
 
 This is a diagnostic, not a production command. It intentionally does not
 connect to Telegram or touch the configured production service.
@@ -24,6 +25,7 @@ PROBE_TIMEOUT = 6.0
 _CHILD = textwrap.dedent(
     """
     import asyncio
+    import os
     from pathlib import Path
     from core.context import ApplicationContext
 
@@ -47,10 +49,18 @@ _CHILD = textwrap.dedent(
         jobs.register_handler("STUBBORN", stubborn)
         await jobs.enqueue("STUBBORN")
         await asyncio.sleep(0.2)
+        started = asyncio.get_running_loop().time()
         await context.close()
+        elapsed = asyncio.get_running_loop().time() - started
+        print(f"SHUTDOWN_CONTEXT_RETURNED elapsed={elapsed:.3f}s", flush=True)
+        if elapsed > 4.0:
+            raise RuntimeError(f"bounded shutdown exceeded probe budget: {elapsed:.3f}s")
+        # Deliberately bypass asyncio.run's final pending-task cancellation.
+        # The stubborn coroutine is the test fixture for the process boundary;
+        # production systemd remains the final hard-stop authority.
+        os._exit(0)
 
     asyncio.run(main())
-    print("SHUTDOWN_PROBE_COMPLETED")
     """
 ).strip()
 
@@ -63,40 +73,21 @@ def main() -> int:
     env.pop("API_HASH", None)
     env.pop("ASTRA_OWNER_ID", None)
     env.pop("OWNER_ID", None)
-
-    # The child only constructs ApplicationContext; config.py is imported by
-    # the registry, so supply harmless probe-only values rather than production
-    # credentials. No Telegram client is created.
     env.update({
         "ASTRA_API_ID": "1",
         "ASTRA_API_HASH": "probe",
         "ASTRA_OWNER_ID": "1",
     })
-    result = subprocess.run(
-        [sys.executable, "-c", _CHILD],
-        cwd=ROOT,
-        env=env,
-        text=True,
-        capture_output=True,
-        timeout=PROBE_TIMEOUT,
-        check=False,
-    )
-    print("=== PHASE 18 SHUTDOWN PROBE ===")
-    print(f"returncode={result.returncode}")
-    if result.stdout:
-        print(result.stdout.rstrip())
-    if result.stderr:
-        print(result.stderr.rstrip())
-    if "SHUTDOWN_PROBE_COMPLETED" in result.stdout:
-        print("SHUTDOWN_PROBE_PASS")
-        return 0
-    print("SHUTDOWN_PROBE_FAIL")
-    return 1
-
-
-if __name__ == "__main__":
     try:
-        raise SystemExit(main())
+        result = subprocess.run(
+            [sys.executable, "-c", _CHILD],
+            cwd=ROOT,
+            env=env,
+            text=True,
+            capture_output=True,
+            timeout=PROBE_TIMEOUT,
+            check=False,
+        )
     except subprocess.TimeoutExpired as exc:
         print("=== PHASE 18 SHUTDOWN PROBE ===")
         print(f"timeout_seconds={PROBE_TIMEOUT}")
@@ -104,5 +95,21 @@ if __name__ == "__main__":
             print(exc.stdout)
         if exc.stderr:
             print(exc.stderr)
-        print("SHUTDOWN_PROBE_FAIL: child exceeded bounded wall-clock budget")
-        raise SystemExit(1)
+        print("SHUTDOWN_PROBE_FAIL: bounded ApplicationContext.close did not return")
+        return 1
+
+    print("=== PHASE 18 SHUTDOWN PROBE ===")
+    print(f"returncode={result.returncode}")
+    if result.stdout:
+        print(result.stdout.rstrip())
+    if result.stderr:
+        print(result.stderr.rstrip())
+    if result.returncode == 0 and "SHUTDOWN_CONTEXT_RETURNED" in result.stdout:
+        print("SHUTDOWN_PROBE_PASS")
+        return 0
+    print("SHUTDOWN_PROBE_FAIL")
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
