@@ -36,20 +36,31 @@ _CATEGORY_LABELS = {
 def _command_names(registration) -> tuple[str, ...]:
     names: list[str] = []
     prefix = re.escape(config.PREFIX)
-    raw = registration.pattern.replace(f"^{prefix}", "", 1)
-    raw = raw.split("(?", 1)[0].replace("$", "").replace("\\", "")
+    raw = registration.pattern
+    raw = re.sub(rf"^\^{prefix}", "", raw, count=1)
+    raw = raw.split("(?", 1)[0].rstrip("$").replace("\\", "")
+
     if raw.startswith("(") and raw.endswith(")"):
-        names.extend(raw.strip("()").split("|"))
-    else:
-        match = re.search(r"\(([^)]+)\)", registration.pattern)
+        names.extend(
+            name
+            for name in raw[1:-1].split("|")
+            if re.fullmatch(r"[A-Za-z0-9_:-]+", name)
+        )
+    elif re.fullmatch(r"[A-Za-z0-9_:-]+", raw):
+        names.append(raw)
+
+    # Some registrations encode command alternatives inside a capturing group
+    # while also having additional regex syntax. Only accept actual command
+    # tokens from that group; never surface regex syntax as a command name.
+    if not names:
+        match = re.search(r"\(([^()]+(?:\|[^()]+)+)\)", registration.pattern)
         if match:
             names.extend(
                 name
                 for name in match.group(1).split("|")
-                if not name.startswith("?") and name
+                if re.fullmatch(r"[A-Za-z0-9_:-]+", name)
             )
-        elif raw:
-            names.append(raw)
+
     names.extend(alias.lstrip(config.PREFIX).lower() for alias in registration.aliases)
     return tuple(dict.fromkeys(name.lower() for name in names if name))
 
