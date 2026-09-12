@@ -2,7 +2,7 @@ import asyncio
 import logging
 import signal
 from collections.abc import Coroutine
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from core.database import Database
 from core.tasks import TaskSupervisor
@@ -44,9 +44,22 @@ async def shutdown(client=None):
 _teardown = shutdown
 
 
-def install_signal_handlers(loop: asyncio.AbstractEventLoop, client):
+def install_signal_handlers(
+    loop: asyncio.AbstractEventLoop,
+    client: Any,
+    shutdown_callback: Callable[[], Awaitable[Any]] | None = None,
+):
+    """Install SIGINT/SIGTERM handlers with an optional full-runtime callback.
+
+    Legacy callers keep the old behavior. The production entrypoint supplies a
+    callback that closes plugins and ApplicationContext before Telegram
+    disconnects, so SIGTERM cannot strand runtime services behind a blocking
+    client disconnect.
+    """
+
     def request_shutdown():
-        asyncio.create_task(shutdown(client), name="shutdown")
+        callback = shutdown_callback or (lambda: shutdown(client))
+        asyncio.create_task(callback(), name="shutdown")
 
     for sig in (signal.SIGINT, signal.SIGTERM):
         try:
