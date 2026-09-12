@@ -54,6 +54,7 @@ def migration_audit() -> dict[str, object]:
         "wal": "PRAGMA journal_mode=WAL" in source,
         "busy_timeout": "PRAGMA busy_timeout=" in source,
         "integrity_check": "PRAGMA integrity_check" in source,
+        "database_size_observable": "async def database_size" in source,
     }
     return checks
 
@@ -66,6 +67,7 @@ def transaction_audit() -> dict[str, object]:
         "platform_transaction_rollback": "Database transaction failed" in storage and "await self.conn.rollback()" in storage,
         "plugin_transaction_api": "async def transaction(" in database,
         "plugin_transaction_rollback": "Database transaction failed" in database and "await self.conn.rollback()" in database,
+        "plugin_database_size": "async def database_size" in database,
     }
 
 
@@ -99,10 +101,12 @@ def search_audit() -> dict[str, object]:
 
 def retention_audit() -> dict[str, object]:
     jobs = (ROOT / "core/services/jobs.py").read_text(encoding="utf-8")
+    database = (ROOT / "core/database.py").read_text(encoding="utf-8")
     return {
         "job_retention": "TERMINAL_RETENTION_SECONDS" in jobs and "async def cleanup" in jobs,
         "uncertain_preserved": "JobState.UNCERTAIN" in jobs and "UNCERTAIN" in jobs,
         "lease_aware_cleanup": "leases" in jobs and "DELETE FROM jobs" in jobs,
+        "plugin_database_size_bound": "MAX_BACKUP_BYTES" in database,
     }
 
 
