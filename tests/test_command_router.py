@@ -80,6 +80,16 @@ class CommandRouterTests(unittest.TestCase):
         self.assertEqual(COMMANDS[registration.pattern]["owner"], "plugins.example")
         self.assertIn(registration.registration_id, manager.records["plugins.example"].registrations)
 
+    def test_registered_command_is_outgoing_only(self):
+        async def handler(event):
+            pass
+
+        registration = register_cmd(self.client, r"^\\.ping$", handler)
+        builder = registration.event_builder
+        self.assertIsNotNone(builder)
+        self.assertTrue(builder.outgoing)
+        self.assertFalse(builder.incoming)
+
     def test_unregister_removes_handler_and_registry_state(self):
         async def handler(event):
             pass
