@@ -104,7 +104,7 @@ def _pack(items: list[str], width: int = 3, limit: int = 80) -> list[str]:
     return rows
 
 
-def _plugin_overview(records, command_counts: dict[str, int]) -> list[str]:
+def _plugin_overview(records, command_counts: dict[str, int], quarantined=()) -> list[str]:
     counts: dict[str, int] = {}
     for item in records:
         state = item["state"]
@@ -113,6 +113,9 @@ def _plugin_overview(records, command_counts: dict[str, int]) -> list[str]:
         f"Plugins: {len(records)}  ·  Commands: {sum(command_counts.values())}",
         "  ·  ".join(f"{state}: {counts[state]}" for state in ("RUNNING", "LOADED", "DISABLED", "FAILED_IMPORT", "FAILED_SETUP", "UNLOADED", "DISCOVERED") if counts.get(state)) or "No lifecycle state recorded.",
     ]
+    quarantined = list(quarantined)
+    if quarantined:
+        rows += ["", f"QUARANTINED · {len(quarantined)}"] + _pack([_plugin_short_name(name) for name in quarantined])
     attention = [f"{_plugin_short_name(item['name'])} → {item['state']}" for item in records if item["state"] not in {"RUNNING", "LOADED"}]
     if attention:
         rows += ["", "ATTENTION"] + attention[:16]
@@ -129,9 +132,7 @@ def _plugin_detail(record, command_counts: dict[str, int]) -> list[str]:
     dependencies = record.get("dependencies") or []
     registrations = int(command_counts.get(name, 0))
     rows = [
-        f"Plugin: {_plugin_short_name(name)}",
-        f"State: {record['state']}",
-        f"Commands: {registrations}",
+        f"Plugin: {_plugin_short_name(name)}", f"State: {record['state']}", f"Commands: {registrations}",
         f"Critical: {'YES' if record.get('critical') else 'NO'}",
         f"Dependencies: {', '.join(_plugin_short_name(dep) for dep in dependencies) if dependencies else 'none'}",
     ]
@@ -151,14 +152,8 @@ def _job_attention(jobs) -> list[str]:
     return [f"{_state_name(job)} · {job.type} · {job.id[:12]}" for job in jobs if _state_name(job) in attention_states]
 
 
-def _operator_rows(ctx, plugin_manager, jobs, *, detailed: bool = False) -> list[str]:
-    integrity = awaitable = None
-    return []
-
-
 async def _health_rows(ctx, plugin_manager) -> list[str]:
-    storage = ctx.get("storage")
-    integrity = await storage.integrity_check()
+    integrity = await ctx.get("storage").integrity_check()
     records = plugin_manager.snapshot() if plugin_manager else []
     running = sum(item["state"] == "RUNNING" for item in records)
     failed = sum(item["state"] in {"FAILED_IMPORT", "FAILED_SETUP"} for item in records)
@@ -166,14 +161,12 @@ async def _health_rows(ctx, plugin_manager) -> list[str]:
     attention = _job_attention(jobs)
     isolation = ctx.get("isolation").assess()
     return [
-        f"Runtime: {ctx.snapshot()['state']}",
-        f"Services: {len(ctx.services)}/{len(ctx.services)}", 
+        f"Runtime: {ctx.snapshot()['state']}", f"Services: {len(ctx.services)}/{len(ctx.services)}",
         f"Database: {'PASS' if integrity else 'FAIL'}",
         f"Plugins: {running}/{len(records)} running" + (f" · {failed} failed" if failed else ""),
         f"Commands: {len(COMMANDS)} registrations",
         f"Jobs: {'READY' if getattr(ctx.get('jobs'), '_started', False) else 'STOPPED'} · {len(attention)} attention",
-        f"Isolation: {isolation.backend}",
-        f"AI Gateway: {ctx.get('ai').provider_name.upper()} READY",
+        f"Isolation: {isolation.backend}", f"AI Gateway: {ctx.get('ai').provider_name.upper()} READY",
     ]
 
 
@@ -192,23 +185,20 @@ async def handle(event):
         records = plugin_manager.snapshot() if plugin_manager else []
         integrity = await ctx.get("storage").integrity_check()
         failed_plugins = [item for item in records if item["state"] in {"FAILED_IMPORT", "FAILED_SETUP", "DISABLED", "UNLOADED"}]
+        quarantined = list(getattr(plugin_manager, "quarantined_modules", ())) if plugin_manager else []
         job_attention = _job_attention(jobs)
         isolation = ctx.get("isolation").assess()
         rows = [
-            "OPERATOR STATUS",
-            "---",
-            f"Runtime       {ctx.snapshot()['state']}",
-            f"Database      {'PASS' if integrity else 'FAIL'}",
-            f"Services      {len(ctx.services)}/{len(ctx.services)}",
+            "OPERATOR STATUS", "---", f"Runtime       {ctx.snapshot()['state']}",
+            f"Database      {'PASS' if integrity else 'FAIL'}", f"Services      {len(ctx.services)}/{len(ctx.services)}",
             f"Plugins       {sum(i['state'] == 'RUNNING' for i in records)}/{len(records)} RUNNING",
-            f"Commands      {len(COMMANDS)} registrations",
-            f"Jobs          {'READY' if getattr(ctx.get('jobs'), '_started', False) else 'STOPPED'}",
-            f"Isolation     {isolation.backend.upper()}",
-            f"AI Gateway    {ctx.get('ai').provider_name.upper()} READY",
+            f"Commands      {len(COMMANDS)} registrations", f"Jobs          {'READY' if getattr(ctx.get('jobs'), '_started', False) else 'STOPPED'}",
+            f"Isolation     {isolation.backend.upper()}", f"AI Gateway    {ctx.get('ai').provider_name.upper()} READY",
         ]
-        if failed_plugins or job_attention:
+        if failed_plugins or quarantined or job_attention:
             rows += ["", "ATTENTION"]
             rows += [f"PLUGIN · {item['name'].removeprefix('plugins.')} · {item['state']}" for item in failed_plugins[:8]]
+            rows += [f"QUARANTINED · {name.removeprefix('plugins.')}" for name in quarantined[:8]]
             rows += [f"JOB · {item}" for item in job_attention[:8]]
         else:
             rows += ["", "SYSTEM NOMINAL · NO OPERATOR ATTENTION REQUIRED"]
@@ -220,33 +210,32 @@ async def handle(event):
 
     if cmd == "plugins":
         manager = _plugin_manager(event)
-        records = manager.snapshot()
-        command_counts = _plugin_command_map()
+        records = manager.snapshot(); command_counts = _plugin_command_map()
         if not arg:
-            rows = _plugin_overview(records, command_counts)
+            rows = _plugin_overview(records, command_counts, getattr(manager, "quarantined_modules", ()))
             await event.edit(render("PLUGIN OBSERVATORY", rows or ["No plugins discovered."], footer="system_ops | plugins | live registry")); return
-        parts = arg.split(maxsplit=1)
-        selector = parts[0].upper()
+        parts = arg.split(maxsplit=1); selector = parts[0].upper()
         if selector in _PLUGIN_STATES:
             filtered = [item for item in records if item["state"] == selector]
             rows = [f"{_plugin_short_name(item['name'])}  ·  {command_counts.get(item['name'], 0)} cmd" for item in filtered]
             rows = [f"State: {selector}", f"Count: {len(filtered)}", ""] + _pack(rows, width=1, limit=60)
             await event.edit(render("PLUGIN OBSERVATORY // FILTER", rows, footer=f"system_ops | plugins {selector.lower()}")); return
+        if selector == "QUARANTINED":
+            names = list(getattr(manager, "quarantined_modules", ()))
+            rows = [f"State: QUARANTINED", f"Count: {len(names)}", ""] + _pack([_plugin_short_name(name) for name in names], width=1, limit=60)
+            await event.edit(render("PLUGIN OBSERVATORY // FILTER", rows, footer="system_ops | plugins quarantined")); return
         record = _find_plugin(records, arg)
         rows = _plugin_detail(record, command_counts)
         await event.edit(render("PLUGIN OBSERVATORY // DETAIL", rows, footer=f"system_ops | plugins | {record['state']}")); return
 
     if cmd == "tasks":
-        records = ctx.tasks.snapshot()
-        rows = [f"{r['state']} · {r['name']} · {r['owner'] or 'unknown'}" for r in records[-20:]]
+        records = ctx.tasks.snapshot(); rows = [f"{r['state']} · {r['name']} · {r['owner'] or 'unknown'}" for r in records[-20:]]
         await event.edit(render("TASKS // SUPERVISOR", rows or ["No supervised tasks recorded."], footer="system_ops | tasks")); return
 
     if cmd == "jobs":
-        jobs = await ctx.get("jobs").list(limit=20)
-        rows = [f"{_state_name(job)} · {job.type} · {job.id[:12]} · {job.progress:.0%}" for job in jobs]
+        jobs = await ctx.get("jobs").list(limit=20); rows = [f"{_state_name(job)} · {job.type} · {job.id[:12]} · {job.progress:.0%}" for job in jobs]
         attention = _job_attention(jobs)
-        if attention:
-            rows += ["", "ATTENTION"] + attention[:10]
+        if attention: rows += ["", "ATTENTION"] + attention[:10]
         await event.edit(render("JOBS // DURABLE", rows or ["No durable jobs recorded."], footer="system_ops | jobs")); return
 
     if cmd == "cache":
@@ -254,35 +243,28 @@ async def handle(event):
         await event.edit(render("CACHE // STATE", rows[:20] or ["No cache statistics available."], footer="system_ops | cache")); return
 
     if cmd == "stats":
-        snapshot = ctx.get("metrics").snapshot()
-        rows = [f"{name}: {value}" for name, value in sorted(snapshot.counters.items())]
+        snapshot = ctx.get("metrics").snapshot(); rows = [f"{name}: {value}" for name, value in sorted(snapshot.counters.items())]
         rows += [f"{name}: avg {value['avg_ms']:.1f}ms p95 {value['p95_ms']:.1f}ms n={int(value['count'])}" for name, value in sorted(snapshot.timings.items())]
-        resource = snapshot.resources
-        rows += [f"RSS: {resource['rss_bytes'] / 1024 / 1024:.1f} MiB", f"Disk free: {resource['disk_free_bytes'] / 1024 / 1024 / 1024:.1f} GiB"]
-        try:
-            jobs = await ctx.get("jobs").list(limit=100)
-        except Exception as exc:
-            raise CommandError("Unable to read durable job statistics.") from exc
-        queued = sum(1 for job in jobs if _state_name(job) == "QUEUED")
-        uncertain = sum(1 for job in jobs if _state_name(job) == "UNCERTAIN")
+        resource = snapshot.resources; rows += [f"RSS: {resource['rss_bytes'] / 1024 / 1024:.1f} MiB", f"Disk free: {resource['disk_free_bytes'] / 1024 / 1024 / 1024:.1f} GiB"]
+        try: jobs = await ctx.get("jobs").list(limit=100)
+        except Exception as exc: raise CommandError("Unable to read durable job statistics.") from exc
+        queued = sum(1 for job in jobs if _state_name(job) == "QUEUED"); uncertain = sum(1 for job in jobs if _state_name(job) == "UNCERTAIN")
         rows += [f"Jobs sampled: {len(jobs)}", f"Queued: {queued}", f"Uncertain: {uncertain}"]
         await event.edit(render("STATS // PERFORMANCE", rows[:30], footer="system_ops | stats")); return
 
     if cmd == "diagnostics":
-        plugin_manager = getattr(event.client, "plugin_manager", None)
-        jobs = await ctx.get("jobs").list(limit=100); search = ctx.get("search"); metrics = ctx.get("metrics").snapshot()
+        plugin_manager = getattr(event.client, "plugin_manager", None); jobs = await ctx.get("jobs").list(limit=100); search = ctx.get("search"); metrics = ctx.get("metrics").snapshot()
         states = {}
         for job in jobs: states[_state_name(job)] = states.get(_state_name(job), 0) + 1
-        report = {"timestamp": time.time(), "context": ctx.snapshot(), "plugins": plugin_manager.snapshot() if plugin_manager else [], "commands": len(COMMANDS), "tasks": ctx.tasks.snapshot(), "jobs": {"count": len(jobs), "states": states}, "cache": asdict(await ctx.get("cache").stats()), "db_integrity": await ctx.get("storage").integrity_check(), "metrics": asdict(metrics), "isolation": asdict(ctx.get("isolation").assess()), "search_ready": getattr(search, "_ready", False)}
+        report = {"timestamp": time.time(), "context": ctx.snapshot(), "plugins": plugin_manager.snapshot() if plugin_manager else [], "quarantined": list(getattr(plugin_manager, "quarantined_modules", ())) if plugin_manager else [], "commands": len(COMMANDS), "tasks": ctx.tasks.snapshot(), "jobs": {"count": len(jobs), "states": states}, "cache": asdict(await ctx.get("cache").stats()), "db_integrity": await ctx.get("storage").integrity_check(), "metrics": asdict(metrics), "isolation": asdict(ctx.get("isolation").assess()), "search_ready": getattr(search, "_ready", False)}
         path = ctx.project_root / "data" / "logs" / f"diagnostics_{int(time.time())}.json"; path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(_redact(json.dumps(report, indent=2, default=str))[:200_000], encoding="utf-8")
-        await event.edit(render("DIAGNOSTICS // REPORT", [f"Written: {path.relative_to(ctx.project_root)}", f"DB integrity: {'PASS' if report['db_integrity'] else 'FAIL'}", f"Plugins: {len(report['plugins'])}", f"Commands: {report['commands']}", f"Jobs sampled: {len(jobs)}"], footer="system_ops | diagnostics")); return
+        await event.edit(render("DIAGNOSTICS // REPORT", [f"Written: {path.relative_to(ctx.project_root)}", f"DB integrity: {'PASS' if report['db_integrity'] else 'FAIL'}", f"Plugins: {len(report['plugins'])}", f"Quarantined: {len(report['quarantined'])}", f"Commands: {report['commands']}", f"Jobs sampled: {len(jobs)}"], footer="system_ops | diagnostics")); return
 
     if cmd == "search":
         if not arg: raise CommandError(f"Usage: {config.PREFIX}search <query>")
         if len(arg) > 512: raise CommandError("Search query must be 512 characters or fewer.")
-        results = await ctx.get("search").search(arg, limit=10)
-        rows = [f"[{item.source}] {item.title}: {item.snippet}" for item in results]
+        results = await ctx.get("search").search(arg, limit=10); rows = [f"[{item.source}] {item.title}: {item.snippet}" for item in results]
         await event.edit(render("SEARCH // RESULTS", rows or ["No results."], footer=f"system_ops | search | {len(results)}")); return
 
     if cmd == "reindex":
