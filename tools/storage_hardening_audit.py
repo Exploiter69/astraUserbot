@@ -99,8 +99,10 @@ def retention_audit() -> dict[str, object]:
     database = (ROOT / "core/database.py").read_text(encoding="utf-8")
     return {
         # Job retention is owned and audited by tools/job_hardening_audit.py.
-        # Storage audit verifies the storage-level retention safety contract here.
-        "job_retention_delegated": "TERMINAL_RETENTION_SECONDS" in jobs and "async def cleanup" in jobs,
+        # Storage audit verifies that the JobEngine exposes an explicit bounded
+        # retention policy and cleanup path, without duplicating that audit's
+        # implementation contract.
+        "job_retention_delegated": "DEFAULT_RETENTION_SECONDS" in jobs and "async def cleanup" in jobs,
         "uncertain_preserved": "JobState.UNCERTAIN" in jobs and "UNCERTAIN" in jobs,
         "lease_aware_cleanup": "leases" in jobs and "DELETE FROM jobs" in jobs,
         "plugin_database_size_bound": "MAX_BACKUP_BYTES" in database,
