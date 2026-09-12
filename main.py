@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import re
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -8,6 +9,7 @@ from client import create_client
 from config import config
 from core import bootstrap, loader
 from core.context import ApplicationContext, set_application_context
+from core.registry import list_registrations
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 os.chdir(PROJECT_ROOT)
@@ -20,7 +22,6 @@ LOG_FILE = LOG_DIR / "astra.log"
 class SecretFilter(logging.Filter):
     """Prevent common credential-shaped values from entering Astra logs."""
     def filter(self, record: logging.LogRecord) -> bool:
-        import re
         message = record.getMessage()
         message = re.sub(r"(?i)(api[_-]?hash|api[_-]?id|token|secret|password|authorization|session)[^\n:=]*[:=]\s*[^\n]+", r"\1=[REDACTED]", message)
         record.msg = message
@@ -45,6 +46,54 @@ root_logger.addHandler(file_handler)
 logger = logging.getLogger("astra.main")
 
 
+def _command_count() -> int:
+    """Count concrete command names exposed by the live registry, including aliases."""
+    total = 0
+    prefix = re.escape(config.PREFIX)
+    for registration in list_registrations():
+        names: list[str] = []
+        expression = registration.pattern
+        if expression.startswith(f"^{prefix}"):
+            expression = expression[len(f"^{prefix}"):]
+            if expression.startswith("("):
+                end = expression.find(")")
+                group = expression[1:end] if end > 0 else ""
+                if re.fullmatch(r"[A-Za-z0-9_:-]+(?:\|[A-Za-z0-9_:-]+)*", group):
+                    names.extend(group.split("|"))
+            else:
+                match = re.match(r"[A-Za-z0-9_:-]+", expression)
+                if match:
+                    names.append(match.group(0))
+        names.extend(str(alias).lstrip(config.PREFIX) for alias in registration.aliases)
+        total += len(set(name.lower() for name in names if name))
+    return total
+
+
+def _startup_hud(context: ApplicationContext, plugin_manager, client) -> str:
+    """Build a live startup HUD from runtime state rather than a second config table."""
+    records = plugin_manager.snapshot() if plugin_manager else []
+    running = sum(item["state"] == "RUNNING" for item in records)
+    services = len(context.services)
+    jobs_ready = bool(getattr(context.get("jobs"), "_started", False))
+    isolation = context.get("isolation").assess()
+    ai = context.get("ai")
+    return "\n".join([
+        "ASTRA USERBOT",
+        "─────────────────────────",
+        "Runtime       READY",
+        "Telegram      CONNECTED" if client.is_connected() else "Telegram      DISCONNECTED",
+        f"Database      {'PASS' if context.get('storage') else 'FAIL'}",
+        f"Services      {services}/{services}",
+        f"Plugins       {running} RUNNING",
+        f"Commands      {_command_count()}",
+        f"Jobs          {'READY' if jobs_ready else 'STOPPED'}",
+        f"Isolation     {str(isolation.backend).upper()}",
+        f"AI Gateway    {str(ai.provider_name).upper()} READY",
+        "─────────────────────────",
+        "SYSTEM READY",
+    ])
+
+
 async def main():
     logger.info("Initializing Astra Userbot...")
     logger.info("Persistent log: %s", LOG_FILE)
@@ -64,28 +113,16 @@ async def main():
             if plugin_manager is not None:
                 stage_started = asyncio.get_running_loop().time()
                 await plugin_manager.shutdown()
-                logger.info(
-                    "Plugin shutdown completed in %.3fs",
-                    asyncio.get_running_loop().time() - stage_started,
-                )
+                logger.info("Plugin shutdown completed in %.3fs", asyncio.get_running_loop().time() - stage_started)
             if context is not None:
                 stage_started = asyncio.get_running_loop().time()
                 await context.close()
-                logger.info(
-                    "ApplicationContext shutdown completed in %.3fs",
-                    asyncio.get_running_loop().time() - stage_started,
-                )
+                logger.info("ApplicationContext shutdown completed in %.3fs", asyncio.get_running_loop().time() - stage_started)
             stage_started = asyncio.get_running_loop().time()
             await bootstrap.shutdown(client)
-            logger.info(
-                "Bootstrap teardown completed in %.3fs",
-                asyncio.get_running_loop().time() - stage_started,
-            )
+            logger.info("Bootstrap teardown completed in %.3fs", asyncio.get_running_loop().time() - stage_started)
             shutdown_complete = True
-            logger.info(
-                "Full runtime shutdown completed in %.3fs",
-                asyncio.get_running_loop().time() - shutdown_started,
-            )
+            logger.info("Full runtime shutdown completed in %.3fs", asyncio.get_running_loop().time() - shutdown_started)
 
     try:
         await client.start()
@@ -100,6 +137,7 @@ async def main():
         logger.info("Shared runtime services initialized: %s", context.snapshot()["services"])
 
         plugin_manager = await loader.load_plugins(client)
+        logger.info("\n%s", _startup_hud(context, plugin_manager, client))
 
         loop = asyncio.get_running_loop()
         bootstrap.install_signal_handlers(loop, client, graceful_shutdown)
