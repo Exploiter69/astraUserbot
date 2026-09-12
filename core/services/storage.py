@@ -30,6 +30,13 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
     CREATE INDEX IF NOT EXISTS idx_search_documents_source ON search_documents(source);
     CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts5(id UNINDEXED, title, content, tokenize='unicode61');
     """),
+    (3, """
+    ALTER TABLE leases ADD COLUMN attempt INTEGER NOT NULL DEFAULT 0;
+    UPDATE leases SET attempt=(SELECT attempt_count FROM jobs WHERE jobs.id=leases.job_id);
+    CREATE INDEX IF NOT EXISTS idx_leases_expiry ON leases(expires_at);
+    CREATE INDEX IF NOT EXISTS idx_job_attempts_job_attempt ON job_attempts(job_id, attempt);
+    CREATE INDEX IF NOT EXISTS idx_job_events_job_created ON job_events(job_id, created_at);
+    """),
 )
 
 
