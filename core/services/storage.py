@@ -80,6 +80,11 @@ class StorageService:
             if not await self.integrity_check():
                 raise StorageError("Platform database integrity check failed after startup")
             self._started = True
+        except StorageError:
+            conn, self.conn = self.conn, None
+            if conn is not None:
+                await conn.close()
+            raise
         except (sqlite3.Error, OSError) as exc:
             conn, self.conn = self.conn, None
             if conn is not None:
