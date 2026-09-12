@@ -10,6 +10,7 @@ from core.tasks import TaskSupervisor
 logger = logging.getLogger(__name__)
 _supervisor = TaskSupervisor()
 _teardown_started = False
+LEGACY_SHUTDOWN_TIMEOUT = 2.0
 
 
 def supervise(coro: Coroutine[Any, Any, Any], *, name: str) -> asyncio.Task[Any]:
@@ -29,15 +30,35 @@ async def shutdown(client=None):
     _teardown_started = True
 
     logger.info("Initiating graceful teardown sequence...")
-    await _supervisor.shutdown(timeout=8.0)
+    started = asyncio.get_running_loop().time()
 
+    supervisor_started = asyncio.get_running_loop().time()
+    await _supervisor.shutdown(timeout=LEGACY_SHUTDOWN_TIMEOUT)
+    logger.info(
+        "Legacy task supervisor shutdown completed in %.3fs",
+        asyncio.get_running_loop().time() - supervisor_started,
+    )
+
+    database_started = asyncio.get_running_loop().time()
     await Database.close_all()
+    logger.info(
+        "Database shutdown completed in %.3fs",
+        asyncio.get_running_loop().time() - database_started,
+    )
 
     if client and client.is_connected():
         logger.info("Disconnecting Telegram client...")
+        telegram_started = asyncio.get_running_loop().time()
         await client.disconnect()
+        logger.info(
+            "Telegram disconnect completed in %.3fs",
+            asyncio.get_running_loop().time() - telegram_started,
+        )
 
-    logger.info("Teardown complete.")
+    logger.info(
+        "Teardown complete in %.3fs",
+        asyncio.get_running_loop().time() - started,
+    )
 
 
 # Backwards-compatible name for callers that used the old private function.
