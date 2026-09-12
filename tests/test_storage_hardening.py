@@ -71,6 +71,7 @@ class StorageHardeningTests(unittest.IsolatedAsyncioTestCase):
             )
 
     async def test_fts_upsert_and_consistency(self):
+        (self.root / "README.md").write_text("durable storage", encoding="utf-8")
         search = SearchService(self.storage, self.root)
         await search.start()
         await search.upsert(source="document", ref="one", title="SQLite", content="durable storage")
@@ -82,6 +83,7 @@ class StorageHardeningTests(unittest.IsolatedAsyncioTestCase):
         counts = await search.rebuild()
         self.assertGreaterEqual(counts["document"], 1)
         self.assertTrue((await self.storage.fts_consistency())["consistent"])
+        self.assertEqual(len(await search.search("durable")), 1)
         await search.close()
 
     async def test_verified_backup_and_restore_round_trip(self):
@@ -127,7 +129,6 @@ class StorageHardeningTests(unittest.IsolatedAsyncioTestCase):
             await broken.start()
         await broken.close()
         self.storage = StorageService(self.root)
-        # Restore a clean database for teardown safety without relying on the broken file.
         clean = StorageService(self.root / "clean")
         await clean.start()
         clean_backup = self.root / "clean.db"
@@ -141,7 +142,6 @@ class LegacyPluginDatabaseHardeningTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.name = f"storage_hardening_{id(self)}"
         self.db = Database.get(self.name)
-        await self.db._connect()
         await self.db.init_schema("CREATE TABLE IF NOT EXISTS values_table (id INTEGER PRIMARY KEY, value TEXT NOT NULL);")
 
     async def asyncTearDown(self):
