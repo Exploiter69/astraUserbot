@@ -36,11 +36,22 @@ _CATEGORY_LABELS = {
 def _command_names(registration) -> tuple[str, ...]:
     names: list[str] = []
     prefix = re.escape(config.PREFIX)
-    match = re.search(rf"{prefix}([A-Za-z0-9_:-]+)", registration.pattern)
-    if match:
-        names.append(match.group(1).lower())
+    raw = registration.pattern.replace(f"^{prefix}", "", 1)
+    raw = raw.split("(?", 1)[0].replace("$", "").replace("\\", "")
+    if raw.startswith("(") and raw.endswith(")"):
+        names.extend(raw.strip("()").split("|"))
+    else:
+        match = re.search(r"\(([^)]+)\)", registration.pattern)
+        if match:
+            names.extend(
+                name
+                for name in match.group(1).split("|")
+                if not name.startswith("?") and name
+            )
+        elif raw:
+            names.append(raw)
     names.extend(alias.lstrip(config.PREFIX).lower() for alias in registration.aliases)
-    return tuple(dict.fromkeys(name for name in names if name))
+    return tuple(dict.fromkeys(name.lower() for name in names if name))
 
 
 def _display_command(registration) -> str:
