@@ -4,7 +4,8 @@ from core.services.cache import Artifact, CacheEntry, CacheService, CacheStats
 from core.services.flags import FeatureFlagService
 from core.services.http import HttpService
 from core.services.isolation import IsolationAssessment, IsolationService
-from core.services.jobs import Job, JobEngine, JobError, JobState
+from core.services.bounded_jobs import JobEngine
+from core.services.jobs import Job, JobError, JobState
 from core.services.media import MediaArtifact, MediaService
 from core.services.metrics import MetricSnapshot, MetricsService
 from core.services.search import SearchResult, SearchService
