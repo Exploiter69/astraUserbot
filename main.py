@@ -59,13 +59,33 @@ async def main():
         async with shutdown_lock:
             if shutdown_complete:
                 return
+            shutdown_started = asyncio.get_running_loop().time()
             logger.info("Initiating full runtime shutdown...")
             if plugin_manager is not None:
+                stage_started = asyncio.get_running_loop().time()
                 await plugin_manager.shutdown()
+                logger.info(
+                    "Plugin shutdown completed in %.3fs",
+                    asyncio.get_running_loop().time() - stage_started,
+                )
             if context is not None:
+                stage_started = asyncio.get_running_loop().time()
                 await context.close()
+                logger.info(
+                    "ApplicationContext shutdown completed in %.3fs",
+                    asyncio.get_running_loop().time() - stage_started,
+                )
+            stage_started = asyncio.get_running_loop().time()
             await bootstrap.shutdown(client)
+            logger.info(
+                "Bootstrap teardown completed in %.3fs",
+                asyncio.get_running_loop().time() - stage_started,
+            )
             shutdown_complete = True
+            logger.info(
+                "Full runtime shutdown completed in %.3fs",
+                asyncio.get_running_loop().time() - shutdown_started,
+            )
 
     try:
         await client.start()
