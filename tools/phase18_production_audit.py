@@ -129,16 +129,20 @@ def resource_contract() -> dict[str, object]:
 
 def shutdown_audit() -> dict[str, object]:
     jobs = (ROOT / "core/services/jobs.py").read_text(encoding="utf-8")
+    bounded_jobs = (ROOT / "core/services/bounded_jobs.py").read_text(encoding="utf-8")
     context = (ROOT / "core/context.py").read_text(encoding="utf-8")
+    services = (ROOT / "core/services/__init__.py").read_text(encoding="utf-8")
     bootstrap = (ROOT / "core/bootstrap.py").read_text(encoding="utf-8")
     main = (ROOT / "main.py").read_text(encoding="utf-8")
     return {
-        "job_close_has_unbounded_gather": "await asyncio.gather(*self._active_tasks.values(), return_exceptions=True)" in jobs,
+        "legacy_job_close_has_unbounded_gather": "await asyncio.gather(*self._active_tasks.values(), return_exceptions=True)" in jobs,
+        "production_job_close_is_bounded": all(token in bounded_jobs for token in ("asyncio.wait(", "SHUTDOWN_BUDGET_SECONDS", "_mark_active_uncertain")),
+        "production_services_export_bounded_job_engine": "from core.services.bounded_jobs import JobEngine" in services,
         "context_closes_jobs_as_service": 'self.register("jobs", JobEngine' in context,
         "bootstrap_closes_legacy_database": "await Database.close_all()" in bootstrap,
         "signal_shutdown_routes_full_runtime": "bootstrap.install_signal_handlers(loop, client, graceful_shutdown)" in main,
         "runtime_gate_required": True,
-        "note": "The live systemd shutdown path must be exercised after the full-runtime signal routing fix; do not change JobEngine cancellation semantics without evidence from the controlled probe.",
+        "note": "Production uses the bounded JobEngine wrapper. The legacy implementation remains import-compatible for existing callers; the live systemd shutdown path is still required as the final process-level boundary.",
     }
 
 
@@ -165,6 +169,7 @@ def main() -> int:
     failures.extend(commands["invalid_permissions"])
     failures.extend(commands["parse_errors"])
     failures.extend(name for name, ok in resources["checks"].items() if not ok)
+    failures.extend(name for name, ok in shutdown.items() if isinstance(ok, bool) and not ok)
     if failures:
         print("PHASE18_AUDIT_FAIL")
         return 1
