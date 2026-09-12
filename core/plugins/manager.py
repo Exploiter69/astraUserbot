@@ -7,6 +7,7 @@ newer plugins may expose metadata and an optional async ``shutdown(client)``.
 
 from __future__ import annotations
 
+import asyncio
 import importlib
 import inspect
 import logging
@@ -59,6 +60,9 @@ class PluginManager:
         "plugins.ai.transcribe",
         "plugins.ai.groq_client",
     })
+    # The systemd stop budget is only 5s. Keep plugin cleanup bounded so a
+    # single optional plugin cannot prevent core services from shutting down.
+    _SHUTDOWN_BUDGET_SECONDS = 2.5
 
     _current_plugin: ContextVar[str | None] = ContextVar(
         "astra_current_plugin", default=None
@@ -254,14 +258,59 @@ class PluginManager:
         record.state = PluginState.UNLOADED
         return record
 
-    async def shutdown(self) -> None:
-        """Unload running plugins in reverse dependency order."""
-        names = [name for name in reversed(self._load_order) if self.records[name].state == PluginState.RUNNING]
-        for name in names:
+    @staticmethod
+    def _consume_background_result(task: asyncio.Task[Any]) -> None:
+        """Consume a late exception from abandoned shutdown cleanup."""
+        if not task.done():
+            return
+        try:
+            task.exception()
+        except (asyncio.CancelledError, Exception):
+            return
+
+    async def _bounded_unload(self, name: str, timeout: float) -> None:
+        """Unload one plugin without allowing cancellation-resistant cleanup to block."""
+        task = asyncio.create_task(self.unload(name), name=f"plugin_shutdown:{name}")
+        done, pending = await asyncio.wait({task}, timeout=max(0.0, timeout))
+        if task in done:
             try:
-                await self.unload(name)
+                task.result()
             except Exception:
                 logger.error("Plugin shutdown failed: %s", name, exc_info=True)
+            return
+
+        task.cancel()
+        task.add_done_callback(self._consume_background_result)
+        logger.error(
+            "Plugin shutdown timed out after %.3fs: %s; continuing runtime teardown.",
+            timeout,
+            name,
+        )
+
+    async def shutdown(self) -> None:
+        """Unload running plugins in reverse dependency order within a hard budget."""
+        names = [
+            name
+            for name in reversed(self._load_order)
+            if self.records[name].state == PluginState.RUNNING
+        ]
+        deadline = asyncio.get_running_loop().time() + self._SHUTDOWN_BUDGET_SECONDS
+        for name in names:
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                logger.error(
+                    "Plugin shutdown budget exhausted; skipping %d plugin(s).",
+                    sum(self.records[item].state == PluginState.RUNNING for item in names),
+                )
+                break
+            stage_started = asyncio.get_running_loop().time()
+            logger.info("Plugin shutdown starting: %s", name)
+            await self._bounded_unload(name, remaining)
+            logger.info(
+                "Plugin shutdown stage finished: %s in %.3fs",
+                name,
+                asyncio.get_running_loop().time() - stage_started,
+            )
 
     def disable(self, name: str) -> None:
         if name in self.records:
