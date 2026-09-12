@@ -91,6 +91,45 @@ class PluginManagerTests(unittest.TestCase):
         finally:
             sys.modules.pop(module.__name__, None)
 
+    def test_shutdown_is_bounded_for_cancellation_resistant_plugin(self):
+        module = types.ModuleType("plugins.stubborn_shutdown")
+
+        async def shutdown(client):
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                while True:
+                    await asyncio.sleep(0)
+
+        module.shutdown = shutdown
+        sys.modules[module.__name__] = module
+
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                manager = PluginManager(object(), Path(tmp) / "plugins")
+                from core.plugins.manager import PluginRecord
+
+                manager.records = {
+                    module.__name__: PluginRecord(
+                        module.__name__, module=module, state=PluginState.RUNNING
+                    )
+                }
+                manager._load_order = [module.__name__]
+
+                async def scenario():
+                    started = asyncio.get_running_loop().time()
+                    await manager.shutdown()
+                    return asyncio.get_running_loop().time() - started
+
+                elapsed = asyncio.run(scenario())
+                self.assertLess(elapsed, PluginManager._SHUTDOWN_BUDGET_SECONDS + 0.5)
+                self.assertEqual(
+                    manager.get(module.__name__).state,
+                    PluginState.RUNNING,
+                )
+        finally:
+            sys.modules.pop(module.__name__, None)
+
     def test_snapshot_contains_only_safe_lifecycle_data(self):
         with tempfile.TemporaryDirectory() as tmp:
             manager = PluginManager(object(), Path(tmp) / "plugins")
