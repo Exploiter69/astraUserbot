@@ -129,22 +129,34 @@ def resource_contract() -> dict[str, object]:
 def shutdown_audit() -> dict[str, object]:
     manager = (ROOT / "core/plugins/manager.py").read_text(encoding="utf-8")
     context = (ROOT / "core/context.py").read_text(encoding="utf-8")
-    jobs = (ROOT / "core/services/bounded_jobs.py").read_text(encoding="utf-8")
+    services_init = (ROOT / "core/services/__init__.py").read_text(encoding="utf-8")
+    bounded_jobs = (ROOT / "core/services/bounded_jobs.py").read_text(encoding="utf-8")
     legacy_jobs = (ROOT / "core/services/jobs.py").read_text(encoding="utf-8")
+    bootstrap = (ROOT / "core/bootstrap.py").read_text(encoding="utf-8")
     main_source = (ROOT / "main.py").read_text(encoding="utf-8")
 
     legacy_unbounded_gather = "await asyncio.gather(*self._active_tasks.values(), return_exceptions=True)" in legacy_jobs
-    bounded_active_wait = "asyncio.wait(" in jobs and "timeout=self.shutdown_timeout" in jobs
-    bounded_worker_wait = "asyncio.wait(" in jobs
+    bounded_active_wait = "asyncio.wait(" in bounded_jobs and "SHUTDOWN_BUDGET_SECONDS" in bounded_jobs
+    bounded_worker_wait = "asyncio.wait_for(" in bounded_jobs and "WORKER_CANCEL_BUDGET_SECONDS" in bounded_jobs
+    production_job_path = "from core.services.bounded_jobs import JobEngine" in services_init
+    plugin_shutdown_bounded = (
+        "_SHUTDOWN_BUDGET_SECONDS" in manager
+        and "asyncio.wait" in manager
+        and "_bounded_unload" in manager
+    )
+    context_jobs_registered = 'self.register("jobs", JobEngine(' in context and production_job_path
+
     return {
-        "plugin_manager_shutdown_bounded": "shutdown_timeout" in manager and "asyncio.wait" in manager,
-        "context_closes_jobs_as_service": "jobs" in context and "close" in context,
+        "bootstrap_closes_legacy_database": "await Database.close_all()" in bootstrap,
+        "context_closes_jobs_as_service": context_jobs_registered,
+        # Compatibility diagnostic retained for the Phase 18 gate. It describes
+        # only the legacy implementation; production uses the bounded subclass.
         "job_close_has_unbounded_gather": legacy_unbounded_gather,
-        "production_job_close_is_bounded": bounded_active_wait and bounded_worker_wait,
-        "legacy_job_close_is_compatibility_only": True,
-        "bootstrap_closes_legacy_database": "await Database.close_all()" in (ROOT / "core/bootstrap.py").read_text(encoding="utf-8"),
+        "legacy_job_close_is_compatibility_only": production_job_path,
+        "production_job_close_is_bounded": production_job_path and bounded_active_wait and bounded_worker_wait,
+        "plugin_manager_shutdown_bounded": plugin_shutdown_bounded,
         "runtime_gate_required": True,
-        "signal_shutdown_routes_full_runtime": "context.close" in main_source,
+        "signal_shutdown_routes_full_runtime": "bootstrap.install_signal_handlers(loop, client, graceful_shutdown)" in main_source,
     }
 
 
@@ -173,9 +185,9 @@ def main() -> int:
     failures.extend(name for name, ok in resources["checks"].items() if not ok)
     failures.extend(
         key for key in (
-            "plugin_manager_shutdown_bounded",
             "context_closes_jobs_as_service",
             "production_job_close_is_bounded",
+            "plugin_manager_shutdown_bounded",
             "runtime_gate_required",
             "signal_shutdown_routes_full_runtime",
         ) if not shutdown[key]
