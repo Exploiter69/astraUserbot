@@ -160,7 +160,14 @@ class TaskSupervisor:
         return True
 
     async def shutdown(self, *, timeout: float = 8.0) -> None:
-        """Gracefully stop all active tasks, then cancel stragglers."""
+        """Stop active tasks without allowing shutdown to hang indefinitely.
+
+        The timeout bounds the graceful wait.  Tasks that remain active after
+        that deadline are cancelled and given one event-loop turn to process
+        cancellation.  A Python coroutine cannot be forcibly terminated from
+        its owning event loop, so cancellation-resistant tasks may remain
+        pending; shutdown deliberately returns rather than waiting forever.
+        """
         if timeout < 0:
             raise ValueError("timeout must be non-negative")
         self._shutting_down = True
@@ -174,10 +181,21 @@ class TaskSupervisor:
             return
 
         _, pending = await asyncio.wait(tasks, timeout=timeout)
+        if not pending:
+            return
+
         for task in pending:
             task.cancel()
-        if pending:
-            await asyncio.gather(*pending, return_exceptions=True)
+
+        # Cancellation is cooperative.  Give callbacks/finalizers one event
+        # loop turn, but never await a cancellation-resistant coroutine.
+        await asyncio.sleep(0)
+        still_pending = [task for task in pending if not task.done()]
+        if still_pending:
+            logger.warning(
+                "TaskSupervisor shutdown timed out with %d task(s) still pending",
+                len(still_pending),
+            )
 
     def reset_for_testing(self) -> None:
         """Clear supervisor state for isolated unit tests."""
