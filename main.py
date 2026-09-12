@@ -69,7 +69,7 @@ def _command_count() -> int:
     return total
 
 
-def _startup_hud(context: ApplicationContext, plugin_manager, client) -> str:
+async def _startup_hud(context: ApplicationContext, plugin_manager, client) -> str:
     """Build a live startup HUD from runtime state rather than a second config table."""
     records = plugin_manager.snapshot() if plugin_manager else []
     running = sum(item["state"] == "RUNNING" for item in records)
@@ -77,12 +77,14 @@ def _startup_hud(context: ApplicationContext, plugin_manager, client) -> str:
     jobs_ready = bool(getattr(context.get("jobs"), "_started", False))
     isolation = context.get("isolation").assess()
     ai = context.get("ai")
+    database_ok = await context.get("storage").integrity_check()
+    telegram = client.is_connected()
     return "\n".join([
         "ASTRA USERBOT",
         "─────────────────────────",
         "Runtime       READY",
-        "Telegram      CONNECTED" if client.is_connected() else "Telegram      DISCONNECTED",
-        f"Database      {'PASS' if context.get('storage') else 'FAIL'}",
+        f"Telegram      {'CONNECTED' if telegram else 'DISCONNECTED'}",
+        f"Database      {'PASS' if database_ok else 'FAIL'}",
         f"Services      {services}/{services}",
         f"Plugins       {running} RUNNING",
         f"Commands      {_command_count()}",
@@ -90,7 +92,7 @@ def _startup_hud(context: ApplicationContext, plugin_manager, client) -> str:
         f"Isolation     {str(isolation.backend).upper()}",
         f"AI Gateway    {str(ai.provider_name).upper()} READY",
         "─────────────────────────",
-        "SYSTEM READY",
+        "SYSTEM READY" if telegram and database_ok and services and running else "SYSTEM DEGRADED",
     ])
 
 
@@ -137,7 +139,7 @@ async def main():
         logger.info("Shared runtime services initialized: %s", context.snapshot()["services"])
 
         plugin_manager = await loader.load_plugins(client)
-        logger.info("\n%s", _startup_hud(context, plugin_manager, client))
+        logger.info("\n%s", await _startup_hud(context, plugin_manager, client))
 
         loop = asyncio.get_running_loop()
         bootstrap.install_signal_handlers(loop, client, graceful_shutdown)
