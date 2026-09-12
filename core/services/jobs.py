@@ -61,6 +61,13 @@ Handler = Callable[[Job], Awaitable[Any]]
 class JobEngine:
     """Own accepted durable work; workers may disappear without losing job state."""
 
+    MAX_PAYLOAD_BYTES = 1 * 1024 * 1024
+    MAX_RESULT_BYTES = 2 * 1024 * 1024
+    MAX_JOB_TYPE_CHARS = 128
+    MAX_OWNER_CHARS = 256
+    MAX_RESOURCE_CLASS_CHARS = 64
+    MAX_IDEMPOTENCY_KEY_CHARS = 256
+
     def __init__(self, storage: StorageService, *, worker_id: str | None = None, lease_seconds: float = 60.0, poll_seconds: float = 1.0) -> None:
         self.storage = storage
         self.worker_id = worker_id or f"worker-{uuid.uuid4().hex[:12]}"
@@ -101,14 +108,26 @@ class JobEngine:
         self._started = False
 
     def register_handler(self, job_type: str, handler: Handler) -> None:
-        if not job_type or job_type in self.handlers:
+        if not job_type or len(job_type) > self.MAX_JOB_TYPE_CHARS or job_type in self.handlers:
             raise ValueError(f"Job handler already registered: {job_type}")
         self.handlers[job_type] = handler
 
     async def enqueue(self, job_type: str, payload: dict[str, Any] | None = None, *, owner: str | None = None, parent_id: str | None = None, idempotency_key: str | None = None, max_attempts: int = 3, priority: int = 0, resource_class: str = "default", delay: float = 0.0, verify_required: bool = False) -> Job:
+        if not job_type or len(job_type) > self.MAX_JOB_TYPE_CHARS:
+            raise ValueError("Invalid job type")
+        if owner is not None and len(owner) > self.MAX_OWNER_CHARS:
+            raise ValueError("Job owner is too long")
+        if resource_class and len(resource_class) > self.MAX_RESOURCE_CLASS_CHARS:
+            raise ValueError("Job resource class is too long")
+        if idempotency_key is not None and len(idempotency_key) > self.MAX_IDEMPOTENCY_KEY_CHARS:
+            raise ValueError("Job idempotency key is too long")
+        if payload is not None and not isinstance(payload, dict):
+            raise ValueError("Job payload must be an object")
         now = time.time()
         job_id = uuid.uuid4().hex
-        payload_json = json.dumps(payload or {}, separators=(",", ":"), sort_keys=True)
+        payload_json = json.dumps(payload or {}, separators=(",", ":"), sort_keys=True, ensure_ascii=False)
+        if len(payload_json.encode("utf-8")) > self.MAX_PAYLOAD_BYTES:
+            raise ValueError("Job payload exceeds the configured size limit")
         async with self.storage.lock:
             assert self.storage.conn is not None
             if idempotency_key:
@@ -175,7 +194,9 @@ class JobEngine:
     async def complete(self, job_id: str, result: Any = None) -> None:
         now = time.time()
         state = JobState.VERIFYING if (await self.get(job_id)).verify_required else JobState.COMPLETED
-        result_json = json.dumps(result, separators=(",", ":"), default=str) if result is not None else None
+        result_json = json.dumps(result, separators=(",", ":"), default=str, ensure_ascii=False) if result is not None else None
+        if result_json is not None and len(result_json.encode("utf-8")) > self.MAX_RESULT_BYTES:
+            raise ValueError("Job result exceeds the configured size limit")
         async with self.storage.lock:
             assert self.storage.conn is not None
             await self.storage.conn.execute("UPDATE jobs SET state=?,result_json=?,progress=1,updated_at=?,completed_at=? WHERE id=? AND state=?", (state.value, result_json, now, None if state == JobState.VERIFYING else now, job_id, JobState.RUNNING.value))
