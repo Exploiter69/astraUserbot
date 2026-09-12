@@ -3,6 +3,8 @@ from unittest.mock import patch
 
 from core.errors import CommandError
 from plugins.system_ops.platform import (
+    _command_names,
+    _display_command,
     _find_plugin,
     _pack,
     _plugin_command_map,
@@ -12,9 +14,10 @@ from plugins.system_ops.platform import (
 
 
 class FakeRegistration:
-    def __init__(self, owner, pattern):
+    def __init__(self, owner, pattern, aliases=()):
         self.owner = owner
         self.pattern = pattern
+        self.aliases = tuple(aliases)
 
 
 class PluginObservatoryTests(unittest.TestCase):
@@ -63,7 +66,7 @@ class PluginObservatoryTests(unittest.TestCase):
                 {"plugins.alpha": 2, "plugins.beta": 1},
             )
 
-    def test_detail_reports_metadata_and_registration_patterns(self):
+    def test_detail_uses_friendly_command_names(self):
         record = {
             "name": "plugins.alpha",
             "state": "RUNNING",
@@ -74,8 +77,8 @@ class PluginObservatoryTests(unittest.TestCase):
         with patch(
             "plugins.system_ops.platform.list_registrations",
             return_value=[
-                FakeRegistration("plugins.alpha", r"^\\.alpha$"),
-                FakeRegistration("plugins.alpha", r"^\\.a$"),
+                FakeRegistration("plugins.alpha", r"^\\.alpha(?:\\s+(.*))?$"),
+                FakeRegistration("plugins.alpha", r"^\\.a$", aliases=(".alias",)),
             ],
         ):
             rows = _plugin_detail(record, {"plugins.alpha": 2})
@@ -85,8 +88,19 @@ class PluginObservatoryTests(unittest.TestCase):
         self.assertIn("Commands: 2", text)
         self.assertIn("Critical: YES", text)
         self.assertIn("Dependencies: base", text)
-        self.assertIn("REGISTRATIONS", text)
-        self.assertIn(r"^\\.alpha$", text)
+        self.assertIn("COMMANDS", text)
+        self.assertIn(".alpha", text)
+        self.assertIn(".a  .alias", text)
+        self.assertNotIn("^\\\\.alpha", text)
+
+    def test_command_names_support_grouped_commands_and_aliases(self):
+        registration = FakeRegistration(
+            "plugins.alpha",
+            r"^\\.(health|status|ops)(?:\\s+(.*))?$",
+            aliases=(".h",),
+        )
+        self.assertEqual(_command_names(registration), ("health", "status", "ops", "h"))
+        self.assertEqual(_display_command(registration), ".health  .status  .ops  .h")
 
 
 if __name__ == "__main__":
