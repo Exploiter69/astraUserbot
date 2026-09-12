@@ -19,7 +19,7 @@ from config import config
 
 db = Database.get("identity")
 
-PATTERN = rf"^{re.escape(config.PREFIX)}(clone|revert|backup)(?:\s+(.*))?$"
+PATTERN = rf"^{re.escape(config.PREFIX)}(clone|revert)(?:\s+(.*))?$"
 
 _PROFILE_PHOTO = Path("data/cache/identity_original_dp.jpg")
 _MAX_NAME = 70
