@@ -7,14 +7,26 @@ from dataclasses import asdict
 
 from core.context import get_application_context
 from core.errors import CommandError
-from core.registry import COMMANDS, register_cmd
+from core.registry import COMMANDS, list_registrations, register_cmd
 from helpers.hud import render
 from config import config
 
 PATTERN = rf"^{re.escape(config.PREFIX)}(health|plugins|tasks|jobs|cache|stats|diagnostics|search|reindex|flags)(?:\s+(.*))?$"
 
+_PLUGIN_STATES = frozenset({
+    "DISCOVERED",
+    "LOADED",
+    "RUNNING",
+    "FAILED_IMPORT",
+    "FAILED_SETUP",
+    "DISABLED",
+    "UNLOADED",
+})
+
+
 def _redact(text: str) -> str:
     return re.sub(r"(?i)(api[_-]?hash|api[_-]?id|token|secret|password|authorization|session|cookie)[^\n:=]*[:=]\s*[^\n]+", "[REDACTED]", text)
+
 
 def _ctx():
     ctx = get_application_context()
@@ -22,12 +34,130 @@ def _ctx():
         raise CommandError("Runtime context is unavailable")
     return ctx
 
+
 def _state_name(job) -> str:
     state = getattr(job, "state", "")
     return getattr(state, "value", str(state))
 
+
+def _plugin_manager(event):
+    manager = getattr(event.client, "plugin_manager", None)
+    if manager is None:
+        raise CommandError("Plugin manager is unavailable")
+    return manager
+
+
+def _plugin_command_map():
+    counts: dict[str, int] = {}
+    for registration in list_registrations():
+        owner = registration.owner
+        if owner:
+            counts[owner] = counts.get(owner, 0) + 1
+    return counts
+
+
+def _plugin_short_name(name: str) -> str:
+    return name.removeprefix("plugins.")
+
+
+def _find_plugin(records, query: str):
+    needle = query.strip().lower()
+    exact = [
+        item for item in records
+        if item["name"].lower() == needle
+        or _plugin_short_name(item["name"]).lower() == needle
+    ]
+    if exact:
+        return exact[0]
+    matches = [
+        item for item in records
+        if needle and needle in item["name"].lower()
+    ]
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        names = ", ".join(_plugin_short_name(item["name"]) for item in matches[:8])
+        raise CommandError(f"Plugin query is ambiguous: {names}")
+    raise CommandError(f"Unknown plugin: {query}")
+
+
+def _pack(items: list[str], width: int = 3, limit: int = 80) -> list[str]:
+    rows: list[str] = []
+    for index in range(0, min(len(items), limit), width):
+        rows.append("  ·  ".join(items[index:index + width]))
+    if len(items) > limit:
+        rows.append(f"… +{len(items) - limit} more")
+    return rows
+
+
+def _plugin_overview(records, command_counts: dict[str, int]) -> list[str]:
+    counts: dict[str, int] = {}
+    for item in records:
+        state = item["state"]
+        counts[state] = counts.get(state, 0) + 1
+
+    rows = [
+        f"Plugins: {len(records)}  ·  Commands: {sum(command_counts.values())}",
+        "  ·  ".join(
+            f"{state}: {counts[state]}"
+            for state in ("RUNNING", "LOADED", "DISABLED", "FAILED_IMPORT", "FAILED_SETUP", "UNLOADED", "DISCOVERED")
+            if counts.get(state)
+        ) or "No lifecycle state recorded.",
+    ]
+
+    attention = [
+        f"{_plugin_short_name(item['name'])} → {item['state']}"
+        for item in records
+        if item["state"] not in {"RUNNING", "LOADED"}
+    ]
+    if attention:
+        rows += ["", "ATTENTION"] + attention[:16]
+        if len(attention) > 16:
+            rows.append(f"… +{len(attention) - 16} more")
+
+    running = [
+        _plugin_short_name(item["name"])
+        for item in records
+        if item["state"] == "RUNNING"
+    ]
+    if running:
+        rows += ["", "RUNNING"] + _pack(running)
+    return rows
+
+
+def _plugin_detail(record, command_counts: dict[str, int]) -> list[str]:
+    name = record["name"]
+    dependencies = record.get("dependencies") or []
+    registrations = int(command_counts.get(name, 0))
+    rows = [
+        f"Plugin: {_plugin_short_name(name)}",
+        f"State: {record['state']}",
+        f"Commands: {registrations}",
+        f"Critical: {'YES' if record.get('critical') else 'NO'}",
+        f"Dependencies: {', '.join(_plugin_short_name(dep) for dep in dependencies) if dependencies else 'none'}",
+    ]
+    if record.get("error"):
+        error = str(record["error"]).replace("\n", " ")
+        rows.append(f"Error: {error[:300]}")
+    if registrations:
+        owned = [
+            registration
+            for registration in list_registrations()
+            if registration.owner == name
+        ]
+        names = []
+        for registration in owned[:20]:
+            command_names = registration.pattern
+            names.append(command_names)
+        rows += ["", "REGISTRATIONS"] + _pack(names, width=1, limit=20)
+        if len(owned) > 20:
+            rows.append(f"… +{len(owned) - 20} more")
+    return rows
+
+
 async def setup(client):
     register_cmd(client, PATTERN, handle, "system_ops", "Astra platform health, diagnostics, search and feature controls.")
+
 
 async def handle(event):
     cmd = event.pattern_match.group(1).lower()
@@ -48,13 +178,27 @@ async def handle(event):
         await event.edit(render("HEALTH // PLATFORM", rows, footer="system_ops | health")); return
 
     if cmd == "plugins":
-        manager = getattr(event.client, "plugin_manager", None)
-        if manager is None: raise CommandError("Plugin manager is unavailable")
-        records = manager.snapshot(); counts: dict[str, int] = {}
-        for item in records: counts[item["state"]] = counts.get(item["state"], 0) + 1
-        rows = [f"{state}: {count}" for state, count in sorted(counts.items())]
-        rows += [f"{item['name']} → {item['state']}" for item in records if item["state"] not in {"RUNNING", "LOADED"}][:12]
-        await event.edit(render("PLUGINS // STATE", rows or ["No plugins discovered."], footer="system_ops | plugins")); return
+        manager = _plugin_manager(event)
+        records = manager.snapshot()
+        command_counts = _plugin_command_map()
+        if not arg:
+            rows = _plugin_overview(records, command_counts)
+            await event.edit(render("PLUGIN OBSERVATORY", rows or ["No plugins discovered."], footer="system_ops | plugins | live registry")); return
+
+        parts = arg.split(maxsplit=1)
+        selector = parts[0].lower()
+        if selector in _PLUGIN_STATES:
+            filtered = [item for item in records if item["state"] == selector]
+            rows = [
+                f"{_plugin_short_name(item['name'])}  ·  {command_counts.get(item['name'], 0)} cmd"
+                for item in filtered
+            ]
+            rows = [f"State: {selector}", f"Count: {len(filtered)}", ""] + _pack(rows, width=1, limit=60)
+            await event.edit(render("PLUGIN OBSERVATORY // FILTER", rows, footer=f"system_ops | plugins {selector.lower()}")); return
+
+        record = _find_plugin(records, arg)
+        rows = _plugin_detail(record, command_counts)
+        await event.edit(render("PLUGIN OBSERVATORY // DETAIL", rows, footer=f"system_ops | plugins | {record['state']}")); return
 
     if cmd == "tasks":
         records = ctx.tasks.snapshot(); rows = [f"{r['state']} · {r['name']} · {r['owner'] or 'unknown'}" for r in records[-20:]]
