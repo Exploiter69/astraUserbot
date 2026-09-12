@@ -31,10 +31,7 @@ class PluginObservatoryTests(unittest.TestCase):
             {"name": "plugins.system_ops.platform", "state": "RUNNING"},
             {"name": "plugins.system_ops.help", "state": "RUNNING"},
         ]
-        self.assertEqual(
-            _find_plugin(records, "system_ops.platform")["name"],
-            "plugins.system_ops.platform",
-        )
+        self.assertEqual(_find_plugin(records, "system_ops.platform")["name"], "plugins.system_ops.platform")
         with self.assertRaisesRegex(CommandError, "ambiguous"):
             _find_plugin(records, "system_ops")
 
@@ -61,18 +58,12 @@ class PluginObservatoryTests(unittest.TestCase):
             FakeRegistration(None, ".legacy"),
         ]
         with patch("plugins.system_ops.platform.list_registrations", return_value=registrations):
-            self.assertEqual(
-                _plugin_command_map(),
-                {"plugins.alpha": 2, "plugins.beta": 1},
-            )
+            self.assertEqual(_plugin_command_map(), {"plugins.alpha": 2, "plugins.beta": 1})
 
     def test_detail_uses_friendly_command_names(self):
         record = {
-            "name": "plugins.alpha",
-            "state": "RUNNING",
-            "critical": True,
-            "dependencies": ["plugins.base"],
-            "error": None,
+            "name": "plugins.alpha", "state": "RUNNING", "critical": True,
+            "dependencies": ["plugins.base"], "error": None,
         }
         with patch(
             "plugins.system_ops.platform.list_registrations",
@@ -91,13 +82,11 @@ class PluginObservatoryTests(unittest.TestCase):
         self.assertIn("COMMANDS", text)
         self.assertIn(".alpha", text)
         self.assertIn(".a  .alias", text)
-        self.assertNotIn("^\\\\.alpha", text)
+        self.assertNotIn("(?:\\s+", text)
 
     def test_command_names_support_grouped_commands_and_aliases(self):
         registration = FakeRegistration(
-            "plugins.alpha",
-            r"^\\.(health|status|ops)(?:\\s+(.*))?$",
-            aliases=(".h",),
+            "plugins.alpha", r"^\\.(health|status|ops)(?:\\s+(.*))?$", aliases=(".h",)
         )
         self.assertEqual(_command_names(registration), ("health", "status", "ops", "h"))
         self.assertEqual(_display_command(registration), ".health  .status  .ops  .h")
