@@ -26,19 +26,24 @@ _CATEGORY_LABELS = {
 
 
 def _command_names(registration) -> tuple[str, ...]:
-    """Extract only the command expression immediately after the prefix."""
+    """Extract command names from the command expression at pattern start."""
     names: list[str] = []
     prefix = re.escape(config.PREFIX)
-    match = re.match(
-        rf"^{prefix}(?:\(([A-Za-z0-9_:-]+(?:\|[A-Za-z0-9_:-]+)*)\)|([A-Za-z0-9_:-]+))",
-        registration.pattern,
-    )
-    if match:
-        grouped, single = match.groups()
-        if grouped:
-            names.extend(grouped.split("|"))
-        elif single:
-            names.append(single)
+    if not registration.pattern.startswith(f"^{prefix}"):
+        return tuple(alias.lstrip(config.PREFIX).lower() for alias in registration.aliases)
+
+    command_expr = registration.pattern[len(f"^{prefix}"):]
+    if command_expr.startswith("("):
+        end = command_expr.find(")")
+        if end > 0:
+            group = command_expr[1:end]
+            if re.fullmatch(r"[A-Za-z0-9_:-]+(?:\|[A-Za-z0-9_:-]+)*", group):
+                names.extend(group.split("|"))
+    else:
+        match = re.match(r"[A-Za-z0-9_:-]+", command_expr)
+        if match:
+            names.append(match.group(0))
+
     names.extend(alias.lstrip(config.PREFIX).lower() for alias in registration.aliases)
     return tuple(dict.fromkeys(name.lower() for name in names if name))
 
@@ -56,13 +61,16 @@ def _display_command(registration) -> str:
 def _rows_for_all() -> list[str]:
     registrations = list_registrations()
     grouped: dict[str, list[str]] = {}
+    command_count = 0
     for registration in registrations:
         label = _CATEGORY_LABELS.get(registration.category, registration.category.upper())
-        grouped.setdefault(label, []).append(_display_command(registration))
-    rows = [f"Registered commands: {len(registrations)}", "---"]
+        names = _command_names(registration)
+        command_count += len(names)
+        grouped.setdefault(label, []).extend(config.PREFIX + name for name in names)
+    rows = [f"Registered commands: {command_count}", "---"]
     for label in sorted(grouped):
         rows.append(f"[{label}]")
-        rows.extend(sorted(grouped[label], key=str.lower))
+        rows.extend(sorted(dict.fromkeys(grouped[label]), key=str.lower))
     return rows
 
 
