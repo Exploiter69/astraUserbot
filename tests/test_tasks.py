@@ -1,4 +1,5 @@
 import asyncio
+import time
 import unittest
 
 from core.errors import ErrorCode
@@ -84,6 +85,37 @@ class TaskSupervisorTests(unittest.TestCase):
         self.assertTrue(cancelled)
         self.assertTrue(task.cancelled())
         self.assertEqual(supervisor.history()[0].state, TaskState.CANCELLED)
+
+    def test_shutdown_is_bounded_for_cancellation_resistant_task(self):
+        async def scenario():
+            supervisor = TaskSupervisor()
+            started = asyncio.Event()
+            release = asyncio.Event()
+
+            async def stubborn():
+                started.set()
+                try:
+                    await release.wait()
+                except asyncio.CancelledError:
+                    # Deliberately resist cancellation to exercise the shutdown
+                    # contract.  The test releases it after shutdown returns so
+                    # asyncio.run can clean it up normally.
+                    await release.wait()
+
+            supervisor.create_task(stubborn(), name="test.stubborn")
+            await started.wait()
+
+            started_at = time.monotonic()
+            await supervisor.shutdown(timeout=0.05)
+            elapsed = time.monotonic() - started_at
+
+            self.assertLess(elapsed, 0.5)
+            self.assertEqual(len(supervisor.active()), 1)
+            release.set()
+            await asyncio.sleep(0)
+            return supervisor
+
+        asyncio.run(scenario())
 
     def test_history_is_bounded(self):
         async def scenario():
