@@ -1,8 +1,8 @@
 # AstraUserbot — Phases 10–15 Readiness
 
-**Scope:** Search & Knowledge, Observability, Feature Expansion, Performance, Optional Isolation, Platform Maturity
-**Cost target:** ₹0 / $0
-**Status:** PASS — implementation and local verification complete.
+**Scope:** Search & Knowledge, Observability, Feature Expansion, Performance, Optional Isolation, Platform Maturity  
+**Cost target:** ₹0 / $0  
+**Status:** PASS — implementation and owner-host verification complete.
 
 ## Phase 10 — Search & Knowledge
 
@@ -33,13 +33,14 @@ Implemented:
 - `.diagnostics`;
 - bounded JSON diagnostic reports under `data/logs/`;
 - secret-safe reporting boundary;
-- plugin lifecycle, jobs, tasks, cache, DB integrity, resources, metrics and isolation status in diagnostics.
+- plugin lifecycle, jobs, tasks, cache, DB integrity, resources, metrics and isolation status in diagnostics;
+- operator `.status` and `.ops` attention summaries.
 
-The platform now exposes the majority of first-response runtime information without opening source code.
+The platform exposes the majority of first-response runtime information without opening source code.
 
 ## Phase 12 — Feature Expansion
 
-The existing plugin ecosystem already covers security/admin, media, downloads/uploads, network/OSINT, AI, backup, system, stealth and fun families. This phase adds a shared-service utility/feed family rather than duplicating existing capability:
+The existing plugin ecosystem covers security/admin, media, downloads/uploads, network/OSINT, AI, backup, system, stealth and fun families. Shared-service utility/feed capabilities include:
 
 - `.uuid`;
 - `.sha256`;
@@ -50,7 +51,7 @@ The existing plugin ecosystem already covers security/admin, media, downloads/up
 - bounded HTTP metadata probe `.head`;
 - bounded RSS/Atom reader `.rss`.
 
-All new features use existing shared HTTP/error/render boundaries and bounded input/output policy.
+All active features use existing shared HTTP/error/render boundaries and bounded input/output policy.
 
 ## Phase 13 — Performance
 
@@ -63,19 +64,45 @@ Implemented:
 - `.stats` operational view;
 - benchmark tool under `tools/astra_platform.py`.
 
-No tuning is claimed without measurement. The first implementation records evidence rather than changing limits blindly.
+No tuning is claimed without measurement. The implementation records evidence rather than changing limits blindly.
 
-## Phase 14 — Optional Isolation
+## Phase 14 — Real Selective Isolation
 
-Implemented as an explicit policy boundary, **not a fake sandbox**:
+**Status: COMPLETE.**
 
-- detects reviewed host isolation backends when present;
-- reports availability;
-- does not silently activate them;
-- refuses implicit isolation claims;
-- requires an explicit reviewed backend decision for a measured untrusted workload.
+The original deferred/future-isolation wording is superseded by the reviewed real Bubblewrap implementation.
 
-This is the correct completion state when the current single-process plugin model has no measured workload requiring isolation. The architecture remains ready for a real backend without pretending Python module boundaries are security boundaries.
+Implemented and owner-host validated:
+
+- dedicated Bubblewrap execution boundary;
+- separate user/network/process namespaces for classified child workloads;
+- capability dropping;
+- cleared/minimal child environment;
+- workspace-only writable filesystem;
+- CPU/RAM/file/process/descriptor bounds;
+- bounded output, timeout and cancellation handling;
+- `.eval` isolation;
+- FFmpeg/ffprobe/OCR isolation;
+- safe ZIP/TAR extraction;
+- traversal/link/special-file rejection;
+- malicious-media containment validation;
+- direct security audit with actual isolated execution probes.
+
+Network-requiring operations such as rclone, downloads and network TTS remain outside the isolation boundary and retain their own explicit network/resource policy. Isolation is never silently replaced with same-process execution when the reviewed backend is required.
+
+### Gate 14 — PASS
+
+Owner-host evidence:
+
+- full regression suite: **182 passed**;
+- isolation/security audit: **PASS**;
+- actual isolated execution: **PASS**;
+- filesystem boundary: **PASS**;
+- network isolation: **PASS**;
+- environment allowlist: **PASS**;
+- subprocess timeout/resource controls: **PASS**;
+- malicious-media containment: **PASS**;
+- archive safety probe: **PASS**.
 
 ## Phase 15 — Platform Maturity
 
@@ -94,6 +121,15 @@ Implemented:
 - feature enable/disable controls;
 - platform gate tests.
 
+Additional production hardening completed after the original Phase 15 wording:
+
+- bounded plugin/task/job shutdown;
+- durable job leases, fencing, retry and uncertain-outcome handling;
+- authenticated secret storage;
+- provider-independent AI gateway with remote cost/request guardrails;
+- storage backup/restore integrity gates;
+- real process isolation for classified child workloads.
+
 ### Owner verification commands
 
 ```bash
@@ -105,10 +141,8 @@ python -m tools.astra_platform benchmark
 python -m tools.astra_platform migrate
 ```
 
-Controlled startup/shutdown smoke test completed successfully on the owner host.
+## Verification Rule
 
-## Global completion rule
-
-Implementation completion is not the same as local runtime verification. The phases are now labeled PASS after successful owner-host verification.
+Implementation completion is not the same as owner-host runtime verification. A phase is PASS only when its implementation and relevant verification evidence agree.
 
 No paid API, hosted service, or mandatory local LLM was introduced.
