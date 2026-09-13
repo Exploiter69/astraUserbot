@@ -140,7 +140,7 @@ def static_checks() -> dict[str, bool]:
         "bubblewrap_executor": "--unshare-all" in isolation and "--disable-userns" in isolation and "--cap-drop" in isolation and "--clearenv" in isolation and "--bind" in isolation,
         "network_policy": "--unshare-all" in isolation,
         "environment_policy": "--clearenv" in isolation and '"PATH":' in isolation and '"HOME": "/tmp"' in isolation,
-        "resource_limits": all(token in isolation for token in ("RLIMIT_AS", "RLIMIT_CPU", "RLIMIT_FSIZE", "RLIMIT_NPROC", "RLIMIT_NOFILE")),
+        "resource_limits": all(token in isolation for token in ("RLIMIT_AS", "RLIMIT_CPU", "RLIMIT_FSIZE", "RLIMIT_NOFILE", "--nproc=")),
         "argv_only_subprocess": "create_subprocess_exec" in subprocess and "shell=True" not in combined and "os.system(" not in combined,
         "workspace_path_boundary": "relative_to(self.root)" in workspace and "Cannot remove workspace root" in workspace,
         "archive_traversal": "Archive member escapes extraction root" in archive and "Archive links and special files are not allowed" in archive,
