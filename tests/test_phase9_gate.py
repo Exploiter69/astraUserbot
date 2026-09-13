@@ -1,78 +1,104 @@
 import ast
-from pathlib import Path
 import unittest
+from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+PLUGIN_ROOT = ROOT / "plugins"
+QUARANTINED = {
+    "plugins.ai.ask",
+    "plugins.ai.groq_client",
+    "plugins.ai.summarize",
+    "plugins.ai.transcribe",
+}
+SKIP = {"__pycache__", ".git", ".venv", "venv", "env", ".pytest_cache"}
+ALLOWED_DIRECT_EVENTS = {
+    Path("plugins/security/account_archiver.py"),
+    Path("plugins/security/acl.py"),
+    Path("plugins/security/logger.py"),
+    Path("plugins/security/pmguard.py"),
+    Path("plugins/system/afk.py"),
+}
 
-# Phase 9's compatibility boundary is explicit. Legacy plugins outside this
-# migration set are not silently treated as Phase 9 failures; they remain
-# candidates for their own migration phase/batch.
-PHASE9_BOUNDARY_PATHS = (
-    "plugins/network_osint/dns.py",
-    "plugins/network_osint/headers.py",
-    "plugins/network_osint/ipinfo.py",
-    "plugins/network_osint/speedtest.py",
-    "plugins/advanced/osint_recon.py",
-    "plugins/media/ocr.py",
-    "plugins/system/sysinfo.py",
-    "plugins/system_ops/doctor.py",
-    "plugins/system_ops/testall.py",
-    "plugins/backup/cloud_backup.py",
-    "plugins/media/ffmpeg.py",
-    "plugins/advanced/mediaflow.py",
-    "plugins/media_ops/video.py",
-    "plugins/media_ops/speech.py",
-    "plugins/media_ops/stream.py",
-    "plugins/media/aria2.py",
-    "plugins/media/rclone.py",
-    "plugins/ai_gateway/ask.py",
-    "plugins/ai_gateway/summarize.py",
-    "plugins/ai_gateway/transcribe.py",
-)
+
+def active_files():
+    for path in sorted(PLUGIN_ROOT.rglob("*.py")):
+        if any(part in SKIP for part in path.parts):
+            continue
+        module = ".".join(path.relative_to(ROOT).with_suffix("").parts)
+        if module not in QUARANTINED:
+            yield path
+
+
+class PluginBehaviorContractTests(unittest.TestCase):
+    def test_every_active_plugin_parses(self):
+        for path in active_files():
+            ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+
+    def test_active_plugins_do_not_bypass_shared_network_or_subprocess_boundaries(self):
+        forbidden_imports = {"requests", "httpx", "urllib.request", "subprocess", "aiohttp", "helpers.shell", "helpers.net"}
+        for path in active_files():
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    names = {alias.name for alias in node.names}
+                elif isinstance(node, ast.ImportFrom):
+                    names = {node.module or ""}
+                else:
+                    continue
+                self.assertTrue(
+                    not any(name in forbidden_imports or any(name.startswith(item + ".") for item in forbidden_imports) for name in names),
+                    f"{path.relative_to(ROOT)} bypasses a shared boundary: {names}",
+                )
+
+    def test_direct_incoming_handlers_are_explicitly_allowlisted(self):
+        for path in active_files():
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+                    continue
+                if node.func.attr != "add_event_handler":
+                    continue
+                source = ast.unparse(node)
+                if "incoming=True" in source:
+                    self.assertIn(path.relative_to(ROOT), ALLOWED_DIRECT_EVENTS)
+
+    def test_media_and_ai_transcription_use_shared_media_download_boundary(self):
+        targets = [
+            ROOT / "plugins/security/ephemeral.py",
+            ROOT / "plugins/media/ocr.py",
+            ROOT / "plugins/ai_gateway/transcribe.py",
+        ]
+        for path in targets:
+            text = path.read_text(encoding="utf-8")
+            self.assertIn("download_telegram_media", text, path.name)
+            self.assertNotIn("event.client.download_media(media, file=", text, path.name)
+            self.assertNotIn("event.client.download_media(reply.media, file=", text, path.name)
+
+    def test_doctor_network_dns_is_off_event_loop(self):
+        text = (ROOT / "plugins/system_ops/doctor.py").read_text(encoding="utf-8")
+        self.assertIn("await asyncio.to_thread(socket.gethostbyname, host)", text)
+
+    def test_identity_uses_unique_photo_snapshots_and_failure_safe_restore(self):
+        text = (ROOT / "plugins/stealth/identity.py").read_text(encoding="utf-8")
+        self.assertIn("uuid.uuid4().hex", text)
+        self.assertIn("Upload first so a failed upload cannot destroy the current profile photo.", text)
+        self.assertIn("Saved profile photo is outside the managed identity cache.", text)
+
+    def test_plugin_behavior_audit_exists_and_is_ast_only(self):
+        text = (ROOT / "tools/plugin_behavior_audit.py").read_text(encoding="utf-8")
+        self.assertIn("ast.parse", text)
+        self.assertNotIn("importlib.import_module", text)
+        self.assertNotIn("exec(", text)
 
 
 class Phase9MigrationGate(unittest.TestCase):
-    def _source(self, relative: str) -> str:
-        return (ROOT / relative).read_text(encoding="utf-8")
-
-    def _tree(self, relative: str) -> ast.AST:
-        return ast.parse(self._source(relative), filename=relative)
-
-    def _imports(self, relative: str) -> set[str]:
-        tree = self._tree(relative)
-        imports: set[str] = set()
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                imports.update(alias.name for alias in node.names)
-            elif isinstance(node, ast.ImportFrom):
-                module = node.module or ""
-                for alias in node.names:
-                    imports.add(f"{module}.{alias.name}")
-        return imports
-
-    def test_network_plugins_use_shared_http_service(self):
-        for path in (
-            "plugins/network_osint/dns.py",
-            "plugins/network_osint/headers.py",
-            "plugins/network_osint/ipinfo.py",
-            "plugins/advanced/osint_recon.py",
-        ):
-            source = self._source(path)
-            self.assertIn("get_application_context", source, path)
-            self.assertIn('context.get("http")', source, path)
-            self.assertNotIn("get_session", source, path)
-
-    def test_speedtest_uses_shared_subprocess_service(self):
-        source = self._source("plugins/network_osint/speedtest.py")
-        self.assertIn('context.get("subprocess")', source)
-        self.assertIn("subprocess.run", source)
-        self.assertNotIn("helpers.shell", source)
+    def _source(self, path):
+        return (ROOT / path).read_text(encoding="utf-8")
 
     def test_system_plugins_use_shared_subprocess_boundary(self):
         for path in (
             "plugins/system/sysinfo.py",
-            "plugins/media/ocr.py",
             "plugins/backup/cloud_backup.py",
             "plugins/system_ops/doctor.py",
         ):
@@ -80,78 +106,11 @@ class Phase9MigrationGate(unittest.TestCase):
             self.assertIn('context.get("subprocess")', source, path)
             self.assertNotIn("helpers.shell", source, path)
 
-    def test_media_batch_uses_media_service(self):
-        paths = (
-            "plugins/media/ffmpeg.py",
-            "plugins/advanced/mediaflow.py",
-            "plugins/media_ops/video.py",
-            "plugins/media_ops/speech.py",
-            "plugins/media_ops/stream.py",
-            "plugins/media/aria2.py",
-            "plugins/media/rclone.py",
-        )
-        for path in paths:
-            source = self._source(path)
-            self.assertIn("get_application_context", source, path)
-            self.assertIn('context.get("media")', source, path)
-
-    def test_active_ai_gateway_uses_ai_service(self):
-        for path in (
-            "plugins/ai_gateway/ask.py",
-            "plugins/ai_gateway/summarize.py",
-            "plugins/ai_gateway/transcribe.py",
-        ):
-            source = self._source(path)
-            self.assertIn("get_application_context", source, path)
-            self.assertIn('context.get("ai")', source, path)
-
-    def test_no_phase9_plugin_imports_helpers_shell(self):
-        offenders = []
-        for relative in PHASE9_BOUNDARY_PATHS:
-            source = self._source(relative)
-            if "from helpers.shell import run" in source or "import helpers.shell" in source:
-                offenders.append(relative)
-        self.assertEqual([], offenders)
-
-    def test_no_phase9_plugin_creates_aiohttp_session(self):
-        offenders = []
-        for relative in PHASE9_BOUNDARY_PATHS:
-            source = self._source(relative)
-            if "aiohttp.ClientSession" in source or "aiohttp.ClientSession(" in source:
-                offenders.append(relative)
-        self.assertEqual([], offenders)
-
-    def test_no_plugin_uses_requests_library(self):
-        offenders = []
-        for relative in PHASE9_BOUNDARY_PATHS:
-            imports = self._imports(relative)
-            if any(item == "requests" or item.startswith("requests.") for item in imports):
-                offenders.append(relative)
-        self.assertEqual([], offenders)
-
-    def test_migrated_sources_parse(self):
-        paths = (
-            "plugins/network_osint/dns.py",
-            "plugins/network_osint/headers.py",
-            "plugins/network_osint/ipinfo.py",
-            "plugins/network_osint/speedtest.py",
-            "plugins/advanced/osint_recon.py",
-            "plugins/media/ocr.py",
-            "plugins/system/sysinfo.py",
-            "plugins/system_ops/doctor.py",
-            "plugins/system_ops/testall.py",
-            "plugins/backup/cloud_backup.py",
-        )
-        for path in paths:
-            self._tree(path)
-
-    def test_phase9_readiness_contract_exists(self):
-        readiness = ROOT / "PHASE_9_READINESS.md"
-        self.assertTrue(readiness.is_file())
-        text = readiness.read_text(encoding="utf-8")
-        self.assertIn("Gate 9", text)
-        self.assertIn("₹0 / $0", text)
-        self.assertIn("Compatibility Exit", text)
+    def test_ocr_uses_media_isolation_boundary(self):
+        source = self._source("plugins/media/ocr.py")
+        self.assertIn('context.get("media")', source)
+        self.assertIn("run_isolated", source)
+        self.assertNotIn("helpers.shell", source)
 
 
 if __name__ == "__main__":
