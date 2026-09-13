@@ -40,6 +40,30 @@ class MediaServiceTests(unittest.IsolatedAsyncioTestCase):
                 service.validate_input(source)
             await service.cleanup(job)
 
+    async def test_telegram_media_preflight_and_progress_limit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = WorkspaceService(tmp)
+            service = MediaService(workspace, SubprocessService(), max_input_bytes=10, max_duration_seconds=5)
+
+            class Media:
+                size = 11
+                duration = 1
+
+            with self.assertRaises(ResourceError):
+                service.validate_telegram_media(Media())
+
+            class AllowedMedia:
+                size = 10
+                duration = 5
+
+            service.validate_telegram_media(AllowedMedia())
+            progress = service.telegram_download_progress()
+            with self.assertRaises(ResourceError):
+                progress(11, 11)
+            with self.assertRaises(ResourceError):
+                progress(1, 11)
+            progress(10, 10)
+
     async def test_artifact_rejects_missing_empty_and_oversized_outputs(self):
         with tempfile.TemporaryDirectory() as tmp:
             workspace = WorkspaceService(tmp, max_file_bytes=128)
