@@ -44,12 +44,17 @@ class IsolationService:
         self._backend = "none"
         self._reason = "No isolation backend enabled; plugins remain same-process and therefore same-trust."
         self._bwrap: str | None = None
+        self._prlimit: str | None = None
 
     async def start(self) -> None:
         self._bwrap = shutil.which("bwrap")
-        if self._bwrap:
+        self._prlimit = shutil.which("prlimit")
+        if self._bwrap and self._prlimit:
             self._backend = "bubblewrap-available"
-            self._reason = "Bubblewrap is available for explicitly isolated child workloads; ordinary plugins remain same-process."
+            self._reason = "Bubblewrap is available for explicitly isolated child workloads; resource limits are applied inside the sandbox."
+        elif self._bwrap:
+            self._backend = "bubblewrap-unavailable"
+            self._reason = "Bubblewrap is present but prlimit is unavailable, so bounded isolated execution is disabled."
         elif shutil.which("firejail"):
             self._backend = "firejail-available"
             self._reason = "Firejail is detected but is not used by the reviewed isolation executor."
@@ -59,18 +64,17 @@ class IsolationService:
         self._started = False
 
     def assess(self) -> IsolationAssessment:
-        return IsolationAssessment(bool(self._bwrap), self._backend, self._reason)
+        return IsolationAssessment(bool(self._bwrap and self._prlimit), self._backend, self._reason)
 
     def require_explicit_backend(self) -> None:
-        if not self._bwrap:
-            raise IsolationUnavailable("Bubblewrap is required for this isolated workload but is unavailable.")
+        if not self._bwrap or not self._prlimit:
+            raise IsolationUnavailable("Bubblewrap with prlimit is required for this isolated workload but is unavailable.")
 
     @staticmethod
-    def _child_limits(memory_bytes: int, file_bytes: int, processes: int, nofile: int) -> None:
+    def _child_limits(memory_bytes: int, file_bytes: int, nofile: int) -> None:
         resource.setrlimit(resource.RLIMIT_CPU, (30, 31))
         resource.setrlimit(resource.RLIMIT_AS, (memory_bytes, memory_bytes))
         resource.setrlimit(resource.RLIMIT_FSIZE, (file_bytes, file_bytes))
-        resource.setrlimit(resource.RLIMIT_NPROC, (processes, processes))
         resource.setrlimit(resource.RLIMIT_NOFILE, (nofile, nofile))
 
     @staticmethod
@@ -118,6 +122,12 @@ class IsolationService:
         if not root.is_dir():
             raise ValueError("Isolation workspace must be an existing directory")
 
+        payload = [
+            self._prlimit or "prlimit",
+            f"--nproc={processes}:{processes}",
+            "--",
+            *args,
+        ]
         command = [
             self._bwrap or "bwrap",
             "--die-with-parent",
@@ -139,7 +149,7 @@ class IsolationService:
             "--setenv", "LC_ALL", "C",
             "--setenv", "TMPDIR", "/tmp",
             "--",
-            *args,
+            *payload,
         ]
 
         try:
@@ -150,7 +160,7 @@ class IsolationService:
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                preexec_fn=lambda: self._child_limits(memory_bytes, file_bytes, processes, nofile),
+                preexec_fn=lambda: self._child_limits(memory_bytes, file_bytes, nofile),
             )
         except OSError as exc:
             raise ExternalServiceError("Unable to start isolated subprocess") from exc
