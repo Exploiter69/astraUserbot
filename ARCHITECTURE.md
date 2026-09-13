@@ -1,21 +1,37 @@
 # AstraUserbot — Detailed Architecture Specification
 
 **Status:** Canonical architectural contract  
-**Version:** 2.0  
-**Scope:** Core runtime, plugin platform, Telegram, persistence, jobs, cache, media, AI, search, observability, security, testing, and migration  
+**Version:** 2.1  
+**Scope:** Core runtime, plugin platform, Telegram, persistence, jobs, cache, media, AI, search, observability, security, testing, release and recovery  
 **Cost target:** ₹0 / $0
+
+> **Current implementation note:** this document describes the architecture as it is implemented and verified on the current release line. Where an older section uses future/deferred language, the current implementation rules below take precedence.
+
+## Current implementation status
+
+The platform foundation and hardening program are implemented. The owner-host verification baseline is:
+
+- plugin ecosystem: deterministic discovery, metadata, lifecycle, ownership, quarantine and controlled enable/disable;
+- command ingress: outgoing-only central command registration, with a small explicit allowlist of direct incoming security/watchers;
+- runtime: `ApplicationContext` with shared services and bounded lifecycle shutdown;
+- jobs: durable SQLite JobEngine with leases, fencing, retries, idempotency keys, retention and explicit `UNCERTAIN` recovery;
+- storage: WAL, migrations/checksums, integrity checks, transaction rollback, concurrent-writer coverage and verified backup/restore;
+- media: bounded Telegram downloads, duration/disk limits, managed workspaces, artifact verification and isolated decoder/transform execution;
+- isolation: real Bubblewrap for classified child workloads; required isolation fails closed when unavailable;
+- AI: provider-independent gateway with Groq/Gemini remote adapters and loopback-only Ollama, bounded input/output/concurrency/timeouts, remote request budgets and tool/function-call rejection;
+- search: SQLite FTS5 with rebuildable derived indexes;
+- observability: health/plugins/tasks/jobs/cache/stats/diagnostics plus operator status/attention views;
+- release/recovery: compatibility policy, disaster recovery, upgrade procedure, failure-mode matrix, release checklist and production acceptance gate.
+
+Current verified active-plugin inventory: **41 active, 4 intentionally quarantined**. The quarantined modules are `plugins.ai.ask`, `plugins.ai.groq_client`, `plugins.ai.summarize`, and `plugins.ai.transcribe`.
 
 ## 1. Purpose
 
-AstraUserbot is a long-lived Telegram userbot platform built with Python, Telethon, and asyncio. The repository already contains a broad plugin ecosystem plus SQLite state, HTTP clients, subprocess/media workflows, AI integrations, account/security automation, and scheduled work.
-
-The goal is **not** to replace that ecosystem with a framework. The goal is to extract the infrastructure already duplicated inside it and establish deterministic contracts around lifecycle, authorization, persistence, execution, verification, and recovery.
+AstraUserbot is a long-lived Telegram userbot platform built with Python, Telethon, and asyncio. The goal is not to replace its ecosystem with a framework; it is to provide deterministic contracts around lifecycle, authorization, persistence, execution, verification, recovery and resource use.
 
 The target architecture is a **single-process service-oriented modular monolith**.
 
 ## 2. Architectural Invariants
-
-These rules outrank convenience:
 
 1. Telethon remains the Telegram transport.
 2. Plugins remain independently organized capabilities.
@@ -31,6 +47,8 @@ These rules outrank convenience:
 12. Existing behavior is preserved during migration unless a defect is intentionally fixed.
 13. The platform remains usable at ₹0/$0.
 14. Uncertainty causes reconciliation or refusal, not increasingly broad automation.
+15. A release is not production-ready until the automated and manual acceptance contracts pass.
+16. Isolation is never claimed unless the reviewed backend actually enforces it.
 
 ## 3. System Topology
 
@@ -59,7 +77,7 @@ Telegram / local trigger / scheduler
    │            │            │            │
    └────────────┼────────────┼────────────┘
                 ▼
-       Storage / Media / AI
+       Storage / Media / AI / Search
                 │
                 ▼
         Verify + Audit + Report
@@ -68,590 +86,173 @@ Telegram / local trigger / scheduler
 ## 4. Runtime Layers
 
 ### Layer 0 — Transport
-
 Telethon client/session/event delivery. This layer knows Telegram mechanics, not plugin business rules.
 
 ### Layer 1 — Core runtime
-
-Bootstrap, configuration, lifecycle, correlation IDs, error boundaries, task supervision, service ownership.
+Bootstrap, configuration, lifecycle, correlation IDs, error boundaries, task supervision and service ownership.
 
 ### Layer 2 — Platform services
-
-Router, authorization, storage, cache, HTTP, subprocess, Telegram facade, media, AI, jobs, audit, search, diagnostics.
+Router, authorization, storage, cache, HTTP, subprocess, Telegram facade, media, AI, jobs, audit, search, diagnostics and metrics.
 
 ### Layer 3 — Plugins
-
-Feature modules. Plugins consume services; they should not recreate them.
+Feature modules. Plugins consume services and must not recreate shared infrastructure.
 
 ### Layer 4 — External systems
-
-Telegram, web APIs, local programs, filesystem, model runtimes, configured storage targets.
+Telegram, web APIs, local programs, filesystem, model runtimes and configured storage targets.
 
 ## 5. Application Context
 
-`ApplicationContext` is the runtime dependency boundary. Conceptually:
-
-```python
-ctx.telegram
-ctx.router
-ctx.plugins
-ctx.tasks
-ctx.jobs
-ctx.http
-ctx.cache
-ctx.storage
-ctx.media
-ctx.ai
-ctx.audit
-ctx.config
-ctx.metrics
-```
-
-The context is created once during bootstrap, passed explicitly where practical, and closed in reverse dependency order. It must not become an uncontrolled mutable global registry.
-
-### Context lifecycle
-
-```text
-CREATE
-  ↓
-CONFIGURE
-  ↓
-OPEN DEPENDENCIES
-  ↓
-LOAD PLUGINS
-  ↓
-START RUNTIME
-  ↓
-RUN
-  ↓
-QUIESCE
-  ↓
-STOP JOB WORKERS/TASKS
-  ↓
-UNLOAD PLUGINS
-  ↓
-CLOSE SERVICES
-  ↓
-DISCONNECT TELEGRAM
-```
-
-## 6. Plugin Contract
-
-Every plugin eventually exposes metadata:
-
-```text
-name
-version
-api_version
-dependencies
-optional_dependencies
-permissions/capabilities
-description
-```
+`ApplicationContext` is the runtime dependency boundary. It owns process-wide services and closes them in dependency-safe reverse order. Production shutdown is bounded; cancellation-resistant child work cannot indefinitely block service teardown.
 
 Lifecycle:
 
 ```text
-DISCOVERED → LOADED → RUNNING
-                 ├→ FAILED_SETUP
-                 └→ DISABLED
-RUNNING → UNLOADED
-DISCOVERED → FAILED_IMPORT
+CREATE → CONFIGURE → OPEN → LOAD PLUGINS → RUN
+  → QUIESCE → STOP WORKERS/TASKS → UNLOAD PLUGINS
+  → CLOSE SERVICES → DISCONNECT TELEGRAM
 ```
 
-The Plugin Manager owns:
+## 6. Plugin Contract
 
-- deterministic discovery;
-- import isolation;
-- metadata validation;
-- dependency ordering;
-- cycle detection;
-- command/event ownership;
-- task ownership;
-- setup/shutdown;
-- health state;
-- compatibility adapters.
+Plugin metadata vocabulary includes name, version, API version, dependencies, optional dependencies, capabilities/permissions and description. The Plugin Manager owns deterministic discovery, metadata validation, dependency ordering, lifecycle, command/event ownership, quarantine and bounded setup/shutdown.
 
-A failed plugin must be visible in startup diagnostics. Startup must not report fully healthy when required plugins failed.
-
-### Legacy compatibility
-
-Existing `setup()` plugins continue to work through an adapter while the new contract is introduced. Compatibility code is removed only after migration and regression tests.
+Legacy `setup()` plugins remain supported through a compatibility adapter. Runtime enable/disable is lifecycle-controlled and dependency-aware; it does not silently rewrite persistent configuration.
 
 ## 7. Command Router
 
-The router is the single registration authority.
+The router is the registration authority. Each command record contains canonical name, aliases, owner plugin, handler, permission/capability metadata, side-effect classification, description and registration source.
 
-Each command record contains:
+Duplicate active command/alias ownership is rejected deterministically. The historical ACL/PMGuard `.block`/`.unblock` collision is resolved: ACL is the sole owner.
 
-```text
-canonical name
-aliases
-plugin owner
-handler
-permission/capability
-side-effect class
-description
-registration source
-state
-```
-
-Registration algorithm:
-
-1. normalize command and aliases;
-2. validate syntax;
-3. check existing ownership;
-4. reject duplicate active names/aliases;
-5. register handler;
-6. persist/record metadata;
-7. expose diagnostics.
-
-Aliases map to the same command definition. A plugin cannot silently overwrite another plugin.
-
-### Current known collision
-
-`.block` and `.unblock` exist in both ACL and PMGuard. Phase 1 must make this impossible to register silently, then establish the intended single owner.
+Current command ingress is intentionally outgoing-only. A small explicit allowlist of direct incoming watchers exists for security/account behaviors that are not ordinary owner commands. The behavioral audit verifies that allowlist.
 
 ## 8. Request Execution Contract
 
 Side-effecting requests use:
 
 ```text
-REQUEST
-  ↓
-VALIDATE
-  ↓
-AUTHORIZE
-  ↓
-PLAN
-  ↓
-EXECUTE
-  ↓
-VERIFY
-  ↓
-AUDIT
-  ↓
-REPORT
+REQUEST → VALIDATE → AUTHORIZE → PLAN → EXECUTE → VERIFY → AUDIT → REPORT
 ```
 
-Read-only commands may collapse stages, but they still validate input and report failures safely.
-
-The router owns correlation/error IDs. Plugins return typed results/errors where practical rather than sending arbitrary exceptions directly to Telegram.
+Unknown scope, permission or completion stops the operation or enters explicit reconciliation.
 
 ## 9. Authorization and Capabilities
 
-Initial policy levels:
-
-```text
-OWNER
-ADMIN
-TRUSTED
-PUBLIC
-```
-
-Capabilities are finer-grained:
-
-```text
-telegram.read
-telegram.write
-telegram.moderate
-filesystem.read
-filesystem.write
-subprocess.execute
-network.request
-media.process
-ai.inference
-account.control
-security.manage
-```
-
-Authorization is evaluated before execution. A capability declaration alone is not authorization; the policy layer must enforce it.
+Policy levels are `OWNER`, `ADMIN`, `TRUSTED`, `PUBLIC`. Capabilities describe intended access, but capability metadata is not itself authorization. Protected actions must pass the applicable policy boundary.
 
 ## 10. Task Supervision
 
-### Structured concurrency
-
-Use `asyncio.TaskGroup` for bounded groups where sibling failure should be coordinated.
-
-### TaskSupervisor
-
-Long-lived process tasks are registered with:
-
-```text
-name
-owner
-created_at
-task
-restart policy
-shutdown behavior
-last error
-```
-
-Examples: Telegram watchers, cleanup loops, cache maintenance, job polling.
-
-### Durable jobs
-
-If work must survive restart, it is a Job Engine concern. Never advertise an in-memory task as durable.
+Long-lived process-local tasks are owned by `TaskSupervisor` with lifecycle metadata, bounded shutdown and bounded failure history. Restart-sensitive work uses the durable JobEngine instead.
 
 ## 11. Shared HTTP Service
 
-One shared `aiohttp.ClientSession` is created by the runtime.
-
-Responsibilities:
-
-- connection pooling;
-- total/connect/read timeouts;
-- per-host concurrency;
-- response-size caps;
-- redirect policy;
-- retry classification;
-- `Retry-After` handling;
-- cancellation;
-- request timing;
-- cache hooks;
-- safe logging.
-
-Retries are limited to safe transient situations. Non-idempotent mutations are not blindly replayed.
-
-HTTP features accepting arbitrary URLs require explicit URL/scheme/redirect policy and must not accidentally become unlimited downloaders.
+HTTP integrations use one shared `aiohttp` session with bounded timeout, concurrency, response size, redirect, retry and cancellation policy. Arbitrary URL features must apply deliberate scheme/target policy.
 
 ## 12. Subprocess Service
 
-All external commands eventually pass through a shared service.
+Managed external commands use argv execution through the shared subprocess service with timeout, cancellation, output, environment and resource policy. Shell interpolation is prohibited.
 
-Contract:
-
-```text
-argv
-cwd
-environment policy
-timeout
-output limits
-cancellation
-resource policy
-result classification
-```
-
-Execution uses `create_subprocess_exec`/argv semantics, not shell interpolation. The service records timing and exit class without dumping arbitrary output into logs.
-
-Existing consumers include FFmpeg, rclone, aria2c, speech tools, OCR, and system utilities.
+Classified high-risk child workloads additionally cross `IsolationService` and execute under the reviewed Bubblewrap boundary.
 
 ## 13. Filesystem and Workspace Service
 
-Canonical roots:
-
-```text
-SOURCE_ROOT
-DATA_ROOT
-CACHE_ROOT
-TEMP_ROOT
-USER_EXPORT_ROOT
-PROTECTED_ROOTS
-```
-
-Path handling must canonicalize and enforce roots. Each media/download job receives a unique workspace:
-
-```text
-cache/jobs/<job-id>/
-  input/
-  output/
-  metadata.json
-```
-
-Cleanup runs on success, failure, and cancellation. Orphan cleanup is part of startup maintenance.
+Canonical roots distinguish source, data, cache, temporary and export/protected paths. Media/download jobs receive unique managed workspaces. Cleanup occurs on success, failure and cancellation; orphan cleanup is part of maintenance.
 
 ## 14. Cache Architecture
 
-### L1 — Memory
-
-Bounded TTL/LRU entries with namespace and version. Suitable for hot entity/config/message state.
-
-### L2 — SQLite
-
-Persistent API/metadata cache with:
-
-```text
-namespace
-key
-version
-created_at
-expires_at
-last_accessed_at
-source
-content_type
-etag
-last_modified
-payload/reference
-size
-```
-
-### L3 — Filesystem
-
-Large binaries/media/thumbnails/generated artifacts. SQLite stores metadata and references.
-
-### Cache rules
-
-- explicit TTL or invalidation;
-- bounded capacity;
-- namespace isolation;
-- safe serialization;
-- stampede locks for expensive refreshes;
-- negative caching only where useful;
-- versioned keys when schemas change;
-- cache loss must never imply data loss.
+L1 memory, L2 SQLite metadata and L3 filesystem artifacts are bounded, namespaced and disposable. Cache loss never implies authoritative data loss.
 
 ## 15. Storage Architecture
 
-SQLite remains the default persistence system.
+SQLite remains the durable platform store. The implementation uses WAL where appropriate, foreign keys, busy timeout, numbered/checksummed migrations, short transactions, integrity checks, bounded queries and verified backup/restore. Network calls are not held inside DB transactions.
 
-Required baseline:
-
-- WAL where appropriate;
-- foreign keys;
-- busy timeout;
-- numbered migrations;
-- short transactions;
-- repository/data-access boundaries;
-- integrity checks;
-- retention policies;
-- backup/restore tooling.
-
-Long-term shared infrastructure tables include plugins, commands, jobs, job events, cache, audit, health, settings, and media metadata. Existing plugin databases remain until migration is proven safe.
-
-No network call is held open inside a database transaction.
+Plugin-specific databases remain supported until migration is proven safe.
 
 ## 16. Durable Job Engine
 
-Durable work uses SQLite persistence and explicit state transitions:
+Durable work uses explicit state transitions and SQLite persistence:
 
 ```text
 QUEUED → RUNNING → VERIFYING → COMPLETED
-             │          │
-             ├→ QUEUED  ├→ QUEUED
-             ├→ PAUSED  └→ FAILED
+             ├→ QUEUED (retry)
+             ├→ UNCERTAIN
              ├→ FAILED
              └→ CANCELLED
 ```
 
-Jobs support leases, retries, idempotency, progress, parent/child workflows, cancellation, recovery, verification, and audit.
-
-A lease expiry means **uncertain execution**, never success.
+Jobs have bounded payload/result/error data, leases and attempt fencing, retry/backoff, idempotency support, retention and operator-visible failure state. Lease expiry or interrupted active work is never treated as success.
 
 ## 17. Media Architecture
 
-`MediaService` becomes the common boundary for:
+`MediaService` is the common boundary for Telegram download preparation, MIME/duration/size checks, FFmpeg/ffprobe, conversion, artifact verification, upload preparation and cleanup. FFmpeg/ffprobe and OCR use real isolated child execution. Network-requiring download/rclone/TTS operations retain explicit non-isolated network policy.
 
-- download;
-- MIME detection;
-- FFmpeg;
-- conversion;
-- extraction;
-- speech/transcription;
-- thumbnails;
-- upload preparation;
-- cleanup.
-
-Plugins become request/response wrappers.
-
-A job must never discover its result by scanning a shared directory for the newest file. Output paths are deterministic and job-owned.
+A job must never infer its result by scanning a shared directory for the newest file. Artifact ownership and validation are explicit.
 
 ## 18. Telegram Facade
 
-`ctx.telegram` provides common operations:
-
-- send/edit/delete;
-- download/upload;
-- entity lookup;
-- common retry/flood handling;
-- formatting helpers;
-- bounded media operations.
-
-Raw Telethon remains available for advanced plugins. The facade centralizes policy, not every Telethon feature.
+`ctx.telegram` centralizes common send/edit/delete, entity lookup, upload/download preparation and common policy. Advanced plugins may use raw Telethon where necessary, but shared infrastructure remains centralized.
 
 ## 19. AI Gateway
 
-The AI layer exposes provider-independent operations:
+The active AI boundary is provider-independent `AIService`. Supported architecture includes remote Groq/Gemini adapters and loopback-only local Ollama. Provider selection, model validation, request budgets, concurrency, timeouts, response bounds and malformed-response handling are centralized.
 
-```text
-chat
-summarize
-extract
-classify
-transcribe
-embed (future)
-```
-
-Adapters can include:
-
-```text
-Ollama/local
-llama.cpp/local
-Groq
-other genuinely free providers when configured
-```
-
-Plugins never depend directly on provider URLs/model constants. AI failure degrades the feature rather than the entire bot.
-
-AI output is data. It cannot execute, authorize, broaden scope, reveal secrets, or bypass deterministic policy.
+Tool/function calls are rejected; the gateway has no arbitrary tool execution surface. AI output is data and cannot authorize or perform privileged mutations.
 
 ## 20. Search
 
-Initial search uses SQLite indexes and FTS5 where justified.
-
-Potential sources:
-
-```text
-plugin metadata
-command metadata
-notes
-messages
-OCR
-transcripts
-structured plugin records
-```
-
-Indexes are rebuildable derived state. Vector/semantic retrieval is optional future infrastructure, not a prerequisite.
+SQLite FTS5 provides rebuildable derived search state for plugin metadata, commands and supported documents/messages/OCR/transcripts. Search state never outranks authoritative records.
 
 ## 21. Observability
 
-Minimum operational views:
-
-```text
-!health
-!plugins
-!tasks
-!jobs
-!cache
-!stats
-!diagnostics
-```
-
-Diagnostics should expose:
-
-- plugin load/failure state;
-- command conflicts;
-- task crashes;
-- job backlog/leases;
-- cache hit/miss;
-- DB integrity/latency;
-- HTTP state;
-- media workspaces;
-- resource pressure;
-- recent classified errors.
-
-Diagnostics never expose session strings, API keys, cookies, passwords, or raw secret-bearing responses.
+Operator views include `.health`, `.plugins`, `.tasks`, `.jobs`, `.cache`, `.stats`, `.diagnostics`, `.status` and `.ops`. Diagnostics expose useful state, counts, timing and classified failures while redacting secrets.
 
 ## 22. Error Model
 
-Errors have stable classes/codes:
-
-```text
-AUTH_DENIED
-INVALID_INPUT
-NOT_FOUND
-CONFLICT
-RATE_LIMITED
-TIMEOUT
-NETWORK_ERROR
-RESOURCE_LIMIT
-INTEGRITY_FAILED
-CANCELLED
-UNSUPPORTED
-INTERNAL_ERROR
-```
-
-User-facing output is concise:
-
-```text
-Operation failed [E-7F31]
-```
-
-Detailed tracebacks remain in structured, redacted logs.
+Stable classes include `AUTH_DENIED`, `INVALID_INPUT`, `NOT_FOUND`, `CONFLICT`, `RATE_LIMITED`, `TIMEOUT`, `NETWORK_ERROR`, `RESOURCE_LIMIT`, `INTEGRITY_FAILED`, `CANCELLED`, `UNSUPPORTED` and `INTERNAL_ERROR`. User-facing errors are concise; detailed logs remain redacted.
 
 ## 23. Security Architecture
 
-Astra is one Python process, so plugin modules are **not trust boundaries**. Capability declarations improve policy but do not create memory isolation.
-
-Privileged features such as eval, filesystem writes, subprocess execution, account control, vault access, and bulk moderation require explicit authorization.
-
-Base64 is never encryption. Secret storage uses reviewed authenticated encryption/key derivation.
+Plugins are same-process code and therefore not memory-isolated trust boundaries. Privileged operations require explicit policy and bounded scope. Secret storage uses authenticated encryption. Eval and classified media/decoder workloads use the reviewed Bubblewrap isolation boundary rather than a fake Python sandbox.
 
 ## 24. Resource Model
 
-The platform is designed for a constrained local machine. Every subsystem therefore has bounded resources:
-
-```text
-HTTP concurrency
-Telegram concurrency
-job workers
-media workers
-subprocess output
-cache entries/bytes
-download size
-disk artifacts
-DB transaction scope
-AI context/output
-```
-
-Backpressure is preferred over unbounded queues or memory growth.
+Every subsystem uses explicit bounds for concurrency, output, payloads, media size/duration, disk use, cache, DB work, jobs and AI context/output. Backpressure is preferred over unbounded queues or memory growth.
 
 ## 25. Plugin Migration Strategy
 
-Migration is batch-based:
+Migration is batch-based and behavior-preserving:
 
 ```text
-Foundation
-  ↓
-Security/Admin
-  ↓
-Network/HTTP
-  ↓
-Media/Subprocess
-  ↓
-System/Automation
-  ↓
-AI/Advanced
+Foundation → Security/Admin → Network/HTTP
+→ Media/Subprocess → System/Automation → AI/Advanced
 ```
 
-Each migration preserves behavior, adds regression coverage, uses shared services, removes duplicate infrastructure, and verifies startup/command health.
+Each migration requires shared-service usage, regression coverage, cleanup/failure verification and documentation updates.
 
 ## 26. Testing Architecture
 
-Test layers:
+Test layers include pure unit, service contract, SQLite migration/repository, plugin registration, command conflict, task/job lifecycle, HTTP/subprocess policy, media workspace, plugin integration and safe end-to-end smoke tests. The canonical release gate composes the relevant suites and audits.
 
-1. pure unit tests;
-2. service contract tests;
-3. SQLite migration/repository tests;
-4. plugin registration tests;
-5. command conflict tests;
-6. task/job lifecycle tests;
-7. HTTP/subprocess policy tests;
-8. media workspace tests;
-9. plugin integration tests;
-10. safe end-to-end smoke tests.
+## 27. Release and Recovery Contract
 
-Network-dependent tests must be bounded and opt-in where required. Tests must never require paid APIs.
+The release system is documented in:
 
-## 27. Explicitly Rejected as Defaults
+- `RELEASE_CHECKLIST.md` — release checklist;
+- `PRODUCTION_ACCEPTANCE.md` — automated and manual production gate;
+- `OPERATIONS_RUNBOOK.md` — day-to-day operation;
+- `UPGRADE_PROCEDURE.md` — controlled upgrade/rollback;
+- `DISASTER_RECOVERY.md` — backup/restore/recovery;
+- `FAILURE_MODE_MATRIX.md` — failure classification and first response;
+- `COMPATIBILITY.md` — version and migration policy.
 
-Do not introduce Redis, Kafka, RabbitMQ, Celery, Kubernetes, microservices, Postgres, ORM-heavy persistence, LangChain/LlamaIndex core, LiteLLM as a mandatory dependency, Prometheus/Grafana/OTel as mandatory infrastructure, automatic hot reload, or a giant event bus without evidence.
+The current release version is recorded in `VERSION`. A Git tag is created only after acceptance passes.
 
-The burden of proof belongs to the new infrastructure.
+## 28. Explicitly Rejected as Defaults
 
-## 28. Definition of Architectural Completion
+Do not introduce Redis, Kafka, RabbitMQ, Celery, Kubernetes, microservices, Postgres, ORM-heavy persistence, LangChain/LlamaIndex core, mandatory LiteLLM, mandatory Prometheus/Grafana/OTel, automatic hot reload or a giant event bus without evidence.
 
-The architecture is considered implemented when:
+## 29. Definition of Architectural Completion
 
-- plugin lifecycle is observable;
-- command conflicts are deterministic;
-- shared services have stable contracts;
-- durable jobs survive restart;
-- cache is bounded;
-- SQLite migrations are tested;
-- media workspaces are isolated;
-- AI is provider-independent;
-- diagnostics are useful and secret-safe;
-- P0 plugin defects have regression tests;
-- feature development no longer duplicates core infrastructure.
+The platform is architecturally complete for the current release line when plugin lifecycle is observable, command conflicts are deterministic, shared services have stable contracts, durable jobs have explicit recovery semantics, cache/search are derived and bounded, storage is migration-driven and recoverable, media workloads are bounded/isolated where required, AI is provider-independent and advisory, diagnostics are secret-safe, and release/recovery gates are executable and documented.
 
 > **AstraUserbot should be powerful at the plugin edge and boring at the infrastructure core: deterministic, bounded, observable, recoverable, and free to operate.**
