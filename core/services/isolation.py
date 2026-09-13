@@ -88,9 +88,6 @@ class IsolationService:
         args = ["--ro-bind", "/usr", "/usr"]
         if os.path.exists("/etc"):
             args.extend(["--ro-bind", "/etc", "/etc"])
-        # Arch commonly exposes /bin, /sbin and /lib as symlinks into /usr.
-        # Recreate only those links inside the isolated root instead of binding
-        # overlapping host paths.
         for link, target in (("/bin", "usr/bin"), ("/sbin", "usr/sbin"), ("/lib", "usr/lib"), ("/lib64", "usr/lib64")):
             if os.path.islink(link) and os.path.exists(link):
                 args.extend(["--symlink", target, link])
@@ -126,6 +123,8 @@ class IsolationService:
             "--die-with-parent",
             "--new-session",
             "--unshare-all",
+            "--disable-userns",
+            "--cap-drop", "ALL",
             "--clearenv",
             *self._bind_ro_args(),
             "--dev", "/dev",
@@ -158,9 +157,20 @@ class IsolationService:
         async def read_bounded(stream: asyncio.StreamReader | None) -> tuple[str, bool]:
             if stream is None:
                 return "", False
-            data = await stream.read(max_output_bytes + 1)
-            truncated = len(data) > max_output_bytes
-            return data[:max_output_bytes].decode(errors="replace"), truncated
+            chunks: list[bytes] = []
+            total = 0
+            truncated = False
+            while True:
+                chunk = await stream.read(65_536)
+                if not chunk:
+                    break
+                remaining = max_output_bytes - total
+                if remaining > 0:
+                    chunks.append(chunk[:remaining])
+                    total += min(len(chunk), remaining)
+                if len(chunk) > remaining:
+                    truncated = True
+            return b"".join(chunks).decode(errors="replace"), truncated
 
         stdout_task = asyncio.create_task(read_bounded(process.stdout))
         stderr_task = asyncio.create_task(read_bounded(process.stderr))
