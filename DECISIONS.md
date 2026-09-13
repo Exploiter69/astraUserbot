@@ -1,7 +1,7 @@
 # AstraUserbot — Detailed Architecture Decisions
 
 **Status:** Living ADR record  
-**Version:** 2.1  
+**Version:** 2.2  
 **Rule:** Accepted decisions constrain implementation until new evidence justifies supersession.
 
 ## ADR-001 — Single-Process Modular Monolith
@@ -227,9 +227,11 @@ giant generic event bus
 
 ## ADR-029 — No Fake Sandbox Claim
 
-**Decision:** Plugins and eval are not treated as security-isolated because they share a Python process.
+**Status:** Superseded by ADR-032.
 
-**Future:** dedicated process/container isolation only for workloads that actually require it.
+**Decision:** Plugins and eval were not treated as security-isolated because they shared a Python process.
+
+**Historical consequence:** dedicated process/container isolation was deferred until a measured workload required it.
 
 ## ADR-030 — Documentation Is an Engineering Contract
 
@@ -248,6 +250,30 @@ giant generic event bus
 **Cost:** the gateway has no paid SDK or mandatory hosted dependency. Free providers are opt-in configuration; local adapters remain available for zero-cost operation where hardware permits.
 
 **Compatibility:** the old Groq command modules are quarantined from runtime discovery while the new `plugins/ai_gateway` command adapters provide `.ask`, `.summarize`, and `.transcribe` with the same user-facing command surface.
+
+## ADR-032 — Real Process Isolation for Classified Child Workloads
+
+**Status:** Accepted.
+
+**Decision:** Explicitly classified untrusted child workloads may cross a real Bubblewrap process boundary. The boundary is not applied to ordinary same-process plugins and is not a generic plugin sandbox.
+
+**Enforcement:**
+
+- Bubblewrap is required and isolation fails closed when unavailable;
+- child namespaces are separated, including network isolation;
+- capabilities are dropped;
+- the child receives a minimal cleared environment;
+- only the reviewed workspace is writable;
+- CPU, address-space, file-size, process-count and descriptor limits are bounded;
+- output, timeout and cancellation are bounded;
+- `.eval`, FFmpeg/ffprobe and OCR use the isolated boundary;
+- archive extraction rejects traversal, links and special files.
+
+**Non-goal:** network-requiring operations such as downloads, rclone and network TTS are not falsely labeled as isolated.
+
+**Reason:** the workload evidence now justifies selective isolation, while preserving the single-process architecture for ordinary plugins.
+
+**Rollback:** remove the classified workload's isolation requirement only through a new reviewed decision; never silently fall back to same-process execution.
 
 ## Supersession Procedure
 
