@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import stat
 import tarfile
 import zipfile
 from pathlib import Path, PurePosixPath
@@ -63,6 +64,9 @@ def extract_zip(
             if is_dir:
                 destination_path.mkdir(parents=True, exist_ok=True)
                 continue
+            mode = (info.external_attr >> 16) & 0o170000
+            if mode and not stat.S_ISREG(mode):
+                raise ArchiveSafetyError("Archive links and special files are not allowed")
             if info.file_size < 0 or info.file_size > max_file_bytes:
                 raise ArchiveSafetyError("Archive member exceeds file-size limit")
             total += info.file_size
