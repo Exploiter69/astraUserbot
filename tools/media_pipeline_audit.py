@@ -53,6 +53,7 @@ def check_static_contracts() -> None:
         "max_concurrent_jobs",
         "validate_telegram_media",
         "telegram_download_progress",
+        "download_telegram_media",
         "run_download",
         "run_ffmpeg",
         "run_ffprobe",
@@ -73,8 +74,7 @@ def check_static_contracts() -> None:
 
     for path in DOWNLOAD_CONSUMERS:
         text = source(path)
-        assert "validate_telegram_media(" in text, f"{path} downloads Telegram media without preflight bounds"
-        assert "telegram_download_progress()" in text, f"{path} downloads Telegram media without a progress size guard"
+        assert "download_telegram_media(" in text, f"{path} bypasses the centralized Telegram media download guard"
 
     assert "run_ffmpeg(" in source("plugins/media/ffmpeg.py")
     assert "run_ffmpeg(" in source("plugins/advanced/mediaflow.py")
