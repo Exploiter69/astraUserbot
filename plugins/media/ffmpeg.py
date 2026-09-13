@@ -30,15 +30,10 @@ async def handle_ffmpeg(event):
     if context is None:
         raise CommandError("Media service is unavailable.")
     media = context.get("media")
-    media.validate_telegram_media(reply.media)
     workspace = await media.create_workspace("ffmpeg")
 
     try:
-        downloaded_path = await event.client.download_media(
-            reply.media,
-            file=workspace.path,
-            progress_callback=media.telegram_download_progress(),
-        )
+        downloaded_path = await media.download_telegram_media(event.client.download_media, reply.media, workspace=workspace)
         if not downloaded_path:
             raise CommandError("Failed to download media file.")
         downloaded = media.validate_input(downloaded_path)
