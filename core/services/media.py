@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Sequence
 
 from core.errors import CommandError, ResourceError
+from core.services.isolation import IsolationService
 from core.services.subprocess import SubprocessResult, SubprocessService
 from core.services.workspace import Workspace, WorkspaceService
 
@@ -32,6 +33,7 @@ class MediaService:
         self,
         workspace: WorkspaceService,
         subprocess: SubprocessService,
+        isolation: IsolationService | None = None,
         *,
         max_input_bytes: int = 512 * 1024 * 1024,
         max_output_bytes: int = 512 * 1024 * 1024,
@@ -49,6 +51,7 @@ class MediaService:
             raise ValueError("default_timeout must be positive")
         self.workspace = workspace
         self.subprocess = subprocess
+        self.isolation = isolation
         self.max_input_bytes = int(max_input_bytes)
         self.max_output_bytes = int(max_output_bytes)
         self.max_workspace_bytes = int(max_workspace_bytes)
@@ -61,8 +64,8 @@ class MediaService:
     async def close(self) -> None:
         return None
 
-    async def create_workspace(self, name: str = "media") -> Workspace:
-        return await self.workspace.create(name)
+    def create_workspace(self, name: str = "media"):
+        return self.workspace.create(name)
 
     async def cleanup(self, workspace: Workspace | str | Path) -> None:
         await self.workspace.cleanup(workspace)
@@ -118,6 +121,30 @@ class MediaService:
         self._validate_workspace_size(workspace)
         return result
 
+    async def run_isolated(
+        self,
+        argv: Sequence[str],
+        *,
+        workspace: Workspace,
+        timeout: float | None = None,
+        max_output_bytes: int = 1_048_576,
+    ) -> SubprocessResult:
+        """Run a media decoder/converter inside the reviewed isolation boundary."""
+        if self.isolation is None:
+            raise CommandError("Isolated media execution is unavailable.")
+        if not argv:
+            raise ValueError("Media command cannot be empty")
+        async with self._slots:
+            result = await self.isolation.run(
+                list(argv),
+                workspace=workspace.path,
+                timeout=self.default_timeout if timeout is None else timeout,
+                max_output_bytes=max_output_bytes,
+                file_bytes=self.max_output_bytes,
+            )
+        self._validate_workspace_size(workspace)
+        return result
+
     async def run_download(
         self,
         argv: Sequence[str],
@@ -162,8 +189,8 @@ class MediaService:
         output = workspace.resolve(output_name)
         if output == source:
             raise ValueError("Media output must differ from input")
-        argv = ["ffmpeg", "-hide_banner", "-y", "-i", str(source), *map(str, options), str(output)]
-        result = await self.run(argv, workspace=workspace, timeout=timeout)
+        argv = ["ffmpeg", "-hide_banner", "-y", "-i", "/workspace/" + source.relative_to(workspace.path).as_posix(), *map(str, options), "/workspace/" + output.relative_to(workspace.path).as_posix()]
+        result = await self.run_isolated(argv, workspace=workspace, timeout=timeout)
         if result.returncode != 0:
             detail = result.stderr[-500:] or result.stdout[-500:]
             raise CommandError(f"FFmpeg failed:\n{detail}")
@@ -176,8 +203,9 @@ class MediaService:
 
     async def run_ffprobe(self, path: str | Path, *, workspace: Workspace, timeout: float = 30.0) -> SubprocessResult:
         source = self.validate_input(path)
-        return await self.run(
-            ["ffprobe", "-v", "error", "-show_entries", "format=duration,size", "-of", "default=noprint_wrappers=1", str(source)],
+        relative = source.relative_to(workspace.path).as_posix()
+        return await self.run_isolated(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration,size", "-of", "default=noprint_wrappers=1", f"/workspace/{relative}"],
             workspace=workspace,
             timeout=timeout,
         )
