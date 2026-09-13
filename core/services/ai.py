@@ -10,7 +10,7 @@ import time
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol, Sequence
+from typing import Any, Mapping, Protocol, Sequence
 from urllib.parse import urlsplit
 
 import aiohttp
@@ -78,6 +78,8 @@ class _HTTPProvider:
 class GroqProvider(_HTTPProvider):
     """Groq adapter. No Groq-specific knowledge leaks into plugins."""
 
+    default_model = "openai/gpt-oss-20b"
+
     def __init__(self, http: HttpService, api_key: str) -> None:
         super().__init__("groq", http, "https://api.groq.com/openai/v1", api_key)
         self.supports_transcription = True
@@ -109,6 +111,7 @@ class GeminiProvider:
     """Google Gemini Developer API adapter."""
 
     name = "gemini"
+    default_model = "gemini-2.5-flash"
     supports_transcription = False
     is_remote = True
 
@@ -154,6 +157,7 @@ class OllamaProvider:
     """Local Ollama adapter. The endpoint is restricted to loopback hosts."""
 
     name = "ollama"
+    default_model = "qwen2.5:7b"
     supports_transcription = False
     is_remote = False
 
@@ -218,13 +222,27 @@ def _chat_text(response: HttpResponse, provider: str) -> str:
 class AIService:
     """Provider-independent AI boundary with explicit zero-cost guardrails."""
 
-    DEFAULT_GROQ_MODEL = "openai/gpt-oss-20b"
-    DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
-    DEFAULT_OLLAMA_MODEL = "qwen2.5:7b"
+    DEFAULT_GROQ_MODEL = GroqProvider.default_model
+    DEFAULT_GEMINI_MODEL = GeminiProvider.default_model
+    DEFAULT_OLLAMA_MODEL = OllamaProvider.default_model
     DEFAULT_TRANSCRIBE_MODEL = "whisper-large-v3"
     DEFAULT_FALLBACKS = ("gemini", "ollama")
 
-    def __init__(self, http: HttpService, *, provider: str | None = None, max_input_chars: int = 100_000, max_output_chars: int = 30_000, max_output_tokens: int = 8_192, concurrency: int = 2, timeout: float = 90.0, fallback_providers: Sequence[str] | None = None, max_remote_requests: int | None = None, remote_window_seconds: float | None = None) -> None:
+    def __init__(
+        self,
+        http: HttpService,
+        *,
+        provider: str | None = None,
+        max_input_chars: int = 100_000,
+        max_output_chars: int = 30_000,
+        max_output_tokens: int = 8_192,
+        concurrency: int = 2,
+        timeout: float = 90.0,
+        fallback_providers: Sequence[str] | None = None,
+        max_remote_requests: int | None = None,
+        remote_window_seconds: float | None = None,
+        providers: Mapping[str, AIProvider] | None = None,
+    ) -> None:
         if min(max_input_chars, max_output_chars, max_output_tokens, concurrency) <= 0 or timeout <= 0:
             raise ValueError("AI limits must be positive")
         self.http = http
@@ -239,6 +257,14 @@ class AIService:
             "gemini": GeminiProvider(http, os.getenv("GEMINI_API_KEY", "")),
             "ollama": OllamaProvider(http, os.getenv("ASTRA_AI_OLLAMA_URL", "http://127.0.0.1:11434/api")),
         }
+        if providers:
+            for name, adapter in providers.items():
+                clean_name = str(name).strip().lower()
+                if not clean_name or len(clean_name) > 64 or not clean_name.replace("_", "").replace("-", "").isalnum():
+                    raise ConfigurationError("AI provider names are invalid.")
+                if not getattr(adapter, "name", "").strip():
+                    raise ConfigurationError(f"AI provider '{clean_name}' has no name.")
+                self._providers[clean_name] = adapter
         if fallback_providers is None:
             raw = os.getenv("ASTRA_AI_FALLBACKS", ",".join(self.DEFAULT_FALLBACKS))
             fallback_providers = tuple(item.strip().lower() for item in raw.split(",") if item.strip())
@@ -289,7 +315,14 @@ class AIService:
             return os.getenv("ASTRA_AI_TRANSCRIBE_MODEL", self.DEFAULT_TRANSCRIBE_MODEL)
         defaults = {"groq": self.DEFAULT_GROQ_MODEL, "gemini": self.DEFAULT_GEMINI_MODEL, "ollama": self.DEFAULT_OLLAMA_MODEL}
         env_names = {"groq": "ASTRA_AI_GROQ_MODEL", "gemini": "ASTRA_AI_GEMINI_MODEL", "ollama": "ASTRA_AI_OLLAMA_MODEL"}
-        return os.getenv(env_names[provider], defaults[provider])
+        if provider in defaults:
+            return os.getenv(env_names[provider], defaults[provider])
+        adapter = self._provider(provider)
+        adapter_default = getattr(adapter, "default_model", "default")
+        clean = str(adapter_default).strip()
+        if not clean or len(clean) > 128 or any(char.isspace() for char in clean):
+            raise ResourceError("AI provider default model is invalid or too long.")
+        return clean
 
     def _validate_messages(self, messages: Sequence[dict[str, str]]) -> int:
         if not messages:
