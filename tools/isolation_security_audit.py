@@ -5,14 +5,17 @@ from __future__ import annotations
 import asyncio
 import os
 import shutil
+import sys
 import tempfile
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from core.errors import TimeoutError
 from core.services.isolation import IsolationService
 from helpers.archive import ArchiveSafetyError, extract_archive
-
-ROOT = Path(__file__).resolve().parents[1]
 
 
 def source_text(path: str) -> str:
