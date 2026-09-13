@@ -86,6 +86,31 @@ class MediaService:
         if usage.free < self.min_free_bytes:
             raise ResourceError("Insufficient free disk space for media work.")
 
+    def validate_telegram_media(self, media: object) -> None:
+        """Reject known-oversized Telegram media before writing it to disk."""
+        file_obj = getattr(media, "file", None)
+        size = getattr(media, "size", None)
+        if size is None and file_obj is not None:
+            size = getattr(file_obj, "size", None)
+        if isinstance(size, (int, float)) and size > self.max_input_bytes:
+            raise ResourceError("Telegram media exceeds the configured input size limit.")
+
+        duration = getattr(media, "duration", None)
+        if duration is None and file_obj is not None:
+            duration = getattr(file_obj, "duration", None)
+        if isinstance(duration, (int, float)) and duration > self.max_duration_seconds:
+            raise ResourceError("Telegram media duration exceeds the configured limit.")
+
+    def telegram_download_progress(self):
+        """Return a Telethon-compatible synchronous progress guard."""
+        def progress(received: int, total: int) -> None:
+            if total and total > self.max_input_bytes:
+                raise ResourceError("Telegram media exceeds the configured input size limit.")
+            if received > self.max_input_bytes:
+                raise ResourceError("Telegram media exceeded the configured input size limit during download.")
+
+        return progress
+
     def validate_input(self, path: str | Path) -> Path:
         candidate = self.workspace.validate_file(path)
         if candidate.stat().st_size > self.max_input_bytes:
@@ -176,10 +201,7 @@ class MediaService:
 
         disk_task = asyncio.create_task(watch_disk(), name="media.disk-watchdog")
         try:
-            done, _ = await asyncio.wait(
-                {process_task, disk_task},
-                return_when=asyncio.FIRST_COMPLETED,
-            )
+            done, _ = await asyncio.wait({process_task, disk_task}, return_when=asyncio.FIRST_COMPLETED)
             if disk_task in done:
                 disk_task.result()
                 raise ResourceError("Media operation stopped because free disk space is too low.")
@@ -223,10 +245,7 @@ class MediaService:
 
         disk_task = asyncio.create_task(watch_disk(), name="media.disk-watchdog")
         try:
-            done, _ = await asyncio.wait(
-                {isolated_task, disk_task},
-                return_when=asyncio.FIRST_COMPLETED,
-            )
+            done, _ = await asyncio.wait({isolated_task, disk_task}, return_when=asyncio.FIRST_COMPLETED)
             if disk_task in done:
                 disk_task.result()
                 raise ResourceError("Isolated media operation stopped because free disk space is too low.")
@@ -243,13 +262,7 @@ class MediaService:
                 disk_task.cancel()
             await asyncio.gather(disk_task, return_exceptions=True)
 
-    async def run(
-        self,
-        argv: Sequence[str],
-        *,
-        workspace: Workspace,
-        timeout: float | None = None,
-    ) -> SubprocessResult:
+    async def run(self, argv: Sequence[str], *, workspace: Workspace, timeout: float | None = None) -> SubprocessResult:
         if not argv:
             raise ValueError("Media command cannot be empty")
         async with self._slots:
@@ -305,13 +318,7 @@ class MediaService:
                 await self.verify_media(artifact.path, workspace=workspace)
         return result, artifacts
 
-    async def run_rclone(
-        self,
-        argv: Sequence[str],
-        *,
-        workspace: Workspace,
-        timeout: float = 900.0,
-    ) -> SubprocessResult:
+    async def run_rclone(self, argv: Sequence[str], *, workspace: Workspace, timeout: float = 900.0) -> SubprocessResult:
         if len(argv) < 2 or argv[0] != "rclone":
             raise ValueError("Rclone command must begin with rclone")
         operation = argv[1].lower()
