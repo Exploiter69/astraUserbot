@@ -66,12 +66,7 @@ class IsolationService:
             raise IsolationUnavailable("Bubblewrap is required for this isolated workload but is unavailable.")
 
     @staticmethod
-    def _child_limits(
-        memory_bytes: int,
-        file_bytes: int,
-        processes: int,
-        nofile: int,
-    ) -> None:
+    def _child_limits(memory_bytes: int, file_bytes: int, processes: int, nofile: int) -> None:
         resource.setrlimit(resource.RLIMIT_CPU, (30, 31))
         resource.setrlimit(resource.RLIMIT_AS, (memory_bytes, memory_bytes))
         resource.setrlimit(resource.RLIMIT_FSIZE, (file_bytes, file_bytes))
@@ -90,10 +85,15 @@ class IsolationService:
 
     @staticmethod
     def _bind_ro_args() -> list[str]:
-        args: list[str] = []
-        for path in ("/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc"):
-            if os.path.exists(path):
-                args.extend(["--ro-bind", path, path])
+        args = ["--ro-bind", "/usr", "/usr"]
+        if os.path.exists("/etc"):
+            args.extend(["--ro-bind", "/etc", "/etc"])
+        # Arch commonly exposes /bin, /sbin and /lib as symlinks into /usr.
+        # Recreate only those links inside the isolated root instead of binding
+        # overlapping host paths.
+        for link, target in (("/bin", "usr/bin"), ("/sbin", "usr/sbin"), ("/lib", "usr/lib"), ("/lib64", "usr/lib64")):
+            if os.path.islink(link) and os.path.exists(link):
+                args.extend(["--symlink", target, link])
         return args
 
     async def run(
