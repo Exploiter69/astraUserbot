@@ -11,20 +11,21 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+import re
 
 from core.context import get_application_context
-from core.registry import register_cmd
+from core.registry import register_cmd, COMMANDS
 from core.errors import CommandError
-from core.registry import COMMANDS
 from helpers.hud import render
 from config import config
 
 logger = logging.getLogger("astra.doctor")
-PATTERN = rf"^{__import__('re').escape(config.PREFIX)}(doctor|cleancache|update)$"
+PATTERN = rf"^{re.escape(config.PREFIX)}(doctor|cleancache|update)$"
+_REPORT_RETENTION_COUNT = 50
+_REPORT_RETENTION_BYTES = 20 * 1024 * 1024
 
 
 def _redact(text: str) -> str:
-    import re
     return re.sub(r"(?i)(api[_-]?hash|api[_-]?id|token|secret|password|authorization|session)[^\n:=]*[:=]\s*[^\n]+", "[REDACTED]", text)
 
 
@@ -33,6 +34,23 @@ def _report_path(prefix: str = "doctor") -> Path:
     log_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     return log_dir / f"{prefix}_{stamp}.json"
+
+
+def _trim_reports(log_dir: Path) -> None:
+    reports = sorted(log_dir.glob("doctor_*.json"), key=lambda path: path.stat().st_mtime, reverse=True)
+    total = 0
+    for index, path in enumerate(reports):
+        try:
+            size = path.stat().st_size
+        except OSError:
+            continue
+        if index >= _REPORT_RETENTION_COUNT or total + size > _REPORT_RETENTION_BYTES:
+            try:
+                path.unlink()
+            except OSError:
+                logger.warning("Could not remove old doctor report %s", path, exc_info=True)
+            continue
+        total += size
 
 
 async def _cmd(command: list[str], timeout: int = 5) -> tuple[bool, str]:
@@ -61,7 +79,7 @@ async def _network_checks(client) -> list[dict]:
 
     for host in ("api.telegram.org", "1.1.1.1"):
         try:
-            socket.gethostbyname(host)
+            await asyncio.to_thread(socket.gethostbyname, host)
             checks.append({"name": f"DNS {host}", "ok": True, "detail": "resolved"})
         except Exception as exc:
             checks.append({"name": f"DNS {host}", "ok": False, "detail": type(exc).__name__})
@@ -112,19 +130,14 @@ async def _doctor_report(event) -> dict:
     ok_disk, disk = await _cmd(["df", "-h", str(root)])
     report["host"] = {"uname": uname if ok_uname else None, "uptime": uptime if ok_uptime else None, "memory": memory if ok_mem else None, "disk": disk if ok_disk else None}
     report["network"] = await _network_checks(event.client)
-
-    report["session"] = {
-        "configured": bool(config.SESSION_NAME),
-        "path_exists": (root / "data" / config.SESSION_NAME).exists(),
-    }
-
+    report["session"] = {"configured": bool(config.SESSION_NAME), "path_exists": (root / "data" / config.SESSION_NAME).exists()}
     report["cache"] = {"files": sum(1 for p in cache.iterdir() if p.is_file())}
     log_files = [p for p in logs.iterdir() if p.is_file()]
     report["logs"] = {"files": len(log_files), "total_bytes": sum(p.stat().st_size for p in log_files), "main_log": str(logs / "astra.log") if (logs / "astra.log").exists() else None}
 
     failures = []
     for group in (report["filesystem"], report["binaries"]):
-        failures.extend(k for k, v in group.items() if isinstance(v, dict) and not v.get("exists", v.get("writable", False)) or v is False)
+        failures.extend(k for k, v in group.items() if (isinstance(v, dict) and not v.get("exists", v.get("writable", False))) or v is False)
     failures.extend(x["name"] for x in report["network"] if not x["ok"])
     report["failures"] = failures
     report["status"] = "healthy" if not failures else "attention"
@@ -148,7 +161,8 @@ async def handle_doctor(event):
         started = time.perf_counter()
         report = await _doctor_report(event)
         path = _report_path("doctor")
-        path.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+        await asyncio.to_thread(path.write_text, json.dumps(report, indent=2, ensure_ascii=False), "utf-8")
+        await asyncio.to_thread(_trim_reports, path.parent)
 
         net_ok = sum(1 for x in report["network"] if x["ok"])
         net_total = len(report["network"])
@@ -174,17 +188,16 @@ async def handle_doctor(event):
     if cmd == "cleancache":
         cache_dir = Path("data/cache")
         cache_dir.mkdir(parents=True, exist_ok=True)
+        entries = list(cache_dir.iterdir())
         count = 0
-        for path in cache_dir.iterdir():
+        for path in entries:
             try:
                 if path.is_file() or path.is_symlink():
-                    path.unlink()
-                    count += 1
+                    await asyncio.to_thread(path.unlink)
                 elif path.is_dir():
-                    import shutil as _shutil
-                    _shutil.rmtree(path)
-                    count += 1
-            except Exception as exc:
+                    await asyncio.to_thread(shutil.rmtree, path)
+                count += 1
+            except OSError as exc:
                 logger.warning("Could not remove cache item %s: %s", path, exc)
         await event.edit(render("CACHE // CLEAN", [f"Purged {count} staging items.", "Persistent databases and Telegram session were left untouched."], footer="system_ops | cleancache"))
         return
