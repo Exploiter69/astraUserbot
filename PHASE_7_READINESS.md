@@ -12,6 +12,7 @@ The service owns:
 
 - unique per-operation workspaces through `WorkspaceService`;
 - bounded input/output/workspace sizes;
+- bounded media duration;
 - bounded concurrent media execution;
 - deterministic subprocess execution through `SubprocessService`;
 - explicit artifact validation and manifests;
@@ -20,6 +21,7 @@ The service owns:
 - TTS execution and output verification;
 - deterministic download artifact discovery;
 - rclone operation policy;
+- free-disk protection during media execution;
 - cleanup through the workspace owner.
 
 Default policy:
@@ -28,8 +30,10 @@ Default policy:
 max input:      512 MiB
 max output:     512 MiB
 max workspace:  768 MiB
+max duration:   2 hours
 media workers:  2
 FFmpeg timeout: 300s
+min free disk:  128 MiB
 ```
 
 ## 2. All Phase 7 Consumers Migrated
@@ -61,7 +65,9 @@ An artifact must:
 - be non-empty;
 - remain within the configured output/workspace limits.
 
-FFmpeg-produced artifacts additionally receive an FFprobe readability check when `ffprobe` is available.
+FFmpeg-produced artifacts additionally receive an FFprobe readability and duration check when `ffprobe` is available.
+
+Downloaded audio/video/image artifacts receive the same media verification gate.
 
 ## 5. Cleanup
 
@@ -79,30 +85,40 @@ sync
 
 All other rclone operations are rejected by policy.
 
-## 7. Regression Coverage
+## 7. End-to-End Hardening
 
-`tests/test_media_service.py` covers isolated workspace/artifact lifecycle, input size enforcement, artifact rejection, explicit FFmpeg argv construction, FFprobe verification, bounded concurrent execution and rclone policy enforcement.
+The dedicated `tools/media_pipeline_audit.py` gate verifies the complete media lifecycle rather than relying only on static migration checks.
 
-## 8. Final Gate
+It covers:
 
-```text
-MediaService exists                         PASS
-all seven consumers use it                 PASS
-unique operation workspaces                PASS
-deterministic outputs                      PASS
-media input/output/workspace limits        PASS
-bounded media concurrency                  PASS
-cleanup in migrated consumers              PASS
-explicit artifact verification             PASS
-FFmpeg argv-only execution                 PASS
-rclone policy boundary                     PASS
-media regression coverage                  PASS
-full regression                            PASS
-compile validation                         PASS
+- actual Bubblewrap-isolated FFmpeg transformation;
+- input/output/workspace size limits;
+- duration limits;
+- malformed-media rejection;
+- artifact readability verification;
+- bounded media concurrency;
+- subprocess cancellation propagation;
+- free-disk exhaustion behavior;
+- temporary workspace cleanup;
+- downloader partial-file exclusion;
+- shared subprocess/service boundaries across all seven consumers.
+
+Downloads and TTS remain network-capable by design and therefore are not falsely described as isolated. FFmpeg, ffprobe, and OCR decoder workloads use the reviewed isolation boundary.
+
+## 8. Dedicated Gate
+
+```bash
+./venv/bin/python tools/media_pipeline_audit.py
 ```
 
-**Final result: 81/81 tests passed, 0 failures, 0 errors, and compile validation passed.**
+The actual gate requires `bwrap`, `prlimit`, `ffmpeg`, and `ffprobe`. Optional tools such as `yt-dlp`, `aria2c`, `rclone`, and `edge-tts` remain capability-gated by their individual plugins.
 
-## Next Phase
+## 9. Regression Coverage
 
-The canonical next phase is **Phase 8 — AI Gateway**, now implemented in `core/services/ai.py` with command adapters under `plugins/ai_gateway/`. See `PHASE_8_READINESS.md` for the completion record and final local verification command.
+`tests/test_media_service.py` covers lifecycle, size enforcement, explicit FFmpeg argv, FFprobe verification, duration rejection, malformed media rejection, deterministic download artifacts, bounded concurrency, cancellation propagation, disk exhaustion handling, and rclone policy.
+
+## 10. Completion
+
+Phase 7 is considered fully complete only when both the normal regression suite and the dedicated media pipeline audit pass.
+
+The original Phase 7 platform migration was already complete; this document now records the additional end-to-end production-hardening gate that closes the remaining media-pipeline work.
