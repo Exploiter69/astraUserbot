@@ -18,6 +18,9 @@ from core.services.isolation import IsolationService
 from helpers.archive import ArchiveSafetyError, extract_archive
 
 
+_EXCLUDED_DIRS = {".git", ".venv", "venv", "env", "__pycache__", ".pytest_cache"}
+
+
 def source_text(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
 
@@ -139,7 +142,8 @@ def static_checks() -> dict[str, bool]:
     python_files = [
         p
         for p in ROOT.rglob("*.py")
-        if ".git" not in p.parts and ".venv" not in p.parts and p != Path(__file__).resolve()
+        if not any(part in _EXCLUDED_DIRS for part in p.relative_to(ROOT).parts)
+        and p != Path(__file__).resolve()
     ]
     combined = "\n".join(p.read_text(encoding="utf-8", errors="replace") for p in python_files)
 
