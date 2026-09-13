@@ -3,7 +3,7 @@
 from core.services.cache import Artifact, CacheEntry, CacheService, CacheStats
 from core.services.flags import FeatureFlagService
 from core.services.http import HttpService
-from core.services.isolation import IsolationAssessment, IsolationService
+from core.services.isolation import IsolationAssessment, IsolationService, IsolationUnavailable
 from core.services.bounded_jobs import JobEngine
 from core.services.jobs import Job, JobError, JobState
 from core.services.media import MediaArtifact, MediaService
@@ -19,7 +19,7 @@ __all__ = [
     "Artifact", "CacheEntry", "CacheService", "CacheStats",
     "FeatureFlagService",
     "HttpService",
-    "IsolationAssessment", "IsolationService",
+    "IsolationAssessment", "IsolationService", "IsolationUnavailable",
     "Job", "JobEngine", "JobError", "JobState",
     "MediaArtifact", "MediaService",
     "MetricSnapshot", "MetricsService",
