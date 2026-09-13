@@ -1,4 +1,5 @@
 import re
+
 from core.context import get_application_context
 from core.registry import register_cmd
 from core.errors import CommandError
@@ -24,10 +25,15 @@ async def handle_video(event):
     if context is None:
         raise CommandError("Media service is unavailable.")
     service = context.get("media")
+    service.validate_telegram_media(media)
     workspace = await service.create_workspace("video")
 
     try:
-        in_file = await event.client.download_media(media, file=workspace.path)
+        in_file = await event.client.download_media(
+            media,
+            file=workspace.path,
+            progress_callback=service.telegram_download_progress(),
+        )
         if not in_file:
             raise CommandError("Failed to download media.")
         source = service.validate_input(in_file)
