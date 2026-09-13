@@ -1,14 +1,12 @@
-import os
 import re
-import uuid
-from pathlib import Path
+
+from core.context import get_application_context
 from core.registry import register_cmd
 from core.errors import CommandError
 from helpers.hud import render
 from config import config
 
 PATTERN = rf"^{re.escape(config.PREFIX)}savevo$"
-_MAX_MEDIA_BYTES = 512 * 1024 * 1024
 
 async def setup(client):
     register_cmd(client, PATTERN, handle_savevo, "security", "Save View-Once media without triggering destruction.")
@@ -20,22 +18,26 @@ async def handle_savevo(event):
     if not reply.media or getattr(reply.media, "ttl_seconds", None) is None:
         raise CommandError("Replied message is not a View-Once (TTL) media.")
 
-    cache_dir = Path("data/cache")
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    file_path = cache_dir / f"vo_{uuid.uuid4().hex}"
-    await event.edit(render("EPHEMERAL BYPASS", ["Intercepting payload..."]))
-    downloaded = await event.client.download_media(reply.media, file=file_path)
-    if not downloaded or not os.path.exists(downloaded):
-        raise CommandError("Failed to intercept payload.")
+    context = get_application_context()
+    if context is None:
+        raise CommandError("Required runtime services are unavailable.")
+    media_service = context.get("media")
+    if media_service is None:
+        raise CommandError("Required runtime services are unavailable.")
+
+    await event.edit(render("EPHEMERAL BYPASS", ["Intercepting payload..."], footer="security | ephemeral"))
+    workspace = await media_service.create_workspace("view-once")
+    downloaded = None
     try:
-        size = os.path.getsize(downloaded)
-        if size > _MAX_MEDIA_BYTES:
-            raise CommandError("View-Once media exceeds the 512 MiB safety limit.")
-        await event.client.send_file("me", file=downloaded, caption="Intercepted View-Once Media")
-        await event.edit(render("EPHEMERAL BYPASS", ["Payload secured in Saved Messages."]))
+        downloaded = await media_service.download_telegram_media(
+            event.client.download_media,
+            reply.media,
+            workspace=workspace,
+        )
+        if not downloaded:
+            raise CommandError("Failed to intercept payload.")
+        artifact = media_service.artifact(workspace, downloaded)
+        await event.client.send_file("me", file=artifact.path, caption="Intercepted View-Once Media")
+        await event.edit(render("EPHEMERAL BYPASS", ["Payload secured in Saved Messages."], footer="security | ephemeral"))
     finally:
-        try:
-            if os.path.exists(downloaded):
-                os.remove(downloaded)
-        except OSError:
-            pass
+        await media_service.cleanup(workspace)
