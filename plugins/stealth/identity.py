@@ -1,15 +1,10 @@
-import os
 import re
 import uuid
 from pathlib import Path
 
 from telethon.tl.functions.account import UpdateProfileRequest
 from telethon.tl.functions.users import GetFullUserRequest
-from telethon.tl.functions.photos import (
-    DeletePhotosRequest,
-    GetUserPhotosRequest,
-    UploadProfilePhotoRequest,
-)
+from telethon.tl.functions.photos import DeletePhotosRequest, GetUserPhotosRequest, UploadProfilePhotoRequest
 
 from core.database import Database
 from core.errors import CommandError
@@ -41,13 +36,7 @@ async def setup(client):
     except Exception:
         pass
 
-    register_cmd(
-        client,
-        PATTERN,
-        handle_identity,
-        "stealth",
-        "Identity mirroring tools (.clone / .revert / .backup).",
-    )
+    register_cmd(client, PATTERN, handle_identity, "stealth", "Identity mirroring tools (.clone / .revert / .backup).")
 
 
 async def _snapshot_profile(client):
@@ -58,14 +47,10 @@ async def _snapshot_profile(client):
     except Exception:
         bio = ""
 
+    old_row = await db.fetchone("SELECT photo_path FROM my_profile WHERE id=1")
+    old_path = str(old_row[0]) if old_row and old_row[0] else None
     photo_path: str | None = None
-    old_path: str | None = None
-    row = await db.fetchone("SELECT photo_path FROM my_profile WHERE id=1")
-    if row and row[0]:
-        old_path = str(row[0])
-
-    has_photo = bool(getattr(me, "photo", None))
-    if has_photo:
+    if getattr(me, "photo", None):
         _PROFILE_DIR.mkdir(parents=True, exist_ok=True)
         candidate = _PROFILE_DIR / f"original_{uuid.uuid4().hex}.jpg"
         try:
@@ -79,17 +64,8 @@ async def _snapshot_profile(client):
         photo_path = str(candidate)
 
     await db.execute(
-        """
-        INSERT OR REPLACE INTO my_profile
-        (id, first_name, last_name, bio, photo_path)
-        VALUES (1, ?, ?, ?, ?)
-        """,
-        (
-            (me.first_name or "")[:_MAX_NAME],
-            (me.last_name or "")[:_MAX_NAME],
-            bio[:_MAX_BIO],
-            photo_path,
-        ),
+        "INSERT OR REPLACE INTO my_profile (id, first_name, last_name, bio, photo_path) VALUES (1, ?, ?, ?, ?)",
+        ((me.first_name or "")[:_MAX_NAME], (me.last_name or "")[:_MAX_NAME], bio[:_MAX_BIO], photo_path),
     )
     if old_path and old_path != photo_path:
         try:
@@ -104,7 +80,6 @@ async def get_user_from_event(event):
             reply_message = await event.get_reply_message()
             if reply_message and reply_message.sender_id:
                 return await event.client.get_entity(reply_message.sender_id)
-
         args = event.pattern_match.group(2)
         if args:
             return await event.client.get_entity(args.strip())
@@ -114,9 +89,6 @@ async def get_user_from_event(event):
 
 
 async def _restore_photo(client, photo_path: str | None):
-    photos = await client(
-        GetUserPhotosRequest(user_id="me", offset=0, max_id=0, limit=100)
-    )
     if photo_path:
         path = Path(photo_path).resolve()
         try:
@@ -125,13 +97,15 @@ async def _restore_photo(client, photo_path: str | None):
             raise CommandError("Saved profile photo is outside the managed identity cache.") from exc
         if not path.is_file() or path.stat().st_size <= 0:
             raise CommandError("Saved profile photo is missing or invalid.")
-    if photos.photos:
-        await client(DeletePhotosRequest(id=list(photos.photos)))
-
-    if photo_path:
+        # Upload first so a failed upload cannot destroy the current profile photo.
         with open(path, "rb") as handle:
             uploaded = await client.upload_file(handle)
         await client(UploadProfilePhotoRequest(file=uploaded))
+        return
+
+    photos = await client(GetUserPhotosRequest(user_id="me", offset=0, max_id=0, limit=100))
+    if photos.photos:
+        await client(DeletePhotosRequest(id=list(photos.photos)))
 
 
 async def handle_identity(event):
@@ -140,13 +114,7 @@ async def handle_identity(event):
 
     if cmd == "backup":
         await _snapshot_profile(client)
-        await event.edit(
-            render(
-                "IDENTITY BACKUP",
-                ["Original profile snapshot saved."],
-                footer="stealth | backup",
-            )
-        )
+        await event.edit(render("IDENTITY BACKUP", ["Original profile snapshot saved."], footer="stealth | backup"))
         return
 
     if cmd == "clone":
@@ -156,34 +124,28 @@ async def handle_identity(event):
                 target = await resolve_target(event)
             except Exception:
                 target = None
-
         if not target:
             raise CommandError("Reply to a user or provide a username/ID to clone.")
         if target.id == config.OWNER_ID:
             raise CommandError("Cannot clone the owner account onto itself.")
 
         await _snapshot_profile(client)
-
         try:
             target_full = await client(GetFullUserRequest(target))
             target_bio = (target_full.about or "")[:_MAX_BIO]
         except Exception as exc:
             raise CommandError("Could not read the target profile; no identity changes were made.") from exc
 
-        first_name = (getattr(target, "first_name", "") or "")[:_MAX_NAME]
-        last_name = (getattr(target, "last_name", "") or "")[:_MAX_NAME]
-
-        await client(
-            UpdateProfileRequest(
-                first_name=first_name,
-                last_name=last_name,
-                about=target_bio,
-            )
-        )
+        await client(UpdateProfileRequest(
+            first_name=(getattr(target, "first_name", "") or "")[:_MAX_NAME],
+            last_name=(getattr(target, "last_name", "") or "")[:_MAX_NAME],
+            about=target_bio,
+        ))
 
         dp_status = "Name & Bio cloned. Target profile photo was not available."
         target_photo = _PROFILE_DIR / f"target_{uuid.uuid4().hex}.jpg"
         try:
+            _PROFILE_DIR.mkdir(parents=True, exist_ok=True)
             downloaded = await client.download_profile_photo(target, file=str(target_photo))
             if downloaded and target_photo.is_file() and target_photo.stat().st_size > 0:
                 with open(target_photo, "rb") as handle:
@@ -195,42 +157,19 @@ async def handle_identity(event):
         finally:
             target_photo.unlink(missing_ok=True)
 
-        await event.edit(
-            render(
-                "IDENTITY CLONE",
-                [f"Mirrored target ID: {target.id}", dp_status],
-            )
-        )
+        await event.edit(render("IDENTITY CLONE", [f"Mirrored target ID: {target.id}", dp_status]))
         return
 
     if cmd == "revert":
-        row = await db.fetchone(
-            "SELECT first_name, last_name, bio, photo_path FROM my_profile WHERE id=1"
-        )
+        row = await db.fetchone("SELECT first_name, last_name, bio, photo_path FROM my_profile WHERE id=1")
         if not row:
-            raise CommandError(
-                "No profile snapshot found. Use .clone or .backup first."
-            )
-
-        await client(
-            UpdateProfileRequest(
-                first_name=row[0] or "",
-                last_name=row[1] or "",
-                about=row[2] or "",
-            )
-        )
+            raise CommandError("No profile snapshot found. Use .clone or .backup first.")
+        await client(UpdateProfileRequest(first_name=row[0] or "", last_name=row[1] or "", about=row[2] or ""))
         try:
             await _restore_photo(client, row[3])
         except Exception as exc:
-            raise CommandError("Profile identity restored, but photo restoration failed. Current photo was left unchanged.") from exc
-
-        await event.edit(
-            render(
-                "IDENTITY REVERT",
-                ["Restored the saved profile identity and original photo."],
-                footer="stealth | revert",
-            )
-        )
+            raise CommandError("Profile text was restored, but photo restoration failed; the current photo was left unchanged.") from exc
+        await event.edit(render("IDENTITY REVERT", ["Restored the saved profile identity and original photo."], footer="stealth | revert"))
         return
 
     raise CommandError("Unsupported identity operation.")
