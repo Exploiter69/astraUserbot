@@ -56,13 +56,8 @@ async def handle_speech(event):
             mime_type = getattr(media, "mime_type", "") or ""
             if not (getattr(media, "video", False) or mime_type.startswith("video/")):
                 raise CommandError("The replied media is not a video.")
-            service.validate_telegram_media(media)
             await event.edit(render("FFMPEG AUDIO", ["Extracting..."]))
-            in_file = await event.client.download_media(
-                media,
-                file=workspace.path,
-                progress_callback=service.telegram_download_progress(),
-            )
+            in_file = await service.download_telegram_media(event.client.download_media, media, workspace=workspace)
             if not in_file:
                 raise CommandError("Failed to download media.")
             await service.run_ffmpeg(
