@@ -64,8 +64,8 @@ class MediaService:
     async def close(self) -> None:
         return None
 
-    def create_workspace(self, name: str = "media"):
-        return self.workspace.create(name)
+    async def create_workspace(self, name: str = "media") -> Workspace:
+        return await self.workspace.create(name)
 
     async def cleanup(self, workspace: Workspace | str | Path) -> None:
         await self.workspace.cleanup(workspace)
@@ -189,7 +189,9 @@ class MediaService:
         output = workspace.resolve(output_name)
         if output == source:
             raise ValueError("Media output must differ from input")
-        argv = ["ffmpeg", "-hide_banner", "-y", "-i", "/workspace/" + source.relative_to(workspace.path).as_posix(), *map(str, options), "/workspace/" + output.relative_to(workspace.path).as_posix()]
+        input_arg = "/workspace/" + source.relative_to(workspace.path).as_posix()
+        output_arg = "/workspace/" + output.relative_to(workspace.path).as_posix()
+        argv = ["ffmpeg", "-hide_banner", "-y", "-i", input_arg, *map(str, options), output_arg]
         result = await self.run_isolated(argv, workspace=workspace, timeout=timeout)
         if result.returncode != 0:
             detail = result.stderr[-500:] or result.stdout[-500:]
