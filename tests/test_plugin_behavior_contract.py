@@ -61,7 +61,8 @@ class PluginBehaviorContractTests(unittest.TestCase):
 
     def test_identity_contract_is_complete_and_photo_restore_is_failure_safe(self):
         text = (ROOT / "plugins/stealth/identity.py").read_text(encoding="utf-8")
-        self.assertIn("(clone|revert|backup)", text)
+        self.assertIn("(clone|revert)", text)
+        self.assertNotIn("(clone|revert|backup)", text)
         self.assertIn("uuid.uuid4().hex", text)
         self.assertIn("Upload first so a failed upload cannot destroy the current profile photo.", text)
         self.assertIn("Saved profile photo is outside the managed identity cache.", text)
