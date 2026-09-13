@@ -196,6 +196,53 @@ class MediaService:
                 disk_task.cancel()
             await asyncio.gather(disk_task, return_exceptions=True)
 
+    async def _run_isolated_with_disk_guard(
+        self,
+        argv: Sequence[str],
+        *,
+        workspace: Workspace,
+        timeout: float,
+        max_output_bytes: int,
+    ) -> SubprocessResult:
+        self._check_disk_space()
+        isolated_task = asyncio.create_task(
+            self.isolation.run(  # type: ignore[union-attr]
+                list(argv),
+                workspace=workspace.path,
+                timeout=timeout,
+                max_output_bytes=max_output_bytes,
+                file_bytes=self.max_output_bytes,
+            ),
+            name="media.isolated-subprocess",
+        )
+
+        async def watch_disk() -> None:
+            while True:
+                self._check_disk_space()
+                await asyncio.sleep(0.25)
+
+        disk_task = asyncio.create_task(watch_disk(), name="media.disk-watchdog")
+        try:
+            done, _ = await asyncio.wait(
+                {isolated_task, disk_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if disk_task in done:
+                disk_task.result()
+                raise ResourceError("Isolated media operation stopped because free disk space is too low.")
+            return isolated_task.result()
+        except asyncio.CancelledError:
+            isolated_task.cancel()
+            await asyncio.gather(isolated_task, return_exceptions=True)
+            raise
+        finally:
+            if not isolated_task.done():
+                isolated_task.cancel()
+                await asyncio.gather(isolated_task, return_exceptions=True)
+            if not disk_task.done():
+                disk_task.cancel()
+            await asyncio.gather(disk_task, return_exceptions=True)
+
     async def run(
         self,
         argv: Sequence[str],
@@ -227,14 +274,12 @@ class MediaService:
             raise CommandError("Isolated media execution is unavailable.")
         if not argv:
             raise ValueError("Media command cannot be empty")
-        self._check_disk_space()
         async with self._slots:
-            result = await self.isolation.run(
-                list(argv),
-                workspace=workspace.path,
+            result = await self._run_isolated_with_disk_guard(
+                argv,
+                workspace=workspace,
                 timeout=self.default_timeout if timeout is None else timeout,
                 max_output_bytes=max_output_bytes,
-                file_bytes=self.max_output_bytes,
             )
         self._validate_workspace_size(workspace)
         return result
