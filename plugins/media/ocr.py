@@ -22,7 +22,7 @@ async def setup(client):
         pattern=PATTERN,
         handler=handle_ocr,
         category="media",
-        description="Extract text from a replied image using Tesseract OCR."
+        description="Extract text from a replied image using isolated Tesseract OCR."
     )
 
 async def handle_ocr(event):
@@ -33,7 +33,7 @@ async def handle_ocr(event):
     context = get_application_context()
     if context is None:
         raise CommandError("Required runtime services are unavailable.")
-    subprocess = context.get("subprocess")
+    media_service = context.get("media")
     workspace_service = context.get("workspace")
 
     await event.edit(render(title="OCR", rows=["Downloading image..."], footer="media | ocr"))
@@ -45,17 +45,16 @@ async def handle_ocr(event):
         await workspace_service.cleanup(workspace)
         raise CommandError("Failed to download media.")
 
-    await event.edit(render(title="OCR", rows=["Running Tesseract (bounded subprocess)..."], footer="media | ocr"))
-
     try:
-        result = await subprocess.run(
-            ["tesseract", str(downloaded_path), "stdout", "-l", "eng"],
+        await event.edit(render(title="OCR", rows=["Running isolated Tesseract (bounded)..."], footer="media | ocr"))
+        result = await media_service.run_isolated(
+            ["tesseract", "/workspace/input.jpg", "stdout", "-l", "eng"],
+            workspace=workspace,
             timeout=60,
             max_output_bytes=512 * 1024,
-            cwd=workspace.path,
         )
         if result.returncode != 0:
-            raise CommandError(f"Tesseract failed: {result.stderr.strip() or 'Unknown error'}")
+            raise CommandError("Tesseract failed: " + (result.stderr.strip() or "Unknown error"))
 
         text = result.stdout.strip() if result.stdout.strip() else "No text detected in image."
         await event.edit(render(
