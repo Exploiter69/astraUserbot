@@ -1,6 +1,6 @@
 import asyncio
 import io
-import os
+import stat
 import tarfile
 import tempfile
 import unittest
@@ -33,6 +33,17 @@ class IsolationSecurityTests(unittest.TestCase):
             with self.assertRaises(ArchiveSafetyError):
                 extract_archive(archive, destination)
             self.assertFalse((Path(tmp).parent / "escape.txt").exists())
+
+    def test_zip_symlink_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = Path(tmp) / "evil.zip"
+            destination = Path(tmp) / "out"
+            info = zipfile.ZipInfo("escape")
+            info.external_attr = (stat.S_IFLNK | 0o777) << 16
+            with zipfile.ZipFile(archive, "w") as zf:
+                zf.writestr(info, "/etc/passwd")
+            with self.assertRaises(ArchiveSafetyError):
+                extract_archive(archive, destination)
 
     def test_tar_symlink_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
