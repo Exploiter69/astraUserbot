@@ -35,6 +35,9 @@ async def handle_ocr(event):
         raise CommandError("Required runtime services are unavailable.")
     media_service = context.get("media")
     workspace_service = context.get("workspace")
+    subprocess_service = context.get("subprocess")
+    if media_service is None or workspace_service is None or subprocess_service is None:
+        raise CommandError("Required runtime services are unavailable.")
 
     await event.edit(render(title="OCR", rows=["Downloading image..."], footer="media | ocr"))
 
