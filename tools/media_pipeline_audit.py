@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 import math
 import shutil
 import sys
@@ -115,12 +114,12 @@ async def actual_pipeline() -> None:
             min_free_bytes=1,
         )
         await service.start()
+
         job = await service.create_workspace("audit")
         try:
             source_path = job.resolve("input.wav")
             make_wav(source_path)
             assert service.validate_input(source_path) == source_path
-
             _, artifact = await service.run_ffmpeg(
                 workspace=job,
                 input_path=source_path,
@@ -128,16 +127,13 @@ async def actual_pipeline() -> None:
                 options=["-c:a", "pcm_s16le"],
                 timeout=30,
             )
-            assert artifact.path.is_file()
-            assert artifact.size_bytes > 0
-            print("actual_transform: PASS")
-            print("malformed_media: PASS")
-            print("artifact_verification: PASS")
-            print("subprocess_cancellation: PASS")
-            print("temp_workspace_lifecycle: PASS")
+            assert artifact.path.is_file() and artifact.size_bytes > 0
         finally:
             await service.cleanup(job)
         assert not job.path.exists()
+        print("actual_transform: PASS")
+        print("artifact_verification: PASS")
+        print("temp_workspace_lifecycle: PASS")
 
         duration_service = MediaService(
             workspace_service,
@@ -175,6 +171,7 @@ async def actual_pipeline() -> None:
                 raise AssertionError("malformed media was accepted")
         finally:
             await service.cleanup(malformed_job)
+        print("malformed_media: PASS")
 
         cancellation_job = await service.create_workspace("cancel")
         try:
@@ -197,6 +194,7 @@ async def actual_pipeline() -> None:
             assert time.monotonic() - started < 3
         finally:
             await service.cleanup(cancellation_job)
+        print("subprocess_cancellation: PASS")
 
         disk_job = await service.create_workspace("disk")
         try:
