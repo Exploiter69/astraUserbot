@@ -174,13 +174,11 @@ class AIGatewayTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_tool_calls_are_rejected(self):
         response = HttpResponse(
-            200,
-            {},
-            json.dumps({"choices": [{"message": {"content": "", "tool_calls": [{"id": "1"}]}}]}).encode(),
-            "https://example.test/chat/completions",
+            200, {}, json.dumps({"choices": [{"message": {"content": "", "tool_calls": [{"id": "1"}]}}]}).encode(), "https://example.test/chat/completions"
         )
+        provider = GroqProvider(FakeHttp(response), "secret")
         with self.assertRaises(ExternalServiceError):
-            GroqProvider(FakeHttp(response), "secret").chat(
+            await provider.chat(
                 [{"role": "user", "content": "hello"}], model="model", temperature=0.7, max_output_tokens=100, timeout=1
             )
 
@@ -243,10 +241,7 @@ class AIGatewayTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_groq_chat_adapter_parses_openai_response(self):
         response = HttpResponse(
-            200,
-            {},
-            json.dumps({"choices": [{"message": {"content": "hello"}}]}).encode(),
-            "https://api.groq.com/openai/v1/chat/completions",
+            200, {}, json.dumps({"choices": [{"message": {"content": "hello"}}]}).encode(), "https://api.groq.com/openai/v1/chat/completions"
         )
         http = FakeHttp(response)
         provider = GroqProvider(http, "secret")
@@ -258,10 +253,7 @@ class AIGatewayTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_groq_error_does_not_leak_provider_body(self):
         response = HttpResponse(
-            401,
-            {},
-            json.dumps({"error": {"message": "secret token details"}}).encode(),
-            "https://api.groq.com/openai/v1/chat/completions",
+            401, {}, json.dumps({"error": {"message": "secret token details"}}).encode(), "https://api.groq.com/openai/v1/chat/completions"
         )
         provider = GroqProvider(FakeHttp(response), "secret")
         with self.assertRaises(ExternalServiceError) as raised:
@@ -272,10 +264,7 @@ class AIGatewayTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_gemini_adapter_translates_messages(self):
         response = HttpResponse(
-            200,
-            {},
-            json.dumps({"candidates": [{"content": {"parts": [{"text": "hello"}]}}]}).encode(),
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+            200, {}, json.dumps({"candidates": [{"content": {"parts": [{"text": "hello"}]}}]}).encode(), "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
         )
         http = FakeHttp(response)
         provider = GeminiProvider(http, "secret")
