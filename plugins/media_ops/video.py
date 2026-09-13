@@ -25,15 +25,10 @@ async def handle_video(event):
     if context is None:
         raise CommandError("Media service is unavailable.")
     service = context.get("media")
-    service.validate_telegram_media(media)
     workspace = await service.create_workspace("video")
 
     try:
-        in_file = await event.client.download_media(
-            media,
-            file=workspace.path,
-            progress_callback=service.telegram_download_progress(),
-        )
+        in_file = await service.download_telegram_media(event.client.download_media, media, workspace=workspace)
         if not in_file:
             raise CommandError("Failed to download media.")
         source = service.validate_input(in_file)
