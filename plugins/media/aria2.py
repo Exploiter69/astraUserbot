@@ -38,7 +38,7 @@ async def handle_aria(event):
         _, artifacts = await service.run_download(argv, workspace=workspace, timeout=600)
         if len(artifacts) != 1:
             raise CommandError("aria2c produced an unexpected number of downloadable artifacts; refusing to upload an ambiguous result.")
-        file_to_upload = artifacts[0]
+        (file_to_upload,) = artifacts
         up_prog = ProgressCallback(event, "Uploading to Telegram")
         await event.client.send_file(event.chat_id, file=file_to_upload.path, progress_callback=up_prog, reply_to=event.reply_to_msg_id)
         await event.delete()
