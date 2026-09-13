@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -64,12 +65,12 @@ class Phase10To15Tests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("rss_bytes", snapshot.resources)
         await metrics.close()
 
-    async def test_isolation_is_explicit(self):
+    async def test_isolation_backend_is_explicit(self):
         service = IsolationService()
         await service.start()
         assessment = service.assess()
-        self.assertFalse(assessment.enabled)
-        self.assertIn("opt-in", assessment.reason)
+        self.assertEqual(assessment.enabled, bool(shutil.which("bwrap")))
+        self.assertIn("Bubblewrap", assessment.reason)
         await service.close()
 
     def test_sdk_metadata_contract(self):
