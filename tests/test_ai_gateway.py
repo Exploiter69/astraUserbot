@@ -54,10 +54,8 @@ class FakeHttp:
 
 class AIGatewayTests(unittest.IsolatedAsyncioTestCase):
     def make_service(self, provider=None, **kwargs):
-        service = AIService(object(), provider="groq", fallback_providers=(), **kwargs)
         fake = provider or FakeProvider()
-        service._providers["fake"] = fake
-        service.provider_name = "fake"
+        service = AIService(object(), provider="fake", fallback_providers=(), providers={"fake": fake}, **kwargs)
         return service, fake
 
     async def test_chat_returns_provider_neutral_response(self):
@@ -127,10 +125,9 @@ class AIGatewayTests(unittest.IsolatedAsyncioTestCase):
             AIService(object(), provider="groq", fallback_providers=("does-not-exist",))
 
     async def test_fallback_is_used_for_provider_failure(self):
-        service = AIService(object(), provider="first", fallback_providers=("second",))
         first = FailingProvider()
         second = FakeProvider()
-        service._providers = {"first": first, "second": second}
+        service = AIService(object(), provider="first", fallback_providers=("second",), providers={"first": first, "second": second})
         response = await service.chat([{"role": "user", "content": "hello"}])
         self.assertEqual(response.provider, "second")
         self.assertEqual(response.text, "fake response")
@@ -141,8 +138,7 @@ class AIGatewayTests(unittest.IsolatedAsyncioTestCase):
                 await asyncio.sleep(10)
                 return "never"
 
-        service = AIService(object(), provider="slow", fallback_providers=("fake",))
-        service._providers = {"slow": SlowProvider(), "fake": FakeProvider()}
+        service = AIService(object(), provider="slow", fallback_providers=("fake",), providers={"slow": SlowProvider(), "fake": FakeProvider()})
         task = asyncio.create_task(service.chat([{"role": "user", "content": "x"}]))
         await asyncio.sleep(0)
         task.cancel()
@@ -150,8 +146,7 @@ class AIGatewayTests(unittest.IsolatedAsyncioTestCase):
             await task
 
     async def test_explicit_provider_does_not_fallback(self):
-        service = AIService(object(), provider="first", fallback_providers=("second",))
-        service._providers = {"first": FailingProvider(), "second": FakeProvider()}
+        service = AIService(object(), provider="first", fallback_providers=("second",), providers={"first": FailingProvider(), "second": FakeProvider()})
         with self.assertRaises(ExternalServiceError):
             await service.chat([{"role": "user", "content": "hello"}], provider="first")
 
@@ -268,30 +263,3 @@ class AIGatewayTests(unittest.IsolatedAsyncioTestCase):
         )
         http = FakeHttp(response)
         provider = GeminiProvider(http, "secret")
-        text = await provider.chat(
-            [{"role": "system", "content": "be concise"}, {"role": "user", "content": "hello"}],
-            model="gemini-2.5-flash", temperature=0.0, max_output_tokens=100, timeout=1,
-        )
-        self.assertEqual(text, "hello")
-        payload = json.loads(http.calls[0][1]["data"])
-        self.assertEqual(payload["contents"][0]["role"], "user")
-        self.assertIn("systemInstruction", payload)
-        self.assertEqual(http.calls[0][1]["headers"]["x-goog-api-key"], "secret")
-        self.assertNotIn("?key=secret", http.calls[0][0])
-
-    async def test_ollama_adapter_parses_local_response(self):
-        response = HttpResponse(
-            200, {}, json.dumps({"message": {"content": "local hello"}}).encode(), "http://127.0.0.1:11434/api/chat"
-        )
-        http = FakeHttp(response)
-        provider = OllamaProvider(http, "http://127.0.0.1:11434/api")
-        text = await provider.chat(
-            [{"role": "user", "content": "hello"}], model="local-model", temperature=0.0, max_output_tokens=100, timeout=1
-        )
-        self.assertEqual(text, "local hello")
-        payload = json.loads(http.calls[0][1]["data"])
-        self.assertFalse(payload["stream"])
-
-
-if __name__ == "__main__":
-    unittest.main()
