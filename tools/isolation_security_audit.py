@@ -76,6 +76,7 @@ async def malicious_media_probe(service: IsolationService) -> bool:
 
 
 def archive_probe() -> bool:
+    import stat
     import tarfile
     import zipfile
 
@@ -87,6 +88,18 @@ def archive_probe() -> bool:
             zf.writestr("../../escape.txt", "blocked")
         try:
             extract_archive(zip_path, destination)
+        except ArchiveSafetyError:
+            pass
+        else:
+            return False
+
+        symlink_zip = root / "symlink.zip"
+        info = zipfile.ZipInfo("escape")
+        info.external_attr = (stat.S_IFLNK | 0o777) << 16
+        with zipfile.ZipFile(symlink_zip, "w") as zf:
+            zf.writestr(info, "/etc/passwd")
+        try:
+            extract_archive(symlink_zip, destination)
         except ArchiveSafetyError:
             pass
         else:
@@ -124,7 +137,7 @@ def static_checks() -> dict[str, bool]:
     combined = "\n".join(p.read_text(encoding="utf-8", errors="replace") for p in python_files)
 
     return {
-        "bubblewrap_executor": "--unshare-all" in isolation and "--clearenv" in isolation and "--bind" in isolation,
+        "bubblewrap_executor": "--unshare-all" in isolation and "--disable-userns" in isolation and "--cap-drop" in isolation and "--clearenv" in isolation and "--bind" in isolation,
         "network_policy": "--unshare-all" in isolation,
         "environment_policy": "--clearenv" in isolation and '"PATH":' in isolation and '"HOME": "/tmp"' in isolation,
         "resource_limits": all(token in isolation for token in ("RLIMIT_AS", "RLIMIT_CPU", "RLIMIT_FSIZE", "RLIMIT_NPROC", "RLIMIT_NOFILE")),
