@@ -263,3 +263,30 @@ class AIGatewayTests(unittest.IsolatedAsyncioTestCase):
         )
         http = FakeHttp(response)
         provider = GeminiProvider(http, "secret")
+        text = await provider.chat(
+            [{"role": "system", "content": "be concise"}, {"role": "user", "content": "hello"}],
+            model="gemini-2.5-flash", temperature=0.0, max_output_tokens=100, timeout=1,
+        )
+        self.assertEqual(text, "hello")
+        payload = json.loads(http.calls[0][1]["data"])
+        self.assertEqual(payload["contents"][0]["role"], "user")
+        self.assertIn("systemInstruction", payload)
+        self.assertEqual(http.calls[0][1]["headers"]["x-goog-api-key"], "secret")
+        self.assertNotIn("?key=secret", http.calls[0][0])
+
+    async def test_ollama_adapter_parses_local_response(self):
+        response = HttpResponse(
+            200, {}, json.dumps({"message": {"content": "local hello"}}).encode(), "http://127.0.0.1:11434/api/chat"
+        )
+        http = FakeHttp(response)
+        provider = OllamaProvider(http, "http://127.0.0.1:11434/api")
+        text = await provider.chat(
+            [{"role": "user", "content": "hello"}], model="local-model", temperature=0.0, max_output_tokens=100, timeout=1
+        )
+        self.assertEqual(text, "local hello")
+        payload = json.loads(http.calls[0][1]["data"])
+        self.assertFalse(payload["stream"])
+
+
+if __name__ == "__main__":
+    unittest.main()
