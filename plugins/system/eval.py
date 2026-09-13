@@ -1,15 +1,11 @@
-import asyncio
-import os
 import re
-import resource
-import signal
-import sys
 import tempfile
 from pathlib import Path
 
+from config import config
+from core.context import get_application_context
 from core.registry import register_cmd
 from helpers.hud import render
-from config import config
 
 PATTERN = rf"^{re.escape(config.PREFIX)}eval(?:\s+(.*))?$"
 _MAX_OUTPUT = 6000
@@ -26,7 +22,7 @@ async def setup(client):
         pattern=PATTERN,
         handler=handle_eval,
         category="system",
-        description="Evaluate standalone Python code in a bounded child process so blocking code cannot freeze the bot event loop.",
+        description="Evaluate standalone Python code in an isolated child process with filesystem and network boundaries.",
     )
 
 
@@ -48,14 +44,6 @@ def _trim(text: str) -> list[str]:
     return text.strip().splitlines() if text.strip() else []
 
 
-def _limit_child_resources() -> None:
-    resource.setrlimit(resource.RLIMIT_CPU, (_EVAL_TIMEOUT, _EVAL_TIMEOUT + 1))
-    resource.setrlimit(resource.RLIMIT_AS, (_EVAL_MEMORY, _EVAL_MEMORY))
-    resource.setrlimit(resource.RLIMIT_FSIZE, (_EVAL_FILE_SIZE, _EVAL_FILE_SIZE))
-    resource.setrlimit(resource.RLIMIT_NPROC, (_EVAL_PROCESSES, _EVAL_PROCESSES))
-    resource.setrlimit(resource.RLIMIT_NOFILE, (64, 64))
-
-
 async def handle_eval(event):
     code = (event.pattern_match.group(1) or "").strip()
     if not code:
@@ -71,55 +59,41 @@ async def handle_eval(event):
         )
         return
 
+    context = get_application_context()
+    if context is None:
+        await event.edit(render("EVAL", ["Error: Isolation service is unavailable."], footer="system | eval"))
+        return
+    isolation = context.get("isolation")
+
     with tempfile.TemporaryDirectory(prefix="astra-eval-") as tmp:
         root = Path(tmp)
         script = root / "eval.py"
-        stdout = root / "stdout.txt"
-        stderr = root / "stderr.txt"
         script.write_text(_script(code), encoding="utf-8")
-        out_handle = stdout.open("wb")
-        err_handle = stderr.open("wb")
         try:
-            proc = await asyncio.create_subprocess_exec(
-                sys.executable,
-                "-I",
-                str(script),
-                stdin=asyncio.subprocess.DEVNULL,
-                stdout=out_handle,
-                stderr=err_handle,
-                cwd=tmp,
-                start_new_session=True,
-                preexec_fn=_limit_child_resources,
+            result = await isolation.run(
+                ["python3", "-I", "/workspace/eval.py"],
+                workspace=root,
+                timeout=_EVAL_TIMEOUT + 2,
+                max_output_bytes=_MAX_OUTPUT + 1024,
+                memory_bytes=_EVAL_MEMORY,
+                file_bytes=_EVAL_FILE_SIZE,
+                processes=_EVAL_PROCESSES,
             )
-            try:
-                await asyncio.wait_for(proc.wait(), timeout=_EVAL_TIMEOUT + 2)
-            except asyncio.TimeoutError:
-                try:
-                    os.killpg(proc.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                await proc.wait()
-                rows = [
-                    "Execution failed:",
-                    "---",
-                    f"Evaluation timed out after {_EVAL_TIMEOUT} seconds.",
-                ]
-            else:
-                out_text = stdout.read_text(encoding="utf-8", errors="replace")
-                err_text = stderr.read_text(encoding="utf-8", errors="replace")
-                if proc.returncode == 0:
-                    rows = ["Code executed successfully."]
-                    if out_text.strip():
-                        rows.extend(["---", *_trim(out_text)])
-                    else:
-                        rows.append("No stdout output.")
-                else:
-                    error_lines = _trim(err_text)[:20]
-                    rows = ["Execution failed:", "---", *error_lines]
-                    if not error_lines:
-                        rows.append(f"Child process exited with code {proc.returncode}.")
-        finally:
-            out_handle.close()
-            err_handle.close()
+        except Exception as exc:
+            message = str(exc).strip() or "isolated execution failed"
+            await event.edit(render("EVAL", ["Execution failed:", "---", *_trim(message)], footer="system | eval"))
+            return
 
-    await event.edit(render("EVAL", rows, footer="system | eval | child-process"))
+        if result.returncode == 0:
+            rows = ["Code executed successfully."]
+            if result.stdout.strip():
+                rows.extend(["---", *_trim(result.stdout)])
+            else:
+                rows.append("No stdout output.")
+        else:
+            error_lines = _trim(result.stderr)[:20]
+            rows = ["Execution failed:", "---", *error_lines]
+            if not error_lines:
+                rows.append(f"Child process exited with code {result.returncode}.")
+
+    await event.edit(render("EVAL", rows, footer="system | eval | isolated-child"))
