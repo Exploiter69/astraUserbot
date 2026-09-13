@@ -35,23 +35,23 @@ async def handle_ocr(event):
         raise CommandError("Required runtime services are unavailable.")
     media_service = context.get("media")
     workspace_service = context.get("workspace")
-    subprocess_service = context.get("subprocess")
-    if media_service is None or workspace_service is None or subprocess_service is None:
+    if media_service is None or workspace_service is None:
         raise CommandError("Required runtime services are unavailable.")
 
     await event.edit(render(title="OCR", rows=["Downloading image..."], footer="media | ocr"))
-
-    workspace = await workspace_service.create("ocr")
-    file_path = workspace.path / "input.jpg"
-    downloaded_path = await event.client.download_media(media, file=file_path)
-    if not downloaded_path:
-        await workspace_service.cleanup(workspace)
-        raise CommandError("Failed to download media.")
-
+    workspace = await media_service.create_workspace("ocr")
     try:
+        downloaded_path = await media_service.download_telegram_media(
+            event.client.download_media,
+            media,
+            workspace=workspace,
+        )
+        if not downloaded_path:
+            raise CommandError("Failed to download media.")
+        artifact = media_service.artifact(workspace, downloaded_path)
         await event.edit(render(title="OCR", rows=["Running isolated Tesseract (bounded)..."], footer="media | ocr"))
         result = await media_service.run_isolated(
-            ["tesseract", "/workspace/input.jpg", "stdout", "-l", "eng"],
+            ["tesseract", "/workspace/" + artifact.path.relative_to(workspace.path).as_posix(), "stdout", "-l", "eng"],
             workspace=workspace,
             timeout=60,
             max_output_bytes=512 * 1024,
@@ -66,4 +66,4 @@ async def handle_ocr(event):
             footer="media | ocr"
         ))
     finally:
-        await workspace_service.cleanup(workspace)
+        await media_service.cleanup(workspace)
