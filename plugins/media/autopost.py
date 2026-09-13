@@ -2,13 +2,14 @@ import asyncio
 import logging
 import re
 
+from telethon import types
+
 from config import config
 from core.database import Database
 from core.errors import CommandError
 from core.registry import register_cmd
 from core.scheduler import schedule_job
 from helpers.hud import render
-from telethon import types
 
 logger = logging.getLogger(__name__)
 PATTERN = rf"^{re.escape(config.PREFIX)}autopost(?:\s+(.*))?$"
