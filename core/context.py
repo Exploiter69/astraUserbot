@@ -42,14 +42,14 @@ class ApplicationContext:
         self.register("subprocess", SubprocessService())
         self.register("telegram", TelegramFacade(client))
         self.register("workspace", WorkspaceService(self.project_root))
-        self.register("media", MediaService(self.get("workspace"), self.get("subprocess")))
+        self.register("isolation", IsolationService())
+        self.register("media", MediaService(self.get("workspace"), self.get("subprocess"), self.get("isolation")))
         self.register("jobs", JobEngine(self.get("storage")))
         self.register("secrets", SecretStore())
         self.register("ai", AIService(self.get("http")))
         self.register("search", SearchService(self.get("storage"), self.project_root))
         self.register("metrics", MetricsService(self.project_root))
         self.register("flags", FeatureFlagService(self.get("storage")))
-        self.register("isolation", IsolationService())
 
     def register(self, name: str, service: Any) -> Any:
         if not name or name in self.services:
