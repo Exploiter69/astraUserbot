@@ -8,6 +8,7 @@ from helpers.hud import render
 from config import config
 
 PATTERN = rf"^{re.escape(config.PREFIX)}osint(?:\s+(\S+))?$"
+_USERNAME = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 
 PLATFORMS = {
     "GitHub": "https://github.com/{}",
@@ -47,10 +48,7 @@ async def _check_profile(http, name: str, platform: str, url_template: str) -> t
             return platform, False
         if platform == "Telegram" and not final_url.lower().startswith("https://t.me/"):
             return platform, False
-        if platform == "GitHub" and final_url.lower() in {
-            "https://github.com",
-            "https://github.com/login",
-        }:
+        if platform == "GitHub" and final_url.lower() in {"https://github.com", "https://github.com/login"}:
             return platform, False
         return platform, final_url.lower() == requested_url.lower()
     except Exception:
@@ -60,11 +58,15 @@ async def handle_osint(event):
     username = event.pattern_match.group(1)
     if not username:
         raise CommandError("Please provide a username to scan. Usage: .osint <username>")
+    if not _USERNAME.fullmatch(username):
+        raise CommandError("Username must be 1-64 characters using letters, numbers, '.', '_' or '-'.")
 
     context = get_application_context()
     if context is None:
         raise CommandError("HTTP service is unavailable.")
     http = context.get("http")
+    if http is None:
+        raise CommandError("HTTP service is unavailable.")
 
     await event.edit(render(
         title="OSINT RECON",
