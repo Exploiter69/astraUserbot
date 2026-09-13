@@ -136,7 +136,11 @@ def static_checks() -> dict[str, bool]:
     ocr = source_text("plugins/media/ocr.py")
     archive = source_text("helpers/archive.py")
 
-    python_files = [p for p in ROOT.rglob("*.py") if ".git" not in p.parts and ".venv" not in p.parts]
+    python_files = [
+        p
+        for p in ROOT.rglob("*.py")
+        if ".git" not in p.parts and ".venv" not in p.parts and p != Path(__file__).resolve()
+    ]
     combined = "\n".join(p.read_text(encoding="utf-8", errors="replace") for p in python_files)
 
     return {
