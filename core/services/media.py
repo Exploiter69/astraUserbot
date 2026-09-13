@@ -28,6 +28,7 @@ class MediaService:
     """Own media workspaces and deterministic external media execution."""
 
     ALLOWED_RCLONE_OPERATIONS = frozenset({"copy", "copyto", "sync"})
+    DEFAULT_MIN_FREE_BYTES = 128 * 1024 * 1024
 
     def __init__(
         self,
@@ -38,24 +39,32 @@ class MediaService:
         max_input_bytes: int = 512 * 1024 * 1024,
         max_output_bytes: int = 512 * 1024 * 1024,
         max_workspace_bytes: int = 768 * 1024 * 1024,
+        max_duration_seconds: float = 2 * 60 * 60,
         max_concurrent_jobs: int = 2,
         default_timeout: float = 300.0,
+        min_free_bytes: int = DEFAULT_MIN_FREE_BYTES,
     ) -> None:
         if min(max_input_bytes, max_output_bytes, max_workspace_bytes) <= 0:
             raise ValueError("Media size limits must be positive")
         if max_output_bytes > max_workspace_bytes:
             raise ValueError("max_output_bytes cannot exceed max_workspace_bytes")
+        if max_duration_seconds <= 0:
+            raise ValueError("max_duration_seconds must be positive")
         if max_concurrent_jobs <= 0:
             raise ValueError("max_concurrent_jobs must be positive")
         if default_timeout <= 0:
             raise ValueError("default_timeout must be positive")
+        if min_free_bytes < 0:
+            raise ValueError("min_free_bytes cannot be negative")
         self.workspace = workspace
         self.subprocess = subprocess
         self.isolation = isolation
         self.max_input_bytes = int(max_input_bytes)
         self.max_output_bytes = int(max_output_bytes)
         self.max_workspace_bytes = int(max_workspace_bytes)
+        self.max_duration_seconds = float(max_duration_seconds)
         self.default_timeout = float(default_timeout)
+        self.min_free_bytes = int(min_free_bytes)
         self._slots = asyncio.Semaphore(max_concurrent_jobs)
 
     async def start(self) -> None:
@@ -65,10 +74,17 @@ class MediaService:
         return None
 
     async def create_workspace(self, name: str = "media") -> Workspace:
+        await self.start()
+        self._check_disk_space()
         return await self.workspace.create(name)
 
     async def cleanup(self, workspace: Workspace | str | Path) -> None:
         await self.workspace.cleanup(workspace)
+
+    def _check_disk_space(self) -> None:
+        usage = shutil.disk_usage(self.workspace.root)
+        if usage.free < self.min_free_bytes:
+            raise ResourceError("Insufficient free disk space for media work.")
 
     def validate_input(self, path: str | Path) -> Path:
         candidate = self.workspace.validate_file(path)
@@ -77,9 +93,46 @@ class MediaService:
         return candidate
 
     def _validate_workspace_size(self, workspace: Workspace) -> None:
-        total = sum(path.stat().st_size for path in workspace.path.rglob("*") if path.is_file())
-        if total > self.max_workspace_bytes:
-            raise ResourceError("Media workspace exceeds the configured size limit.")
+        total = 0
+        for path in workspace.path.rglob("*"):
+            if path.is_file():
+                try:
+                    total += path.stat().st_size
+                except OSError as exc:
+                    raise ResourceError("Unable to inspect media workspace.") from exc
+                if total > self.max_workspace_bytes:
+                    raise ResourceError("Media workspace exceeds the configured size limit.")
+
+    @staticmethod
+    def _parse_probe_fields(stdout: str) -> dict[str, str]:
+        fields: dict[str, str] = {}
+        for line in stdout.splitlines():
+            if "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            fields[key.strip()] = value.strip()
+        return fields
+
+    def _validate_duration(self, duration: float | None) -> None:
+        if duration is not None and duration > self.max_duration_seconds:
+            raise ResourceError("Media duration exceeds the configured limit.")
+
+    async def verify_media(self, path: str | Path, *, workspace: Workspace) -> SubprocessResult | None:
+        """Verify media readability and duration when ffprobe is available."""
+        if not shutil.which("ffprobe"):
+            return None
+        source = self.validate_input(path)
+        probe = await self.run_ffprobe(source, workspace=workspace)
+        if probe.returncode != 0:
+            raise CommandError("Media artifact is malformed or unreadable.")
+        fields = self._parse_probe_fields(probe.stdout)
+        raw_duration = fields.get("duration")
+        if raw_duration:
+            try:
+                self._validate_duration(float(raw_duration))
+            except ValueError as exc:
+                raise CommandError("Media duration metadata is invalid.") from exc
+        return probe
 
     def artifact(self, workspace: Workspace, relative: str | Path) -> MediaArtifact:
         self._validate_workspace_size(workspace)
@@ -103,6 +156,46 @@ class MediaService:
             artifacts.append(self.artifact(workspace, path.name))
         return artifacts
 
+    async def _run_with_disk_guard(
+        self,
+        argv: Sequence[str],
+        *,
+        workspace: Workspace,
+        timeout: float,
+    ) -> SubprocessResult:
+        self._check_disk_space()
+        process_task = asyncio.create_task(
+            self.subprocess.run(list(argv), timeout=timeout, cwd=workspace.path),
+            name="media.subprocess",
+        )
+
+        async def watch_disk() -> None:
+            while True:
+                self._check_disk_space()
+                await asyncio.sleep(0.25)
+
+        disk_task = asyncio.create_task(watch_disk(), name="media.disk-watchdog")
+        try:
+            done, _ = await asyncio.wait(
+                {process_task, disk_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if disk_task in done:
+                disk_task.result()
+                raise ResourceError("Media operation stopped because free disk space is too low.")
+            return process_task.result()
+        except asyncio.CancelledError:
+            process_task.cancel()
+            await asyncio.gather(process_task, return_exceptions=True)
+            raise
+        finally:
+            if not process_task.done():
+                process_task.cancel()
+                await asyncio.gather(process_task, return_exceptions=True)
+            if not disk_task.done():
+                disk_task.cancel()
+            await asyncio.gather(disk_task, return_exceptions=True)
+
     async def run(
         self,
         argv: Sequence[str],
@@ -113,10 +206,10 @@ class MediaService:
         if not argv:
             raise ValueError("Media command cannot be empty")
         async with self._slots:
-            result = await self.subprocess.run(
-                list(argv),
+            result = await self._run_with_disk_guard(
+                argv,
+                workspace=workspace,
                 timeout=self.default_timeout if timeout is None else timeout,
-                cwd=workspace.path,
             )
         self._validate_workspace_size(workspace)
         return result
@@ -134,6 +227,7 @@ class MediaService:
             raise CommandError("Isolated media execution is unavailable.")
         if not argv:
             raise ValueError("Media command cannot be empty")
+        self._check_disk_space()
         async with self._slots:
             result = await self.isolation.run(
                 list(argv),
@@ -160,6 +254,10 @@ class MediaService:
         artifacts = self.discover_new_artifacts(workspace, before)
         if not artifacts:
             raise CommandError("Download completed but produced no verified artifact.")
+        for artifact in artifacts:
+            mime = artifact.media_type or ""
+            if mime.startswith(("audio/", "video/", "image/")):
+                await self.verify_media(artifact.path, workspace=workspace)
         return result, artifacts
 
     async def run_rclone(
@@ -186,6 +284,7 @@ class MediaService:
         timeout: float | None = None,
     ) -> tuple[SubprocessResult, MediaArtifact]:
         source = self.validate_input(input_path)
+        await self.verify_media(source, workspace=workspace)
         output = workspace.resolve(output_name)
         if output == source:
             raise ValueError("Media output must differ from input")
@@ -197,10 +296,7 @@ class MediaService:
             detail = result.stderr[-500:] or result.stdout[-500:]
             raise CommandError(f"FFmpeg failed:\n{detail}")
         artifact = self.artifact(workspace, output_name)
-        if shutil.which("ffprobe"):
-            probe = await self.run_ffprobe(artifact.path, workspace=workspace)
-            if probe.returncode != 0:
-                raise CommandError("FFmpeg produced an unreadable media artifact.")
+        await self.verify_media(artifact.path, workspace=workspace)
         return result, artifact
 
     async def run_ffprobe(self, path: str | Path, *, workspace: Workspace, timeout: float = 30.0) -> SubprocessResult:
@@ -232,4 +328,6 @@ class MediaService:
         if result.returncode != 0:
             detail = result.stderr[-500:] or result.stdout[-500:]
             raise CommandError(f"TTS failed:\n{detail}")
-        return self.artifact(workspace, output_name)
+        artifact = self.artifact(workspace, output_name)
+        await self.verify_media(artifact.path, workspace=workspace)
+        return artifact
