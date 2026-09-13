@@ -15,7 +15,7 @@ from config import config
 
 db = Database.get("identity")
 
-PATTERN = rf"^{re.escape(config.PREFIX)}(clone|revert)(?:\s+(.*))?$"
+PATTERN = rf"^{re.escape(config.PREFIX)}(clone|revert|idbackup)(?:\s+(.*))?$"
 _PROFILE_DIR = Path("data/cache/identity")
 _MAX_NAME = 70
 _MAX_BIO = 70
@@ -36,7 +36,7 @@ async def setup(client):
     except Exception:
         pass
 
-    register_cmd(client, PATTERN, handle_identity, "stealth", "Identity mirroring tools (.clone / .revert).")
+    register_cmd(client, PATTERN, handle_identity, "stealth", "Identity mirroring tools (.clone / .revert / .idbackup).")
 
 
 async def _snapshot_profile(client):
@@ -112,6 +112,11 @@ async def handle_identity(event):
     cmd = event.pattern_match.group(1).lower()
     client = event.client
 
+    if cmd == "idbackup":
+        await _snapshot_profile(client)
+        await event.edit(render("IDENTITY BACKUP", ["Original profile snapshot saved."], footer="stealth | idbackup"))
+        return
+
     if cmd == "clone":
         target = await get_user_from_event(event)
         if not target:
@@ -158,7 +163,7 @@ async def handle_identity(event):
     if cmd == "revert":
         row = await db.fetchone("SELECT first_name, last_name, bio, photo_path FROM my_profile WHERE id=1")
         if not row:
-            raise CommandError("No profile snapshot found. Use .clone first.")
+            raise CommandError("No profile snapshot found. Use .clone or .idbackup first.")
         await client(UpdateProfileRequest(first_name=row[0] or "", last_name=row[1] or "", about=row[2] or ""))
         try:
             await _restore_photo(client, row[3])
