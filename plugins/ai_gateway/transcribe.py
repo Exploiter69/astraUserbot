@@ -39,8 +39,6 @@ async def handle_transcribe(event):
         if not downloaded_path:
             raise CommandError("Failed to download audio media.")
         artifact = media_service.artifact(workspace, downloaded_path)
-        if artifact.size_bytes > service.max_audio_bytes:
-            raise CommandError("Audio exceeds the configured AI transcription size limit.")
         await event.edit(render(title="WHISPER", rows=[f"Transcribing via {service.provider_name}..."], footer="ai | transcribe"))
         response = await service.transcribe(artifact.path)
         text = response.text or "[No speech detected in audio]"
