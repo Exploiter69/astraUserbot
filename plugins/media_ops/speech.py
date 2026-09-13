@@ -1,5 +1,6 @@
 import re
 import shutil
+
 from core.context import get_application_context
 from core.registry import register_cmd
 from core.errors import CommandError
@@ -55,8 +56,13 @@ async def handle_speech(event):
             mime_type = getattr(media, "mime_type", "") or ""
             if not (getattr(media, "video", False) or mime_type.startswith("video/")):
                 raise CommandError("The replied media is not a video.")
+            service.validate_telegram_media(media)
             await event.edit(render("FFMPEG AUDIO", ["Extracting..."]))
-            in_file = await event.client.download_media(media, file=workspace.path)
+            in_file = await event.client.download_media(
+                media,
+                file=workspace.path,
+                progress_callback=service.telegram_download_progress(),
+            )
             if not in_file:
                 raise CommandError("Failed to download media.")
             await service.run_ffmpeg(
