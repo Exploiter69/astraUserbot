@@ -6,7 +6,7 @@ import asyncio
 import os
 import resource
 import shutil
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -34,7 +34,7 @@ class IsolationService:
 
     DEFAULT_TIMEOUT = 30.0
     DEFAULT_OUTPUT_BYTES = 1_048_576
-    DEFAULT_MEMORY_BYTES = 256 * 1024 * 1024
+    DEFAULT_MEMORY_BYTES = 512 * 1024 * 1024
     DEFAULT_FILE_BYTES = 8 * 1024 * 1024
     DEFAULT_PROCESSES = 16
     DEFAULT_NOFILE = 64
@@ -79,20 +79,14 @@ class IsolationService:
         resource.setrlimit(resource.RLIMIT_NOFILE, (nofile, nofile))
 
     @staticmethod
-    def _minimal_environment(extra: Mapping[str, str] | None = None) -> dict[str, str]:
-        env = {
+    def _minimal_environment() -> dict[str, str]:
+        return {
             "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
             "HOME": "/tmp",
             "LANG": "C",
             "LC_ALL": "C",
             "TMPDIR": "/tmp",
         }
-        if extra:
-            for key, value in extra.items():
-                if not key or "=" in key or "\x00" in key or "\x00" in value:
-                    raise ValueError("Invalid isolated environment entry")
-                env[str(key)] = str(value)
-        return env
 
     @staticmethod
     def _bind_ro_args() -> list[str]:
@@ -109,7 +103,6 @@ class IsolationService:
         workspace: str | Path,
         timeout: float = DEFAULT_TIMEOUT,
         max_output_bytes: int = DEFAULT_OUTPUT_BYTES,
-        env: Mapping[str, str] | None = None,
         memory_bytes: int = DEFAULT_MEMORY_BYTES,
         file_bytes: int = DEFAULT_FILE_BYTES,
         processes: int = DEFAULT_PROCESSES,
@@ -148,13 +141,12 @@ class IsolationService:
             "--",
             *args,
         ]
-        child_env = self._minimal_environment(env)
 
         try:
             process = await asyncio.create_subprocess_exec(
                 *command,
                 cwd=str(root),
-                env=child_env,
+                env=self._minimal_environment(),
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
