@@ -31,6 +31,12 @@ CONSUMERS = (
     "plugins/media/aria2.py",
     "plugins/media/rclone.py",
 )
+DOWNLOAD_CONSUMERS = (
+    "plugins/media/ffmpeg.py",
+    "plugins/advanced/mediaflow.py",
+    "plugins/media_ops/video.py",
+    "plugins/media_ops/speech.py",
+)
 
 
 def source(path: str) -> str:
@@ -45,6 +51,8 @@ def check_static_contracts() -> None:
         "max_workspace_bytes",
         "max_duration_seconds",
         "max_concurrent_jobs",
+        "validate_telegram_media",
+        "telegram_download_progress",
         "run_download",
         "run_ffmpeg",
         "run_ffprobe",
@@ -63,6 +71,11 @@ def check_static_contracts() -> None:
         assert "helpers.shell" not in text, f"{path} bypasses the shared subprocess boundary"
         assert "create_subprocess" not in text, f"{path} creates subprocesses directly"
 
+    for path in DOWNLOAD_CONSUMERS:
+        text = source(path)
+        assert "validate_telegram_media(" in text, f"{path} downloads Telegram media without preflight bounds"
+        assert "telegram_download_progress()" in text, f"{path} downloads Telegram media without a progress size guard"
+
     assert "run_ffmpeg(" in source("plugins/media/ffmpeg.py")
     assert "run_ffmpeg(" in source("plugins/advanced/mediaflow.py")
     assert "run_ffmpeg(" in source("plugins/media_ops/video.py")
@@ -74,6 +87,7 @@ def check_static_contracts() -> None:
     print("consumer_boundary: PASS")
     print("cleanup_contract: PASS")
     print("resource_limits: PASS")
+    print("telegram_download_bounds: PASS")
     print("duration_contract: PASS")
     print("disk_guard: PASS")
     print("cancellation_boundary: PASS")
@@ -134,6 +148,25 @@ async def actual_pipeline() -> None:
         print("actual_transform: PASS")
         print("artifact_verification: PASS")
         print("temp_workspace_lifecycle: PASS")
+
+        class TelegramMedia:
+            size = 9 * 1024 * 1024
+            duration = 1
+
+        try:
+            service.validate_telegram_media(TelegramMedia())
+        except ResourceError:
+            pass
+        else:
+            raise AssertionError("Telegram media preflight accepted an oversized object")
+        progress = service.telegram_download_progress()
+        try:
+            progress(8 * 1024 * 1024 + 1, 8 * 1024 * 1024 + 1)
+        except ResourceError:
+            pass
+        else:
+            raise AssertionError("Telegram download progress guard accepted oversized input")
+        print("telegram_download_bounds: PASS")
 
         duration_service = MediaService(
             workspace_service,
