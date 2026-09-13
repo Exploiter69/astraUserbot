@@ -53,8 +53,8 @@ async def handle_rip(event):
 
     try:
         _, artifacts = await service.run_download(argv, workspace=workspace, timeout=600)
-        if not artifacts:
-            raise CommandError("yt-dlp completed without producing a downloadable file.")
+        if len(artifacts) != 1:
+            raise CommandError("yt-dlp produced an unexpected number of downloadable artifacts; refusing to upload an ambiguous result.")
         target = artifacts[0]
         await event.edit(render("RIP // UPLOADING", [f"File: `{target.path.name}`", "Uploading to chat..."]))
         await event.client.send_file(event.chat_id, file=str(target.path), caption=f"Extracted: `{target.path.name}`", reply_to=event.id)
