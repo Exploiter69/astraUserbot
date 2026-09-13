@@ -78,7 +78,6 @@ Quarantine is intentional. Do not remove it merely because an AI command is unav
 | `SAFETY_CONTRACT.md` | Mandatory safety rules |
 | `PRODUCTION_BOUNDARY.md` | Authority and cross-boundary rules |
 | `DECISIONS.md` | Accepted architecture decisions |
-| `ROADMAP.md` | Current implementation and release roadmap |
 | `PLUGIN_SDK.md` | Plugin API contract |
 | `PLUGIN_ECOSYSTEM.md` | Plugin lifecycle and metadata contract |
 | `COMPATIBILITY.md` | Version and migration policy |
@@ -89,15 +88,13 @@ Quarantine is intentional. Do not remove it merely because an AI command is unav
 | `UPGRADE_PROCEDURE.md` | Upgrade and rollback procedure |
 | `DISASTER_RECOVERY.md` | Backup, restore and recovery procedure |
 | `FAILURE_MODE_MATRIX.md` | Failure detection and response |
-| `RELEASE_CHECKLIST.md` | Release checklist and blockers |
-| `PRODUCTION_ACCEPTANCE.md` | Production acceptance contract |
 | `RELEASE_NOTES_v1.0.0.md` | v1.0.0 release summary |
 
-Audit and verification implementations live under `tools/`; tests live under `tests/`. Historical phase/readiness notes are intentionally not kept in the repository root.
+Audit and verification implementations live under `tools/`; tests live under `tests/`. Historical phase/readiness and one-time release documents are intentionally not kept in the repository root.
 
 ## Verification
 
-Canonical non-destructive release gate:
+The canonical non-destructive verification gate is:
 
 ```bash
 ./venv/bin/python tools/production_acceptance_gate.py
@@ -118,7 +115,7 @@ Useful individual gates:
 ./venv/bin/python tools/phase18_shutdown_probe.py
 ```
 
-The automated gate does not restart or mutate the production system. Manual systemd/Telegram acceptance remains required before tagging a release.
+The automated gate is non-destructive and does not restart the production system. Manual production checks are covered by the operator runbook.
 
 ## Operations
 
@@ -142,7 +139,7 @@ Production service lifecycle is managed by systemd. Follow `OPERATIONS_RUNBOOK.m
 
 `VERSION` contains the canonical release version. The current release is `1.0.0` and its Git tag is `v1.0.0`.
 
-A release tag must point at the exact commit that passes automated acceptance and manual production acceptance. Never tag first and verify later.
+Release tags are immutable release markers; post-release maintenance commits remain on `main`.
 
 ## Zero-cost architecture
 
