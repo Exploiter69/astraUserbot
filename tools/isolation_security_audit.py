@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import shutil
 import tempfile
 from pathlib import Path
@@ -59,7 +60,7 @@ async def isolated_probe(service: IsolationService) -> dict[str, bool]:
 
 async def malicious_media_probe(service: IsolationService) -> bool:
     if not shutil.which("ffprobe"):
-        return False
+        raise RuntimeError("ffprobe is required for the malicious-media security gate")
     with tempfile.TemporaryDirectory(prefix="astra-media-audit-") as tmp:
         root = Path(tmp)
         malformed = root / "malicious-media.bin"
