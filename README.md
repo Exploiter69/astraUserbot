@@ -2,7 +2,7 @@
 
 A modular, service-oriented Telegram userbot platform designed for reliability, explicit safety boundaries, durable background work, observable operations and zero-cost operation.
 
-**Current release candidate:** `1.0.0`  
+**Current release:** `1.0.0`  
 **Architecture:** single-process Python/asyncio modular monolith  
 **Transport:** Telethon  
 **Durable store:** SQLite/WAL  
@@ -68,33 +68,32 @@ plugins.ai.transcribe
 
 Quarantine is intentional. Do not remove it merely because an AI command is unavailable.
 
-## Canonical engineering documents
+## Documentation
 
 | Document | Purpose |
 |---|---|
 | `ARCHITECTURE.md` | Canonical architecture and production invariants |
 | `DATA_MODEL.md` | Data ownership and persistence |
-| `JOB_MODEL.md` | Durable job lifecycle/recovery semantics |
+| `JOB_MODEL.md` | Durable job lifecycle and recovery semantics |
 | `SAFETY_CONTRACT.md` | Mandatory safety rules |
 | `PRODUCTION_BOUNDARY.md` | Authority and cross-boundary rules |
 | `DECISIONS.md` | Accepted architecture decisions |
-| `ROADMAP.md` | Current implementation/release roadmap |
+| `ROADMAP.md` | Current implementation and release roadmap |
 | `PLUGIN_SDK.md` | Plugin API contract |
-| `COMPATIBILITY.md` | Version/migration policy |
-| `PLUGIN_ECOSYSTEM.md` | Plugin lifecycle/metadata contract |
-| `PLUGIN_BEHAVIOR_AUDIT.md` | Behavioral audit contract |
-| `STORAGE_HARDENING.md` | Storage hardening contract |
-| `MEDIA_PIPELINE_HARDENING.md` | Media safety/resource contract |
-| `AI_GATEWAY_HARDENING.md` | AI safety/provider contract |
-| `ISOLATION_SECURITY.md` | Real process-isolation contract |
+| `PLUGIN_ECOSYSTEM.md` | Plugin lifecycle and metadata contract |
+| `COMPATIBILITY.md` | Version and migration policy |
+| `STORAGE_HARDENING.md` | Storage safety and integrity contract |
+| `MEDIA_PIPELINE_HARDENING.md` | Media safety and resource contract |
+| `ISOLATION_SECURITY.md` | Process-isolation contract |
 | `OPERATIONS_RUNBOOK.md` | Day-to-day operator procedures |
-| `UPGRADE_PROCEDURE.md` | Upgrade/rollback procedure |
-| `DISASTER_RECOVERY.md` | Backup/restore/recovery procedure |
+| `UPGRADE_PROCEDURE.md` | Upgrade and rollback procedure |
+| `DISASTER_RECOVERY.md` | Backup, restore and recovery procedure |
 | `FAILURE_MODE_MATRIX.md` | Failure detection and response |
 | `RELEASE_CHECKLIST.md` | Release checklist and blockers |
 | `PRODUCTION_ACCEPTANCE.md` | Production acceptance contract |
+| `RELEASE_NOTES_v1.0.0.md` | v1.0.0 release summary |
 
-These documents are the engineering source of truth alongside the implementation and tests. Intentional architectural deviations require a recorded decision.
+Audit and verification implementations live under `tools/`; tests live under `tests/`. Historical phase/readiness notes are intentionally not kept in the repository root.
 
 ## Verification
 
@@ -141,9 +140,9 @@ Production service lifecycle is managed by systemd. Follow `OPERATIONS_RUNBOOK.m
 
 ## Release model
 
-`VERSION` contains the canonical release version. The current candidate is `1.0.0` and the intended Git tag is `v1.0.0`.
+`VERSION` contains the canonical release version. The current release is `1.0.0` and its Git tag is `v1.0.0`.
 
-The tag must point at the exact commit that passes automated acceptance and manual production acceptance. Never tag first and verify later.
+A release tag must point at the exact commit that passes automated acceptance and manual production acceptance. Never tag first and verify later.
 
 ## Zero-cost architecture
 
