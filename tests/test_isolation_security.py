@@ -12,16 +12,12 @@ from helpers.archive import ArchiveSafetyError, extract_archive
 
 
 class IsolationSecurityTests(unittest.TestCase):
-    def test_environment_is_allowlisted(self):
-        env = IsolationService._minimal_environment({"SAFE_VALUE": "ok"})
-        self.assertEqual(env["SAFE_VALUE"], "ok")
+    def test_environment_is_fixed_allowlist(self):
+        env = IsolationService._minimal_environment()
+        self.assertEqual(set(env), {"PATH", "HOME", "LANG", "LC_ALL", "TMPDIR"})
         self.assertNotIn("ASTRA_API_HASH", env)
         self.assertNotIn("API_HASH", env)
         self.assertEqual(env["HOME"], "/tmp")
-
-    def test_environment_rejects_nul(self):
-        with self.assertRaises(ValueError):
-            IsolationService._minimal_environment({"BAD": "x\x00y"})
 
     def test_backend_is_explicit(self):
         service = IsolationService()
@@ -90,7 +86,7 @@ class IsolationSecurityTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 result = await service.run(
-                    ["python3", "-c", "import os; print(os.environ.get('ASTRA_API_HASH', 'MISSING')); print(os.path.exists('/workspace/marker')); print(os.path.exists('/home'))"],
+                    ["python3", "-c", "import os; print(os.environ.get('ASTRA_API_HASH', 'MISSING')); print(os.path.exists('/home')); print(os.path.exists('/workspace'))"],
                     workspace=root,
                     timeout=10,
                 )
@@ -102,7 +98,7 @@ class IsolationSecurityTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("MISSING", result.stdout)
         self.assertIn("False", result.stdout)
-        self.assertIn("False", result.stdout)
+        self.assertIn("True", result.stdout)
 
 
 if __name__ == "__main__":
