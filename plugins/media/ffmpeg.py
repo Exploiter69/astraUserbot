@@ -1,5 +1,6 @@
 import re
 import shlex
+
 from core.context import get_application_context
 from core.registry import register_cmd
 from helpers.hud import render
@@ -29,10 +30,15 @@ async def handle_ffmpeg(event):
     if context is None:
         raise CommandError("Media service is unavailable.")
     media = context.get("media")
+    media.validate_telegram_media(reply.media)
     workspace = await media.create_workspace("ffmpeg")
 
     try:
-        downloaded_path = await event.client.download_media(reply.media, file=workspace.path)
+        downloaded_path = await event.client.download_media(
+            reply.media,
+            file=workspace.path,
+            progress_callback=media.telegram_download_progress(),
+        )
         if not downloaded_path:
             raise CommandError("Failed to download media file.")
         downloaded = media.validate_input(downloaded_path)
@@ -53,7 +59,12 @@ async def handle_ffmpeg(event):
         artifact = media.artifact(workspace, output_name)
 
         await event.edit(render("FFMPEG", ["Uploading processed output..."]))
-        await event.client.send_file(event.chat_id, file=str(artifact.path), caption=f"Processed with: `ffmpeg {' '.join(user_args)}`", reply_to=reply.id)
+        await event.client.send_file(
+            event.chat_id,
+            file=str(artifact.path),
+            caption=f"Processed with: `ffmpeg {' '.join(user_args)}`",
+            reply_to=reply.id,
+        )
         await event.delete()
     finally:
         await media.cleanup(workspace)
