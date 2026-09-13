@@ -5,14 +5,15 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from core.errors import ConfigurationError, ExternalServiceError, ResourceError
-from core.services.ai import AIService, GeminiProvider, GroqProvider
+from core.errors import ConfigurationError, ExternalServiceError, ResourceError, TimeoutError
+from core.services.ai import AIService, GeminiProvider, GroqProvider, OllamaProvider
 from core.services.http import HttpResponse
 
 
 class FakeProvider:
     name = "fake"
     supports_transcription = True
+    is_remote = False
 
     def __init__(self):
         self.calls = []
@@ -34,6 +35,13 @@ class FakeProvider:
         return "fake transcript"
 
 
+class FailingProvider(FakeProvider):
+    is_remote = True
+
+    async def chat(self, *args, **kwargs):
+        raise ExternalServiceError("provider failed")
+
+
 class FakeHttp:
     def __init__(self, response):
         self.response = response
@@ -46,7 +54,7 @@ class FakeHttp:
 
 class AIGatewayTests(unittest.IsolatedAsyncioTestCase):
     def make_service(self, provider=None, **kwargs):
-        service = AIService(object(), provider="groq", **kwargs)
+        service = AIService(object(), provider="groq", fallback_providers=(), **kwargs)
         fake = provider or FakeProvider()
         service._providers["fake"] = fake
         service.provider_name = "fake"
@@ -82,6 +90,15 @@ class AIGatewayTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ResourceError):
             await service.chat([{"role": "user", "content": "12345"}])
 
+    async def test_message_shape_and_count_are_bounded(self):
+        service, _ = self.make_service()
+        with self.assertRaises(ResourceError):
+            await service.chat([{"role": "user", "content": "x", "tool": "bad"}])
+        with self.assertRaises(ResourceError):
+            await service.chat([{"role": "user", "content": "x"}] * 65)
+        with self.assertRaises(ResourceError):
+            await service.chat([{"role": "user", "content": "x" * 50_001}])
+
     async def test_output_is_bounded(self):
         fake = FakeProvider()
 
@@ -93,16 +110,79 @@ class AIGatewayTests(unittest.IsolatedAsyncioTestCase):
         response = await service.chat([{"role": "user", "content": "x"}])
         self.assertEqual(response.text, "xxxxxxx")
 
-    async def test_provider_selection_is_explicit(self):
+    async def test_provider_selection_includes_local_ollama(self):
         service, _ = self.make_service()
         self.assertIn("groq", service.available_providers)
         self.assertIn("gemini", service.available_providers)
-        self.assertNotIn("ollama", service.available_providers)
-        self.assertNotIn("llama.cpp", service.available_providers)
+        self.assertIn("ollama", service.available_providers)
+        self.assertEqual(service.provider_modes["ollama"], "local")
+        self.assertEqual(service.provider_modes["groq"], "remote")
 
     async def test_unknown_provider_is_rejected(self):
         with self.assertRaises(ConfigurationError):
             AIService(object(), provider="does-not-exist")
+
+    async def test_unknown_fallback_is_rejected(self):
+        with self.assertRaises(ConfigurationError):
+            AIService(object(), provider="groq", fallback_providers=("does-not-exist",))
+
+    async def test_fallback_is_used_for_provider_failure(self):
+        service = AIService(object(), provider="first", fallback_providers=("second",))
+        first = FailingProvider()
+        second = FakeProvider()
+        service._providers = {"first": first, "second": second}
+        response = await service.chat([{"role": "user", "content": "hello"}])
+        self.assertEqual(response.provider, "second")
+        self.assertEqual(response.text, "fake response")
+
+    async def test_fallback_does_not_swallow_cancellation(self):
+        class SlowProvider(FakeProvider):
+            async def chat(self, *args, **kwargs):
+                await asyncio.sleep(10)
+                return "never"
+
+        service = AIService(object(), provider="slow", fallback_providers=("fake",))
+        service._providers = {"slow": SlowProvider(), "fake": FakeProvider()}
+        task = asyncio.create_task(service.chat([{"role": "user", "content": "x"}]))
+        await asyncio.sleep(0)
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+
+    async def test_explicit_provider_does_not_fallback(self):
+        service = AIService(object(), provider="first", fallback_providers=("second",))
+        service._providers = {"first": FailingProvider(), "second": FakeProvider()}
+        with self.assertRaises(ExternalServiceError):
+            await service.chat([{"role": "user", "content": "hello"}], provider="first")
+
+    async def test_remote_budget_blocks_before_request(self):
+        service = AIService(object(), provider="groq", fallback_providers=(), max_remote_requests=1)
+        fake = FailingProvider()
+        service._providers["groq"] = fake
+        with self.assertRaises(ExternalServiceError):
+            await service.chat([{"role": "user", "content": "one"}])
+        with self.assertRaises(ResourceError):
+            await service.chat([{"role": "user", "content": "two"}])
+
+    async def test_remote_disabled_allows_local_fallback(self):
+        service = AIService(object(), provider="groq", fallback_providers=("ollama",))
+        service.remote_enabled = False
+        local = FakeProvider()
+        service._providers["ollama"] = local
+        response = await service.chat([{"role": "user", "content": "hello"}])
+        self.assertEqual(response.provider, "ollama")
+
+    async def test_tool_calls_are_rejected(self):
+        response = HttpResponse(
+            200,
+            {},
+            json.dumps({"choices": [{"message": {"content": "", "tool_calls": [{"id": "1"}]}}]}).encode(),
+            "https://example.test/chat/completions",
+        )
+        with self.assertRaises(ExternalServiceError):
+            GroqProvider(FakeHttp(response), "secret").chat(
+                [{"role": "user", "content": "hello"}], model="model", temperature=0.7, max_output_tokens=100, timeout=1
+            )
 
     async def test_transcription_capability_is_enforced(self):
         service, _ = self.make_service()
@@ -146,12 +226,19 @@ class AIGatewayTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(asyncio.CancelledError):
             await task
 
+    async def test_timeout_is_bounded(self):
+        class SlowProvider(FakeProvider):
+            async def chat(self, *args, **kwargs):
+                await asyncio.sleep(10)
+                return "never"
+
+        service, _ = self.make_service(provider=SlowProvider(), timeout=0.01)
+        with self.assertRaises(TimeoutError):
+            await service.chat([{"role": "user", "content": "x"}])
+
     async def test_concurrency_is_bounded(self):
         service, fake = self.make_service(concurrency=2)
-        await asyncio.gather(*[
-            service.chat([{"role": "user", "content": str(index)}])
-            for index in range(6)
-        ])
+        await asyncio.gather(*[service.chat([{"role": "user", "content": str(index)}]) for index in range(6)])
         self.assertLessEqual(fake.maximum_active, 2)
 
     async def test_groq_chat_adapter_parses_openai_response(self):
@@ -164,11 +251,7 @@ class AIGatewayTests(unittest.IsolatedAsyncioTestCase):
         http = FakeHttp(response)
         provider = GroqProvider(http, "secret")
         text = await provider.chat(
-            [{"role": "user", "content": "hello"}],
-            model="model",
-            temperature=0.7,
-            max_output_tokens=100,
-            timeout=1,
+            [{"role": "user", "content": "hello"}], model="model", temperature=0.7, max_output_tokens=100, timeout=1
         )
         self.assertEqual(text, "hello")
         self.assertEqual(http.calls[0][1]["headers"]["Authorization"], "Bearer secret")
@@ -183,11 +266,7 @@ class AIGatewayTests(unittest.IsolatedAsyncioTestCase):
         provider = GroqProvider(FakeHttp(response), "secret")
         with self.assertRaises(ExternalServiceError) as raised:
             await provider.chat(
-                [{"role": "user", "content": "hello"}],
-                model="model",
-                temperature=0.7,
-                max_output_tokens=100,
-                timeout=1,
+                [{"role": "user", "content": "hello"}], model="model", temperature=0.7, max_output_tokens=100, timeout=1
             )
         self.assertNotIn("secret token details", str(raised.exception))
 
@@ -201,14 +280,8 @@ class AIGatewayTests(unittest.IsolatedAsyncioTestCase):
         http = FakeHttp(response)
         provider = GeminiProvider(http, "secret")
         text = await provider.chat(
-            [
-                {"role": "system", "content": "be concise"},
-                {"role": "user", "content": "hello"},
-            ],
-            model="gemini-2.5-flash",
-            temperature=0.0,
-            max_output_tokens=100,
-            timeout=1,
+            [{"role": "system", "content": "be concise"}, {"role": "user", "content": "hello"}],
+            model="gemini-2.5-flash", temperature=0.0, max_output_tokens=100, timeout=1,
         )
         self.assertEqual(text, "hello")
         payload = json.loads(http.calls[0][1]["data"])
@@ -216,6 +289,19 @@ class AIGatewayTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("systemInstruction", payload)
         self.assertEqual(http.calls[0][1]["headers"]["x-goog-api-key"], "secret")
         self.assertNotIn("?key=secret", http.calls[0][0])
+
+    async def test_ollama_adapter_parses_local_response(self):
+        response = HttpResponse(
+            200, {}, json.dumps({"message": {"content": "local hello"}}).encode(), "http://127.0.0.1:11434/api/chat"
+        )
+        http = FakeHttp(response)
+        provider = OllamaProvider(http, "http://127.0.0.1:11434/api")
+        text = await provider.chat(
+            [{"role": "user", "content": "hello"}], model="local-model", temperature=0.0, max_output_tokens=100, timeout=1
+        )
+        self.assertEqual(text, "local hello")
+        payload = json.loads(http.calls[0][1]["data"])
+        self.assertFalse(payload["stream"])
 
 
 if __name__ == "__main__":
