@@ -1,7 +1,8 @@
 import asyncio
+import shutil
 import tempfile
 import unittest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from core.errors import CommandError, ResourceError
 from core.services.media import MediaService
@@ -69,19 +70,64 @@ class MediaServiceTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(argv[:5], ["ffmpeg", "-hide_banner", "-y", "-i", "/workspace/input.mp4"])
                     self.assertIn("-c:v", argv)
                     job.resolve("output.mp4").write_bytes(b"result")
-                else:
-                    self.assertEqual(argv[0], "ffprobe")
-                return SubprocessResult(0, "", "")
+                    return SubprocessResult(0, "", "")
+                self.assertEqual(argv[0], "ffprobe")
+                return SubprocessResult(0, "duration=12.5\nsize=6\n", "")
 
             service.run_isolated = AsyncMock(side_effect=fake_run)
-            _, artifact = await service.run_ffmpeg(
-                workspace=job,
-                input_path=source,
-                output_name="output.mp4",
-                options=["-c:v", "libx264"],
-            )
+            with patch.object(shutil, "which", return_value="/usr/bin/ffprobe"):
+                _, artifact = await service.run_ffmpeg(
+                    workspace=job,
+                    input_path=source,
+                    output_name="output.mp4",
+                    options=["-c:v", "libx264"],
+                )
             self.assertEqual(artifact.size_bytes, 6)
-            self.assertEqual(service.run_isolated.await_count, 2)
+            self.assertEqual(service.run_isolated.await_count, 3)
+            await service.cleanup(job)
+
+    async def test_duration_limit_rejects_long_media(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = WorkspaceService(tmp)
+            service = MediaService(workspace, SubprocessService(), max_duration_seconds=10)
+            job = await service.create_workspace()
+            source = job.resolve("input.mp4")
+            source.write_bytes(b"source")
+            service.run_isolated = AsyncMock(return_value=SubprocessResult(0, "duration=11.0\nsize=6\n", ""))
+            with patch.object(shutil, "which", return_value="/usr/bin/ffprobe"):
+                with self.assertRaises(ResourceError):
+                    await service.verify_media(source, workspace=job)
+            await service.cleanup(job)
+
+    async def test_malformed_media_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = WorkspaceService(tmp)
+            service = MediaService(workspace, SubprocessService())
+            job = await service.create_workspace()
+            source = job.resolve("broken.mp4")
+            source.write_bytes(b"not-media")
+            service.run_isolated = AsyncMock(return_value=SubprocessResult(1, "", "Invalid data"))
+            with patch.object(shutil, "which", return_value="/usr/bin/ffprobe"):
+                with self.assertRaises(CommandError):
+                    await service.verify_media(source, workspace=job)
+            await service.cleanup(job)
+
+    async def test_download_discovers_only_completed_artifacts_and_verifies_media(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = WorkspaceService(tmp)
+            service = MediaService(workspace, SubprocessService())
+            job = await service.create_workspace()
+
+            async def fake_run(argv, *, timeout=None, cwd=None):
+                job.resolve("video.mp4").write_bytes(b"video")
+                job.resolve("partial.part").write_bytes(b"partial")
+                return SubprocessResult(0, "", "")
+
+            service.subprocess.run = AsyncMock(side_effect=fake_run)
+            service.verify_media = AsyncMock(return_value=None)
+            _, artifacts = await service.run_download(["yt-dlp", "https://example.test"], workspace=job)
+            self.assertEqual([item.path.name for item in artifacts], ["video.mp4"])
+            service.verify_media.assert_awaited_once()
             await service.cleanup(job)
 
     async def test_concurrency_slots_bound_media_execution(self):
@@ -107,6 +153,36 @@ class MediaServiceTests(unittest.IsolatedAsyncioTestCase):
                 service.run(["tool", "two"], workspace=job),
             )
             self.assertEqual(peak, 1)
+            await service.cleanup(job)
+
+    async def test_subprocess_cancellation_propagates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = WorkspaceService(tmp)
+            service = MediaService(workspace, SubprocessService())
+            job = await service.create_workspace()
+            started = asyncio.Event()
+
+            async def blocking_run(argv, *, timeout=None, cwd=None):
+                started.set()
+                await asyncio.sleep(60)
+                return SubprocessResult(0, "", "")
+
+            service.subprocess.run = AsyncMock(side_effect=blocking_run)
+            task = asyncio.create_task(service.run(["tool"], workspace=job))
+            await asyncio.wait_for(started.wait(), timeout=1)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+            await service.cleanup(job)
+
+    async def test_disk_exhaustion_guard_fails_before_media_work(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = WorkspaceService(tmp)
+            service = MediaService(workspace, SubprocessService(), min_free_bytes=1)
+            job = await service.create_workspace()
+            with patch.object(shutil, "disk_usage", return_value=shutil._ntuple_diskusage(100, 99, 0)):
+                with self.assertRaises(ResourceError):
+                    await service.run(["tool"], workspace=job)
             await service.cleanup(job)
 
     async def test_rclone_policy_rejects_unsafe_operations(self):
