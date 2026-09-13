@@ -1,8 +1,8 @@
 # AstraUserbot — Detailed Safety Contract
 
 **Status:** Mandatory engineering contract  
-**Version:** 2.0  
-**Applies to:** Core, plugins, commands, events, jobs, HTTP, subprocesses, media, AI, storage, diagnostics
+**Version:** 2.1  
+**Applies to:** Core, plugins, commands, events, jobs, HTTP, subprocesses, media, AI, storage, diagnostics, security
 
 ## 1. Fundamental Rule
 
@@ -202,6 +202,8 @@ User filenames are data, not trusted paths.
 
 Temporary directories are unique per job and cleaned on success, failure, and cancellation. Startup orphan cleanup is required.
 
+Archive extraction must reject absolute/traversal members, links and special files, oversized members, excessive entry counts, and excessive total expansion.
+
 ## 14. Subprocess Safety
 
 Use argv-based execution through SubprocessService.
@@ -223,16 +225,18 @@ FFmpeg, rclone, aria2c, OCR, transcription binaries, and system utilities are pr
 
 Python eval is inherently privileged because plugins share one interpreter.
 
-The implementation must:
+`.eval` must run as an owner-level command in a child process through the reviewed isolation executor when available. The isolation boundary must provide:
 
-- restrict invocation;
-- serialize global stdout/stderr capture;
-- enforce practical time/output limits;
-- avoid claiming sandboxing;
-- prevent secret leakage in returned values/errors;
-- record failures safely.
+- separate namespaces;
+- no host-network access;
+- cleared/minimal environment;
+- workspace-only write access;
+- bounded CPU, memory, file, process, and descriptor resources;
+- practical time/output limits;
+- safe failure reporting;
+- no access to application secrets or host home data.
 
-A Python module boundary is not a security sandbox.
+The evaluated Python code remains arbitrary code inside its child namespace; isolation reduces blast radius but is not a guarantee against a compromised kernel or isolation backend.
 
 ## 16. HTTP Safety
 
@@ -261,6 +265,8 @@ Validate:
 - output type;
 - output size;
 - process lifetime.
+
+FFmpeg, ffprobe, and OCR decoder workloads must use the reviewed isolated child boundary. Network-enabled download/sync workloads remain separate and must use explicit network policy.
 
 Never select output by scanning a shared directory for the newest file.
 
@@ -355,7 +361,7 @@ A broad exception that silently discards archival errors is forbidden in platfor
 
 ## 25. Monitoring
 
-Monitoring is observational by default. `!health` or equivalent diagnostics must not silently mutate the system.
+Monitoring is observational by default. `.health` or equivalent diagnostics must not silently mutate the system.
 
 Automatic remediation requires a separate policy and audit contract.
 
@@ -412,7 +418,8 @@ Permanent tests must cover:
 - subprocess timeout/cancel/output cap;
 - HTTP timeout/size/redirect policy;
 - media workspace isolation;
-- eval serialization;
+- eval isolation and timeout;
+- archive traversal/link rejection;
 - retry exhaustion;
 - lease recovery;
 - verification failure;
@@ -437,6 +444,8 @@ Before accepting a new high-impact feature:
 11. How is success verified?
 12. How is uncertain execution recovered?
 13. Does it require paid infrastructure?
+14. Does untrusted input cross a process boundary?
+15. What filesystem and network policy applies to that boundary?
 
 ## 30. Mandatory Stop Conditions
 
@@ -449,6 +458,7 @@ credential state is uncertain
 external mutation outcome is uncertain and cannot be reconciled
 resource limits cannot be enforced
 verification contract is missing for a required operation
+an explicitly isolated workload cannot obtain the reviewed isolation backend
 ```
 
 ## Final Rule
