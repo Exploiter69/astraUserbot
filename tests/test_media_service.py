@@ -64,6 +64,33 @@ class MediaServiceTests(unittest.IsolatedAsyncioTestCase):
                 progress(1, 11)
             progress(10, 10)
 
+    async def test_guarded_telegram_download_cleans_on_cancellation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = WorkspaceService(tmp)
+            service = MediaService(workspace, SubprocessService(), max_input_bytes=32)
+            job = await service.create_workspace("telegram")
+            started = asyncio.Event()
+
+            class Media:
+                size = 16
+                duration = 1
+
+            async def blocking_download(media, *, file, progress_callback):
+                started.set()
+                progress_callback(16, 16)
+                await asyncio.sleep(60)
+                return str(file / "input.bin")
+
+            task = asyncio.create_task(
+                service.download_telegram_media(blocking_download, Media(), workspace=job)
+            )
+            await asyncio.wait_for(started.wait(), timeout=1)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+            await service.cleanup(job)
+            self.assertFalse(job.path.exists())
+
     async def test_artifact_rejects_missing_empty_and_oversized_outputs(self):
         with tempfile.TemporaryDirectory() as tmp:
             workspace = WorkspaceService(tmp, max_file_bytes=128)
