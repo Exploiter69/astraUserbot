@@ -1,8 +1,9 @@
-"""Read-only isolation/security audit plus a real Bubblewrap execution probe."""
+"""Read-only isolation/security audit plus real Bubblewrap/media probes."""
 
 from __future__ import annotations
 
 import asyncio
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -38,21 +39,11 @@ async def isolated_probe(service: IsolationService) -> dict[str, bool]:
                 "else:\n"
                 "    print('NET=OPEN')\n"
             )
-            result = await service.run(
-                ["python3", "-c", code],
-                workspace=root,
-                timeout=5,
-                max_output_bytes=16 * 1024,
-            )
+            result = await service.run(["python3", "-c", code], workspace=root, timeout=5, max_output_bytes=16 * 1024)
             stdout = result.stdout
             timeout_ok = False
             try:
-                await service.run(
-                    ["python3", "-c", "while True: pass"],
-                    workspace=root,
-                    timeout=0.5,
-                    max_output_bytes=1024,
-                )
+                await service.run(["python3", "-c", "while True: pass"], workspace=root, timeout=0.5, max_output_bytes=1024)
             except TimeoutError:
                 timeout_ok = True
             return {
@@ -64,6 +55,23 @@ async def isolated_probe(service: IsolationService) -> dict[str, bool]:
             }
         finally:
             host_secret.unlink(missing_ok=True)
+
+
+async def malicious_media_probe(service: IsolationService) -> bool:
+    if not shutil.which("ffprobe"):
+        return False
+    with tempfile.TemporaryDirectory(prefix="astra-media-audit-") as tmp:
+        root = Path(tmp)
+        malformed = root / "malicious-media.bin"
+        malformed.write_bytes(os.urandom(1024 * 1024))
+        result = await service.run(
+            ["ffprobe", "-v", "error", "/workspace/malicious-media.bin"],
+            workspace=root,
+            timeout=5,
+            max_output_bytes=64 * 1024,
+            file_bytes=2 * 1024 * 1024,
+        )
+        return result.returncode != 0
 
 
 def archive_probe() -> bool:
@@ -141,10 +149,12 @@ async def main() -> int:
     for key, value in live.items():
         print(f"{key}: {'PASS' if value else 'FAIL'}")
 
+    media_ok = await malicious_media_probe(service)
+    print(f"malicious_media_containment: {'PASS' if media_ok else 'FAIL'}")
     archive_ok = archive_probe()
     print(f"archive_safety_probe: {'PASS' if archive_ok else 'FAIL'}")
 
-    all_checks = {**checks, **live, "archive_safety_probe": archive_ok}
+    all_checks = {**checks, **live, "malicious_media_containment": media_ok, "archive_safety_probe": archive_ok}
     if all(all_checks.values()):
         print("ISOLATION_SECURITY_HARDENING_AUDIT_PASS")
         return 0
