@@ -205,17 +205,24 @@ class JobEngine:
             rows = await self.storage.fetchall("SELECT * FROM jobs ORDER BY created_at DESC LIMIT ?", (limit,))
         return [self._row_to_job(row) for row in rows]
 
-    async def claim(self) -> Job | None:
+    async def claim(self, job_types: tuple[str, ...] | None = None) -> Job | None:
         now = time.time()
         expiry = now + self.lease_seconds
         async with self.storage.lock:
             assert self.storage.conn is not None
             await self.storage.conn.execute("BEGIN IMMEDIATE")
             try:
-                async with self.storage.conn.execute(
-                    "SELECT * FROM jobs WHERE state=? AND available_at<=? ORDER BY priority DESC, created_at LIMIT 1",
-                    (JobState.QUEUED.value, now),
-                ) as cursor:
+                if job_types is not None and not job_types:
+                    await self.storage.conn.rollback()
+                    return None
+                if job_types is None:
+                    query = "SELECT * FROM jobs WHERE state=? AND available_at<=? ORDER BY priority DESC, created_at LIMIT 1"
+                    params: tuple[Any, ...] = (JobState.QUEUED.value, now)
+                else:
+                    placeholders = ",".join("?" for _ in job_types)
+                    query = f"SELECT * FROM jobs WHERE state=? AND available_at<=? AND type IN ({placeholders}) ORDER BY priority DESC, created_at LIMIT 1"
+                    params = (JobState.QUEUED.value, now, *job_types)
+                async with self.storage.conn.execute(query, params) as cursor:
                     row = await cursor.fetchone()
                 if row is None:
                     await self.storage.conn.rollback()
@@ -464,11 +471,11 @@ class JobEngine:
     async def _worker_loop(self) -> None:
         while not self._stop.is_set():
             try:
-                if time.time() - self._last_cleanup >= self.CLEANUP_INTERVAL_SECONDS:
-                    await self.recover_expired()
-                    await self.cleanup()
-                job = await self.claim()
+                job = await self.claim(tuple(self.handlers))
                 if job is None:
+                    if time.time() - self._last_cleanup >= self.CLEANUP_INTERVAL_SECONDS:
+                        await self.recover_expired()
+                        await self.cleanup()
                     try:
                         await asyncio.wait_for(self._stop.wait(), timeout=self.poll_seconds)
                     except asyncio.TimeoutError:
@@ -476,6 +483,7 @@ class JobEngine:
                     continue
                 handler = self.handlers.get(job.type)
                 if handler is None:
+                    logger.warning("Job handler disappeared after claim type=%s id=%s", job.type, job.id)
                     await self._fail_claimed(job, "NO_HANDLER", f"No handler registered for {job.type}", retryable=False)
                     continue
                 task = asyncio.create_task(self._run_job(job, handler), name=f"jobs.execute.{job.id}")
