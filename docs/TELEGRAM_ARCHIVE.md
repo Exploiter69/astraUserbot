@@ -14,7 +14,7 @@ The archive worker does not call raw Telethon transport directly. Telegram histo
 
 ## Scope and bounds
 
-- one durable `TELEGRAM_ARCHIVE` job per request;
+- one durable `TELEGRAM_ARCHIVE` job per active request;
 - maximum 500 messages per job;
 - maximum 100 messages per Telegram history request;
 - history is paged backwards with `max_id`;
@@ -36,6 +36,14 @@ The logical document identity is:
 `archive_message:<peer>:<message_id>`
 
 Repeated execution of the same batch therefore performs an idempotent upsert rather than duplicating FTS rows.
+
+## Enqueue and idempotency
+
+The request payload has a deterministic base idempotency key. While that request already has an active job, a repeated command reuses the existing job instead of creating duplicate work.
+
+Once the existing archive job reaches a terminal state (`COMPLETED`, `FAILED`, `CANCELLED` or `UNCERTAIN`), a new command creates a fresh durable job with a run-specific key. The historical terminal job is retained as evidence; it is never silently deleted or reset.
+
+This means repeating `.archive chat 5` after a completed or failed run is a new archive attempt, while repeated commands during an active run remain deduplicated.
 
 ## Cursor and recovery
 
