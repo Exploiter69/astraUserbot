@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import heapq
+import math
 import time
 from collections import Counter
 from collections.abc import Awaitable, Callable
@@ -30,6 +31,12 @@ BULK = "BULK"
 INTERACTIVE = "INTERACTIVE"
 RECOVERY = "RECOVERY"
 
+NORMAL = "NORMAL"
+PRESSURE = "PRESSURE"
+THROTTLED = "THROTTLED"
+COOLDOWN = "COOLDOWN"
+PROBE = "PROBE"
+
 
 @dataclass(order=True, slots=True)
 class _QueuedCall:
@@ -42,8 +49,115 @@ class _QueuedCall:
     future: asyncio.Future[Any] = field(compare=False)
 
 
+@dataclass(slots=True)
+class _GovernorScope:
+    state: str = NORMAL
+    pressure: int = 0
+    cooldown_until: float = 0.0
+
+
+class AdaptiveTelegramGovernor:
+    """Learn pressure from actual Telegram wait responses at three scopes."""
+
+    def __init__(self) -> None:
+        self._scopes: dict[str, _GovernorScope] = {}
+
+    def _scope(self, key: str) -> _GovernorScope:
+        return self._scopes.setdefault(key, _GovernorScope())
+
+    def _refresh(self, scope: _GovernorScope, now: float) -> None:
+        if scope.state == COOLDOWN and now >= scope.cooldown_until:
+            scope.state = PROBE
+            scope.cooldown_until = 0.0
+
+    def observe_wait(
+        self,
+        method: str,
+        seconds: float,
+        *,
+        peer_key: str | None = None,
+        event: str = "flood_wait",
+    ) -> None:
+        seconds = max(0.0, float(seconds))
+        if seconds <= 0:
+            return
+        now = time.monotonic()
+        keys = ["account", f"method:{method}"]
+        if peer_key is not None:
+            keys.append(f"peer:{peer_key}")
+        for key in keys:
+            scope = self._scope(key)
+            self._refresh(scope, now)
+            scope.pressure = min(8, scope.pressure + 1)
+            scope.cooldown_until = max(scope.cooldown_until, now + seconds)
+            if scope.pressure >= 4:
+                scope.state = COOLDOWN
+            elif scope.pressure >= 2:
+                scope.state = THROTTLED
+            else:
+                scope.state = PRESSURE
+        # Keep the event classification observable without persisting payloads.
+        event_key = f"event:{event}"
+        event_scope = self._scope(event_key)
+        event_scope.pressure = min(8, event_scope.pressure + 1)
+
+    def observe_success(self, method: str, *, peer_key: str | None = None) -> None:
+        now = time.monotonic()
+        keys = ["account", f"method:{method}"]
+        if peer_key is not None:
+            keys.append(f"peer:{peer_key}")
+        for key in keys:
+            scope = self._scope(key)
+            self._refresh(scope, now)
+            if scope.state == PROBE:
+                scope.state = NORMAL
+                scope.pressure = max(0, scope.pressure - 2)
+            elif scope.state in {PRESSURE, THROTTLED}:
+                scope.pressure = max(0, scope.pressure - 1)
+                if scope.pressure == 0:
+                    scope.state = NORMAL
+                elif scope.pressure == 1:
+                    scope.state = PRESSURE
+
+    def can_admit(self, method: str, *, peer_key: str | None = None) -> bool:
+        now = time.monotonic()
+        for key in (f"method:{method}", f"peer:{peer_key}" if peer_key is not None else None):
+            if key is None:
+                continue
+            scope = self._scope(key)
+            self._refresh(scope, now)
+            if scope.state == COOLDOWN and now < scope.cooldown_until:
+                return False
+        return True
+
+    def concurrency_limit(self, configured: int) -> int:
+        scope = self._scope("account")
+        self._refresh(scope, time.monotonic())
+        if scope.state == COOLDOWN:
+            return 1
+        if scope.state == THROTTLED:
+            return max(1, math.ceil(configured / 2))
+        if scope.state == PRESSURE:
+            return max(1, configured - 1)
+        if scope.state == PROBE:
+            return 1
+        return configured
+
+    def snapshot(self) -> dict[str, Any]:
+        now = time.monotonic()
+        result: dict[str, Any] = {}
+        for key, scope in self._scopes.items():
+            self._refresh(scope, now)
+            result[key] = {
+                "state": scope.state,
+                "pressure": scope.pressure,
+                "cooldown_seconds": max(0.0, scope.cooldown_until - now),
+            }
+        return result
+
+
 class TelegramTrafficController:
-    """Centralize Telegram concurrency, priority and per-key pressure control."""
+    """Centralize Telegram concurrency, priority and adaptive pressure control."""
 
     def __init__(
         self,
@@ -69,6 +183,7 @@ class TelegramTrafficController:
         self._peer_active: Counter[str] = Counter()
         self._cooldowns: dict[str, float] = {}
         self._counters: Counter[str] = Counter()
+        self.governor = AdaptiveTelegramGovernor()
 
     async def start(self) -> None:
         if self._closed:
@@ -150,6 +265,21 @@ class TelegramTrafficController:
     def record_flood_wait(
         self, method: str, seconds: float, *, peer_key: str | None = None
     ) -> None:
+        self._record_wait(method, seconds, peer_key=peer_key, event="flood_wait")
+
+    def record_slow_mode(
+        self, method: str, seconds: float, *, peer_key: str | None = None
+    ) -> None:
+        self._record_wait(method, seconds, peer_key=peer_key, event="slow_mode")
+
+    def _record_wait(
+        self,
+        method: str,
+        seconds: float,
+        *,
+        peer_key: str | None,
+        event: str,
+    ) -> None:
         seconds = max(0.0, float(seconds))
         if seconds <= 0:
             return
@@ -159,7 +289,8 @@ class TelegramTrafficController:
             keys.append(f"peer:{peer_key}")
         for key in keys:
             self._cooldowns[key] = max(self._cooldowns.get(key, 0.0), until)
-        self._counters["flood_waits"] += 1
+        self.governor.observe_wait(method, seconds, peer_key=peer_key, event=event)
+        self._counters[event] += 1
 
     def snapshot(self) -> dict[str, Any]:
         now = time.monotonic()
@@ -172,12 +303,14 @@ class TelegramTrafficController:
             "queued": len(self._queue),
             "active": self._active,
             "max_concurrency": self.max_concurrency,
+            "effective_concurrency": self.governor.concurrency_limit(self.max_concurrency),
             "per_method_limit": self.per_method_limit,
             "per_peer_limit": self.per_peer_limit,
             "max_queue": self.max_queue,
             "method_active": dict(self._method_active),
             "peer_active": dict(self._peer_active),
             "cooldowns": cooldowns,
+            "governor": self.governor.snapshot(),
             "counters": dict(self._counters),
         }
 
@@ -185,6 +318,8 @@ class TelegramTrafficController:
         if self._method_active[item.method] >= self.per_method_limit:
             return False
         if item.peer_key is not None and self._peer_active[item.peer_key] >= self.per_peer_limit:
+            return False
+        if not self.governor.can_admit(item.method, peer_key=item.peer_key):
             return False
         if now < self._cooldowns.get(f"method:{item.method}", 0.0):
             return False
@@ -211,7 +346,8 @@ class TelegramTrafficController:
         while not self._closed:
             async with self._condition:
                 while not self._closed and (
-                    self._active >= self.max_concurrency or not self._queue
+                    self._active >= self.governor.concurrency_limit(self.max_concurrency)
+                    or not self._queue
                 ):
                     await self._condition.wait()
                 if self._closed:
@@ -238,6 +374,7 @@ class TelegramTrafficController:
             if item.future.cancelled():
                 return
             result = await item.operation()
+            self.governor.observe_success(item.method, peer_key=item.peer_key)
             if not item.future.done():
                 item.future.set_result(result)
             self._counters["completed"] += 1
