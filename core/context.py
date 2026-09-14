@@ -7,18 +7,9 @@ from pathlib import Path
 from typing import Any, Protocol, TypeVar
 
 from core.services import (
-    CacheService,
-    HttpService,
-    JobEngine,
-    MediaService,
-    SecretStore,
-    StorageService,
-    SubprocessService,
-    TelegramEventCollector,
-    TelegramEventJournal,
-    TelegramFacade,
-    TelegramStateCache,
-    WorkspaceService,
+    CacheService, HttpService, JobEngine, MediaService, SecretStore, StorageService,
+    SubprocessService, TelegramEventCollector, TelegramEventJournal, TelegramEventProjections,
+    TelegramFacade, TelegramStateCache, WorkspaceService,
 )
 from core.services.ai import AIService
 from core.services.flags import FeatureFlagService
@@ -29,7 +20,6 @@ from core.services.telegram_recorder import TelegramOperationRecorder
 from core.tasks import TaskSupervisor
 
 logger = logging.getLogger("astra.context")
-
 T = TypeVar("T")
 _application_context: "ApplicationContext | None" = None
 
@@ -49,29 +39,19 @@ class ApplicationContext:
         self.tasks = TaskSupervisor()
         self._started: list[str] = []
         self._closed = False
-
         self.register("storage", StorageService(self.project_root))
         self.register("cache", CacheService(self.project_root))
         self.register("http", HttpService())
         self.register("subprocess", SubprocessService())
         self.register("telegram_state", TelegramStateCache(self.get("storage")))
-        self.register(
-            "telegram",
-            TelegramFacade(
-                client,
-                recorder=TelegramOperationRecorder(self.get("storage")),
-                state_cache=self.get("telegram_state"),
-            ),
-        )
+        self.register("telegram", TelegramFacade(client, recorder=TelegramOperationRecorder(self.get("storage")), state_cache=self.get("telegram_state")))
         self.register("telegram_event_journal", TelegramEventJournal(self.get("storage")))
         self.register("telegram_events", TelegramEventCollector(client))
         self.get("telegram_events").add_sink(self.get("telegram_event_journal").append)
+        self.register("telegram_event_projections", TelegramEventProjections(self.get("storage"), self.get("telegram_event_journal")))
         self.register("workspace", WorkspaceService(self.project_root))
         self.register("isolation", IsolationService())
-        self.register(
-            "media",
-            MediaService(self.get("workspace"), self.get("subprocess"), self.get("isolation")),
-        )
+        self.register("media", MediaService(self.get("workspace"), self.get("subprocess"), self.get("isolation")))
         self.register("jobs", JobEngine(self.get("storage")))
         self.register("secrets", SecretStore())
         self.register("ai", AIService(self.get("http")))
@@ -126,11 +106,7 @@ class ApplicationContext:
         self._started.clear()
 
     def snapshot(self) -> dict[str, Any]:
-        return {
-            "state": "CLOSED" if self._closed else "RUNNING",
-            "services": ",".join(self.services),
-            "task_count": len(self.tasks.active()),
-        }
+        return {"state": "CLOSED" if self._closed else "RUNNING", "services": ",".join(self.services), "task_count": len(self.tasks.active())}
 
 
 def set_application_context(context: ApplicationContext | None) -> None:
