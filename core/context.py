@@ -9,7 +9,7 @@ from typing import Any, Protocol, TypeVar
 from core.services import (
     CacheService, HttpService, IntelGraph, JobEngine, MediaService, SecretStore, StorageService,
     SubprocessService, TelegramEventCollector, TelegramEventJournal, TelegramEventProjections,
-    TelegramFacade, TelegramStateCache, WorkspaceService,
+    TelegramEventReplay, TelegramFacade, TelegramStateCache, WorkspaceService,
 )
 from core.services.ai import AIService
 from core.services.flags import FeatureFlagService
@@ -48,6 +48,7 @@ class ApplicationContext:
         self.register("telegram_event_journal", TelegramEventJournal(self.get("storage")))
         self.register("telegram_events", TelegramEventCollector(client))
         self.register("telegram_event_projections", TelegramEventProjections(self.get("storage"), self.get("telegram_event_journal")))
+        self.register("telegram_event_replay", TelegramEventReplay(self.get("storage"), self.get("telegram_event_journal"), self.get("telegram_event_projections")))
         self.get("telegram_events").add_sink(self.get("telegram_event_journal").append)
         self.get("telegram_events").add_sink(self._project_event)
         self.register("intelgraph", IntelGraph(self.get("storage")))
