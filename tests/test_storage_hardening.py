@@ -25,35 +25,22 @@ class StorageHardeningTests(unittest.IsolatedAsyncioTestCase):
         second = StorageService(self.root)
         await self.storage.close()
         await asyncio.gather(first.start(), second.start())
-        self.assertEqual(
-            [row[0] for row in await first.fetchall("SELECT version FROM schema_migrations ORDER BY version")],
-            [1, 2, 3, 4, 5],
-        )
+        self.assertEqual([row[0] for row in await first.fetchall("SELECT version FROM schema_migrations ORDER BY version")], [1, 2, 3, 4, 5, 6, 7])
         await first.close()
         await second.close()
         self.storage = StorageService(self.root)
         await self.storage.start()
 
     async def test_transaction_rolls_back_all_statements(self):
-        await self.storage.execute(
-            "INSERT INTO audit_events(kind,subject_id,payload_json,created_at) VALUES(?,?,?,?)",
-            ("before", "x", "{}", 1),
-        )
+        await self.storage.execute("INSERT INTO audit_events(kind,subject_id,payload_json,created_at) VALUES(?,?,?,?)", ("before", "x", "{}", 1))
         with self.assertRaises(StorageError):
-            await self.storage.transaction([
-                ("INSERT INTO audit_events(kind,subject_id,payload_json,created_at) VALUES(?,?,?,?)", ("atomic", "x", "{}", 2)),
-                ("INSERT INTO missing_table(value) VALUES(?)", ("boom",)),
-            ])
+            await self.storage.transaction([("INSERT INTO audit_events(kind,subject_id,payload_json,created_at) VALUES(?,?,?,?)", ("atomic", "x", "{}", 2)), ("INSERT INTO missing_table(value) VALUES(?)", ("boom",))])
         row = await self.storage.fetchone("SELECT COUNT(*) FROM audit_events WHERE kind='atomic'")
         self.assertEqual(row[0], 0)
 
     async def test_concurrent_writers_preserve_all_rows(self):
         async def write(index: int):
-            await self.storage.execute(
-                "INSERT INTO audit_events(kind,subject_id,payload_json,created_at) VALUES(?,?,?,?)",
-                ("concurrent", str(index), "{}", float(index)),
-            )
-
+            await self.storage.execute("INSERT INTO audit_events(kind,subject_id,payload_json,created_at) VALUES(?,?,?,?)", ("concurrent", str(index), "{}", float(index)))
         await asyncio.gather(*(write(index) for index in range(50)))
         row = await self.storage.fetchone("SELECT COUNT(*) FROM audit_events WHERE kind='concurrent'")
         self.assertEqual(row[0], 50)
@@ -65,10 +52,7 @@ class StorageHardeningTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_foreign_key_violations_are_rejected(self):
         with self.assertRaises(StorageError):
-            await self.storage.execute(
-                "INSERT INTO commands(pattern,plugin_name,aliases_json,metadata_json,updated_at) VALUES(?,?,?,?,?)",
-                ("broken", "missing-plugin", "[]", "{}", 1),
-            )
+            await self.storage.execute("INSERT INTO commands(pattern,plugin_name,aliases_json,metadata_json,updated_at) VALUES(?,?,?,?,?)", ("broken", "missing-plugin", "[]", "{}", 1))
 
     async def test_fts_upsert_and_consistency(self):
         (self.root / "README.md").write_text("durable storage", encoding="utf-8")
@@ -87,10 +71,7 @@ class StorageHardeningTests(unittest.IsolatedAsyncioTestCase):
         await search.close()
 
     async def test_verified_backup_and_restore_round_trip(self):
-        await self.storage.execute(
-            "INSERT INTO audit_events(kind,subject_id,payload_json,created_at) VALUES(?,?,?,?)",
-            ("backup-test", "restore", "{\"ok\":true}", 123),
-        )
+        await self.storage.execute("INSERT INTO audit_events(kind,subject_id,payload_json,created_at) VALUES(?,?,?,?)", ("backup-test", "restore", "{\"ok\":true}", 123))
         backup = self.root / "verified-backup.db"
         await self.storage.backup(backup)
         conn = sqlite3.connect(backup)
@@ -99,16 +80,12 @@ class StorageHardeningTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM audit_events WHERE kind='backup-test'").fetchone()[0], 1)
         finally:
             conn.close()
-
         await self.storage.close()
         restored = StorageService(self.root / "restored")
         await restored.restore(backup)
         await restored.start()
         self.assertTrue(await restored.integrity_check())
-        self.assertEqual(
-            (await restored.fetchone("SELECT COUNT(*) FROM audit_events WHERE kind='backup-test'"))[0],
-            1,
-        )
+        self.assertEqual((await restored.fetchone("SELECT COUNT(*) FROM audit_events WHERE kind='backup-test'"))[0], 1)
         await restored.close()
         self.storage = StorageService(self.root)
         await self.storage.start()
@@ -161,10 +138,7 @@ class LegacyPluginDatabaseHardeningTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.db.fetchone("PRAGMA journal_mode"))[0].lower(), "wal")
         self.assertTrue(await self.db.integrity_check())
         with self.assertRaises(DatabaseError):
-            await self.db.transaction([
-                ("INSERT INTO values_table(id,value) VALUES(?,?)", (1, "ok")),
-                ("INSERT INTO missing_table(value) VALUES(?)", ("boom",)),
-            ])
+            await self.db.transaction([("INSERT INTO values_table(id,value) VALUES(?,?)", (1, "ok")), ("INSERT INTO missing_table(value) VALUES(?)", ("boom",))])
         self.assertEqual((await self.db.fetchone("SELECT COUNT(*) FROM values_table"))[0], 0)
         await self.db.execute("INSERT INTO values_table(id,value) VALUES(?,?)", (1, "ok"))
         backup = self.db.path.parent / f"{self.name}.backup.db"
