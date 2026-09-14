@@ -70,6 +70,27 @@ class TelegramFacade:
             kwargs["caption"] = caption
         return await self._call("send_file", entity, file, operation_class=MEDIA, priority=P2_NORMAL, **kwargs)
 
+    async def download_media(
+        self,
+        media: Any,
+        *,
+        file: Any = None,
+        progress_callback: Any = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Download Telegram media through the governed MEDIA transport path."""
+        if file is not None:
+            kwargs["file"] = file
+        if progress_callback is not None:
+            kwargs["progress_callback"] = progress_callback
+        return await self._call(
+            "download_media",
+            media,
+            operation_class=MEDIA,
+            priority=P2_NORMAL,
+            **kwargs,
+        )
+
     async def edit_message(self, entity: Any, message: Any, text: str, **kwargs: Any) -> Any:
         return await self._call("edit_message", entity, message, text, operation_class=WRITE, priority=P1_INTERACTIVE, **kwargs)
 
