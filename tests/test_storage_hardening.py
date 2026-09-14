@@ -25,7 +25,7 @@ class StorageHardeningTests(unittest.IsolatedAsyncioTestCase):
         second = StorageService(self.root)
         await self.storage.close()
         await asyncio.gather(first.start(), second.start())
-        self.assertEqual([row[0] for row in await first.fetchall("SELECT version FROM schema_migrations ORDER BY version")], [1, 2, 3, 4, 5, 6, 7])
+        self.assertEqual([row[0] for row in await first.fetchall("SELECT version FROM schema_migrations ORDER BY version")], [1, 2, 3, 4, 5, 6, 7, 8])
         await first.close()
         await second.close()
         self.storage = StorageService(self.root)
