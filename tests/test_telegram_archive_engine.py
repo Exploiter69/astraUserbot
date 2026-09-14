@@ -8,6 +8,7 @@ import pytest
 from core.services.jobs import JobError
 from core.services.search import SearchService
 from core.services.storage import StorageService
+from core.services.telegram_archive import TelegramArchiveJobModel
 from core.services.telegram_archive_engine import TelegramArchiveService
 
 
@@ -54,6 +55,13 @@ class FakeJobs:
         self.progress.append(progress)
 
 
+async def seed_job(storage: StorageService, job_id: str, payload: dict) -> None:
+    await storage.execute(
+        "INSERT INTO jobs(id,type,state,payload_json,owner,parent_id,idempotency_key,resource_class,priority,created_at,updated_at,available_at,max_attempts,verify_required) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (job_id, TelegramArchiveJobModel.JOB_TYPE, "QUEUED", __import__("json").dumps(payload), None, None, None, "telegram_archive", 0, 0.0, 0.0, 0.0, 3, 0),
+    )
+
+
 @pytest.mark.asyncio
 async def test_archive_worker_is_bounded_resumable_and_searchable(tmp_path: Path):
     storage = StorageService(tmp_path)
@@ -65,7 +73,9 @@ async def test_archive_worker_is_bounded_resumable_and_searchable(tmp_path: Path
     service = TelegramArchiveService(storage, telegram, search, FakeMedia(), jobs, tmp_path)
     await service.start()
 
-    job = type("Job", (), {"id": "archive-job", "payload": {"peer": "123", "limit": 101, "min_message_id": 0, "include_media": False}})()
+    payload = {"peer": "123", "limit": 101, "min_message_id": 0, "include_media": False}
+    await seed_job(storage, "archive-job", payload)
+    job = type("Job", (), {"id": "archive-job", "payload": payload})()
     result = await service._handle_job(job)
 
     assert result["archived"] == 101
@@ -106,9 +116,11 @@ async def test_archive_worker_resume_uses_durable_archived_count(tmp_path: Path)
     telegram = ResumeTelegram()
     service = TelegramArchiveService(storage, telegram, search, FakeMedia(), jobs, tmp_path)
     await service.start()
+    payload = {"peer": "123", "limit": 5, "min_message_id": 0, "include_media": False}
+    await seed_job(storage, "resume-job", payload)
     await service._save_cursor("resume-job", 2, 3, 0, 0)
 
-    job = type("Job", (), {"id": "resume-job", "payload": {"peer": "123", "limit": 5, "min_message_id": 0, "include_media": False}})()
+    job = type("Job", (), {"id": "resume-job", "payload": payload})()
     result = await service._handle_job(job)
 
     assert result["archived"] == 5
@@ -130,7 +142,9 @@ async def test_archive_worker_classifies_fetch_failures_as_retryable(tmp_path: P
 
     service = TelegramArchiveService(storage, FailingTelegram(), search, FakeMedia(), jobs, tmp_path)
     await service.start()
-    job = type("Job", (), {"id": "failure-job", "payload": {"peer": "123", "limit": 1, "min_message_id": 0, "include_media": False}})()
+    payload = {"peer": "123", "limit": 1, "min_message_id": 0, "include_media": False}
+    await seed_job(storage, "failure-job", payload)
+    job = type("Job", (), {"id": "failure-job", "payload": payload})()
 
     with pytest.raises(JobError) as raised:
         await service._handle_job(job)
@@ -173,7 +187,7 @@ async def test_archive_media_is_content_addressed(tmp_path: Path):
     service = TelegramArchiveService(storage, Telegram(), search, Media(), jobs, tmp_path)
     await service.start()
     message = FakeMessage(1, "with media", media=object())
-    request = type("Request", (), {"include_media": True})()
+    request = type("Request", (), {"peer": "123", "include_media": True})()
     metadata = await service._archive_message(request, message, job_id="media-job", media_bytes_used=0, media_count=0)
 
     assert metadata["media_status"] == "ARCHIVED"
