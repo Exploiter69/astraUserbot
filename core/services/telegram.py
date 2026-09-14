@@ -100,6 +100,73 @@ class TelegramFacade:
             self.state_cache.mark_dialog_snapshot(limit=len(dialogs))
         return list(dialogs)
 
+    async def get_capabilities(self, entity: Any, *, fresh: bool = True) -> dict[str, Any]:
+        """Observe peer capabilities without treating the observation as authority.
+
+        Cached observations are returned while fresh. A stale/missing observation
+        resolves the peer and, for permission-bearing peers, asks Telegram for the
+        current account permissions. The observation is then persisted through the
+        existing bounded entity cache. Mutation callers must still query Telegram
+        through their normal authorized operation path.
+        """
+        if self.state_cache is not None:
+            state = await self.state_cache.get_entity_state(entity, fresh=fresh)
+            if state is not None and state.capabilities:
+                return dict(state.capabilities)
+
+        resolved = await self.get_entity(entity)
+        capabilities: dict[str, Any] = {
+            "can_read": True,
+            "can_send": None,
+            "can_edit": None,
+            "can_delete": None,
+            "can_pin": None,
+            "can_react": None,
+            "slow_mode_seconds": None,
+            "restricted": None,
+            "observed_at": time.time(),
+        }
+
+        try:
+            permissions = await self._call(
+                "get_permissions",
+                resolved,
+                "me",
+                operation_class=DISCOVERY,
+                priority=P2_NORMAL,
+            )
+            mapping = {
+                "can_send": "send_messages",
+                "can_edit": "edit_messages",
+                "can_delete": "delete_messages",
+                "can_pin": "pin_messages",
+                "can_react": "send_reactions",
+            }
+            for capability, attribute in mapping.items():
+                value = getattr(permissions, attribute, None)
+                if value is not None:
+                    capabilities[capability] = bool(value)
+        except Exception as exc:
+            capabilities["permissions_observation"] = "UNAVAILABLE"
+            capabilities["permissions_error"] = type(exc).__name__
+
+        slow_mode = getattr(resolved, "slowmode_seconds", None)
+        if slow_mode is None:
+            slow_mode = getattr(resolved, "slow_mode_seconds", None)
+        if slow_mode is not None:
+            capabilities["slow_mode_seconds"] = int(slow_mode)
+
+        restricted = getattr(resolved, "restricted", None)
+        if restricted is not None:
+            capabilities["restricted"] = bool(restricted)
+
+        if self.state_cache is not None:
+            try:
+                await self.state_cache.remember_entity(entity, resolved, capabilities=capabilities)
+            except Exception:
+                logger.warning("Telegram capability cache write failed", exc_info=True)
+        return capabilities
+
     def traffic_snapshot(self) -> dict[str, Any]:
         return self.traffic.snapshot()
 
