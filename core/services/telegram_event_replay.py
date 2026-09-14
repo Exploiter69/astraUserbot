@@ -79,7 +79,6 @@ class TelegramEventReplay:
         if run["state"] not in {"RUNNING", "PAUSED"}:
             raise RuntimeError(f"Replay run is not resumable: {run['state']}")
         await self.storage.execute("UPDATE telegram_replay_runs SET state='RUNNING', updated_at=? WHERE run_id=?", (time.time(), run_id))
-        self._cancelled = False
 
         try:
             while not self._cancelled:
@@ -127,6 +126,7 @@ class TelegramEventReplay:
         return self._summary(await self._get_run(run_id))
 
     async def resume(self, run_id: str, *, batch_size: int = MAX_BATCH) -> dict[str, int | str]:
+        self._cancelled = False
         return await self.replay(run_id, batch_size=batch_size)
 
     async def status(self, run_id: str) -> dict[str, int | str]:
