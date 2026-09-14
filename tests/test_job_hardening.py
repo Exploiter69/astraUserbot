@@ -83,6 +83,28 @@ class JobHardeningTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(failed.error_code, "PERMANENT")
         self.assertEqual(failed.error_message, "final failure")
 
+    async def test_worker_does_not_consume_unregistered_job_type(self):
+        engine = JobEngine(self.storage, worker_id="handler-worker", poll_seconds=0.01)
+        unknown = await engine.enqueue("NOT_REGISTERED")
+        executed = asyncio.Event()
+
+        async def handler(job):
+            self.assertEqual(job.type, "REGISTERED")
+            executed.set()
+            return {"ok": True}
+
+        engine.register_handler("REGISTERED", handler)
+        known = await engine.enqueue("REGISTERED")
+        await engine.start()
+        try:
+            await asyncio.wait_for(executed.wait(), timeout=1.0)
+            await asyncio.sleep(0.02)
+            self.assertEqual((await engine.get(known.id)).state, JobState.COMPLETED)
+            self.assertEqual((await engine.get(unknown.id)).state, JobState.QUEUED)
+            self.assertEqual((await engine.get(unknown.id)).attempt_count, 0)
+        finally:
+            await engine.close()
+
     async def test_cancel_queued_is_terminal_and_cancel_active_is_uncertain(self):
         engine = JobEngine(self.storage, worker_id="cancel-worker")
         queued = await engine.enqueue("TEST")
