@@ -5,11 +5,10 @@ from __future__ import annotations
 import hashlib
 import json
 import time
-from dataclasses import asdict
 from typing import Any
 
-from core.services.telegram_events import TelegramEvent
 from core.services.storage import StorageService
+from core.services.telegram_events import TelegramEvent
 
 
 class TelegramEventJournal:
@@ -55,6 +54,11 @@ class TelegramEventJournal:
         await self.storage.execute(
             "CREATE INDEX IF NOT EXISTS idx_telegram_event_state_time ON telegram_event_journal(processing_state, created_at)"
         )
+        # A process crash can leave a claimed event in PROCESSING. Projection
+        # operations are idempotent, so make interrupted work retryable on restart.
+        await self.storage.execute(
+            "UPDATE telegram_event_journal SET processing_state='PENDING' WHERE processing_state='PROCESSING'"
+        )
         self._started = True
 
     async def close(self) -> None:
@@ -88,22 +92,10 @@ class TelegramEventJournal:
                  entity_id, payload_json, schema_version, processing_state, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?)
                 """,
-                (
-                    event.event_id,
-                    fingerprint,
-                    event.event_type,
-                    event.observed_at,
-                    event.source_peer,
-                    event.message_id,
-                    event.entity_id,
-                    payload,
-                    event.schema_version,
-                    now,
-                ),
+                (event.event_id, fingerprint, event.event_type, event.observed_at, event.source_peer,
+                 event.message_id, event.entity_id, payload, event.schema_version, now),
             )
         except Exception as exc:
-            # The unique fingerprint is the idempotency boundary. Avoid making a
-            # duplicate event a failed Telegram operation for downstream callers.
             if "UNIQUE constraint failed: telegram_event_journal.fingerprint" in str(exc):
                 return False
             raise
@@ -111,15 +103,14 @@ class TelegramEventJournal:
         return True
 
     async def get(self, event_id: str) -> dict[str, Any] | None:
-        row = await self.storage.fetchone(
-            "SELECT * FROM telegram_event_journal WHERE event_id=?", (event_id,)
-        )
+        row = await self.storage.fetchone("SELECT * FROM telegram_event_journal WHERE event_id=?", (event_id,))
         return dict(row) if row else None
 
     async def list_pending(self, *, limit: int = 100) -> list[dict[str, Any]]:
+        """Return pending and previously failed events in FIFO order."""
         bounded = max(1, min(int(limit), 1000))
         rows = await self.storage.fetchall(
-            "SELECT * FROM telegram_event_journal WHERE processing_state='PENDING' ORDER BY id LIMIT ?",
+            "SELECT * FROM telegram_event_journal WHERE processing_state IN ('PENDING', 'FAILED') ORDER BY id LIMIT ?",
             (bounded,),
         )
         return [dict(row) for row in rows]
@@ -147,14 +138,13 @@ class TelegramEventJournal:
         return cursor.rowcount == 1
 
     async def mark_failed(self, event_id: str, error: str) -> bool:
-        bounded_error = str(error)[:1024]
         cursor = await self.storage.execute(
             """
             UPDATE telegram_event_journal
             SET processing_state='FAILED', last_error=?
             WHERE event_id=? AND processing_state='PROCESSING'
             """,
-            (bounded_error, event_id),
+            (str(error)[:1024], event_id),
         )
         return cursor.rowcount == 1
 
