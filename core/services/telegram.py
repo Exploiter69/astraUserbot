@@ -1,4 +1,4 @@
-"""Telegram operation facade with centralized traffic governance."""
+"""Telegram operation facade with centralized traffic governance and state caching."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from telethon.errors import FloodWaitError, SlowModeWaitError
 
 from core.errors import ExternalServiceError, TimeoutError
 from core.services.telegram_recorder import TelegramOperationRecorder, request_fingerprint
+from core.services.telegram_state import TelegramStateCache
 from core.services.telegram_traffic import (
     DESTRUCTIVE,
     DISCOVERY,
@@ -41,6 +42,7 @@ class TelegramFacade:
         per_peer_limit: int = 2,
         max_queue: int = 512,
         recorder: TelegramOperationRecorder | None = None,
+        state_cache: TelegramStateCache | None = None,
     ) -> None:
         self.client = client
         self.flood_wait_cap = max(0.0, float(flood_wait_cap))
@@ -52,6 +54,7 @@ class TelegramFacade:
             max_queue=max_queue,
         )
         self.recorder = recorder
+        self.state_cache = state_cache
 
     async def start(self) -> None:
         await self.traffic.start()
@@ -74,10 +77,33 @@ class TelegramFacade:
         return await self._call("delete_messages", entity, message_ids, operation_class=DESTRUCTIVE, priority=P1_INTERACTIVE, **kwargs)
 
     async def get_entity(self, entity: Any) -> Any:
-        return await self._call("get_entity", entity, operation_class=DISCOVERY, priority=P2_NORMAL)
+        if self.state_cache is None:
+            return await self._call("get_entity", entity, operation_class=DISCOVERY, priority=P2_NORMAL)
+        return await self.state_cache.resolve_entity(
+            entity,
+            lambda: self._call("get_entity", entity, operation_class=DISCOVERY, priority=P2_NORMAL),
+        )
+
+    async def get_dialogs(self, *, limit: int | None = None, refresh: bool = False) -> list[Any]:
+        """Return dialogs through the governed transport and populate the bounded cache."""
+        if self.state_cache is not None and not refresh:
+            cached = self.state_cache.memory_dialogs(limit=limit)
+            if cached is not None:
+                return cached
+        dialogs = await self._call("get_dialogs", limit=limit, operation_class=DISCOVERY, priority=P2_NORMAL)
+        if self.state_cache is not None:
+            for dialog in dialogs:
+                try:
+                    await self.state_cache.remember_dialog(dialog)
+                except Exception:
+                    logger.warning("Telegram dialog cache write failed", exc_info=True)
+        return list(dialogs)
 
     def traffic_snapshot(self) -> dict[str, Any]:
         return self.traffic.snapshot()
+
+    def state_snapshot(self) -> dict[str, Any]:
+        return self.state_cache.snapshot() if self.state_cache is not None else {}
 
     async def _record(
         self,
