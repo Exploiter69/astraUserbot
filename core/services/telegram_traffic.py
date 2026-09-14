@@ -85,7 +85,7 @@ class TelegramTrafficController:
             self._condition.notify_all()
         for item in queued:
             if not item.future.done():
-                item.future.set_exception(asyncio.CancelledError())
+                item.future.cancel()
         if self._dispatcher is not None:
             self._dispatcher.cancel()
             try:
@@ -94,9 +94,9 @@ class TelegramTrafficController:
                 pass
             self._dispatcher = None
         running = list(self._running)
+        for task in running:
+            task.cancel()
         if running:
-            for task in running:
-                task.cancel()
             await asyncio.gather(*running, return_exceptions=True)
         self._running.clear()
 
@@ -132,7 +132,7 @@ class TelegramTrafficController:
                 ),
             )
             self._counters["queued"] += 1
-            self._condition.notify()
+            self._condition.notify_all()
         try:
             return await future
         except asyncio.CancelledError:
@@ -211,12 +211,18 @@ class TelegramTrafficController:
                     return
                 item = self._pop_eligible()
                 if item is None:
-                    await asyncio.sleep(0.01)
-                    continue
-                self._active += 1
-                self._method_active[item.method] += 1
-                if item.peer_key is not None:
-                    self._peer_active[item.peer_key] += 1
+                    # Cooldowns may expire without a new enqueue; do not hold the
+                    # condition lock while yielding to the event loop.
+                    waiter = asyncio.create_task(asyncio.sleep(0.01))
+                else:
+                    waiter = None
+                    self._active += 1
+                    self._method_active[item.method] += 1
+                    if item.peer_key is not None:
+                        self._peer_active[item.peer_key] += 1
+            if waiter is not None:
+                await waiter
+                continue
             task = asyncio.create_task(self._run(item))
             self._running.add(task)
             task.add_done_callback(self._task_done)
