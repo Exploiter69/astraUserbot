@@ -47,6 +47,7 @@ class _QueuedCall:
     operation_class: str = field(compare=False)
     operation: Callable[[], Awaitable[Any]] = field(compare=False)
     future: asyncio.Future[Any] = field(compare=False)
+    queued_at: float = field(compare=False, default_factory=time.monotonic)
 
 
 @dataclass(slots=True)
@@ -97,7 +98,6 @@ class AdaptiveTelegramGovernor:
                 scope.state = THROTTLED
             else:
                 scope.state = PRESSURE
-        # Keep the event classification observable without persisting payloads.
         event_key = f"event:{event}"
         event_scope = self._scope(event_key)
         event_scope.pressure = min(8, event_scope.pressure + 1)
@@ -167,11 +167,13 @@ class TelegramTrafficController:
         per_method_limit: int = 4,
         per_peer_limit: int = 2,
         max_queue: int = 512,
+        starvation_timeout: float = 1.0,
     ) -> None:
         self.max_concurrency = max(1, int(max_concurrency))
         self.per_method_limit = max(1, int(per_method_limit))
         self.per_peer_limit = max(1, int(per_peer_limit))
         self.max_queue = max(1, int(max_queue))
+        self.starvation_timeout = max(0.01, float(starvation_timeout))
         self._queue: list[_QueuedCall] = []
         self._condition = asyncio.Condition()
         self._dispatcher: asyncio.Task[None] | None = None
@@ -247,6 +249,7 @@ class TelegramTrafficController:
                     str(operation_class),
                     operation,
                     future,
+                    time.monotonic(),
                 ),
             )
             self._counters["queued"] += 1
@@ -300,6 +303,9 @@ class TelegramTrafficController:
             for key, deadline in self._cooldowns.items()
             if deadline > now
         }
+        starved = sum(
+            1 for item in self._queue if now - item.queued_at >= self.starvation_timeout
+        )
         return {
             "queued": len(self._queue),
             "active": self._active,
@@ -308,6 +314,8 @@ class TelegramTrafficController:
             "per_method_limit": self.per_method_limit,
             "per_peer_limit": self.per_peer_limit,
             "max_queue": self.max_queue,
+            "starvation_timeout": self.starvation_timeout,
+            "starved": starved,
             "method_active": dict(self._method_active),
             "peer_active": dict(self._peer_active),
             "cooldowns": cooldowns,
@@ -332,16 +340,27 @@ class TelegramTrafficController:
 
     def _pop_eligible(self) -> _QueuedCall | None:
         now = time.monotonic()
-        for index, item in enumerate(self._queue):
-            if not self._eligible(item, now):
-                continue
-            selected = self._queue[index]
-            last = self._queue.pop()
-            if index < len(self._queue):
-                self._queue[index] = last
-                heapq.heapify(self._queue)
-            return selected
-        return None
+        eligible = [item for item in self._queue if self._eligible(item, now)]
+        if not eligible:
+            return None
+
+        # Priority is the default policy, but no request may wait indefinitely.
+        # Once a request reaches the starvation threshold, oldest-waiting work is
+        # promoted for one dispatch opportunity. This preserves P0/P1 preference
+        # under normal load while guaranteeing progress for P2-P5 traffic.
+        starved = [
+            item for item in eligible if now - item.queued_at >= self.starvation_timeout
+        ]
+        if starved:
+            selected = min(starved, key=lambda item: (item.queued_at, item.sequence))
+        else:
+            selected = min(eligible, key=lambda item: (item.priority, item.sequence))
+
+        self._queue.remove(selected)
+        heapq.heapify(self._queue)
+        if now - selected.queued_at >= self.starvation_timeout:
+            self._counters["starvation_promotions"] += 1
+        return selected
 
     async def _dispatch_loop(self) -> None:
         while not self._closed:
