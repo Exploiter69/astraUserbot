@@ -85,6 +85,25 @@ class TelegramStateCacheTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(second, client.entity)
         self.assertEqual(client.calls, 1)
 
+    async def test_facade_reuses_fresh_dialog_snapshot(self):
+        class Client:
+            def __init__(self):
+                self.calls = 0
+                self.dialogs = [TelegramStateCacheTests.dialog(1, "one")]
+
+            async def get_dialogs(self, **_kwargs):
+                self.calls += 1
+                return self.dialogs
+
+        client = Client()
+        facade = TelegramFacade(client, retries=0, state_cache=self.cache)
+        first = await facade.get_dialogs(limit=1)
+        second = await facade.get_dialogs(limit=1)
+        await facade.close()
+        self.assertEqual(client.calls, 1)
+        self.assertEqual(first, second)
+        self.assertEqual(first[0].entity.title, "one")
+
     async def test_concurrent_entity_resolution_is_single_flight(self):
         calls = 0
         started = asyncio.Event()
