@@ -61,6 +61,8 @@ class TelegramStateCache:
         self._entities: OrderedDict[str, tuple[float, Any]] = OrderedDict()
         self._entity_states: OrderedDict[str, EntityState] = OrderedDict()
         self._dialogs: OrderedDict[str, tuple[float, Any]] = OrderedDict()
+        self._dialog_snapshot_at = 0.0
+        self._dialog_snapshot_limit = 0
         self._inflight: dict[str, asyncio.Future[Any]] = {}
         self._lock_guard = asyncio.Lock()
         self._started = False
@@ -79,6 +81,8 @@ class TelegramStateCache:
         self._entities.clear()
         self._entity_states.clear()
         self._dialogs.clear()
+        self._dialog_snapshot_at = 0.0
+        self._dialog_snapshot_limit = 0
         async with self._lock_guard:
             for future in self._inflight.values():
                 if not future.done():
@@ -202,8 +206,6 @@ class TelegramStateCache:
             try:
                 await self.remember_entity(lookup, entity)
             except Exception:
-                # Cache persistence is advisory; a successful Telegram lookup
-                # must never be converted into a failed user operation.
                 pass
             future.set_result(entity)
             return entity
@@ -244,16 +246,21 @@ class TelegramStateCache:
         await self._prune_dialogs()
         return state
 
+    def mark_dialog_snapshot(self, *, limit: int | None) -> None:
+        self._dialog_snapshot_at = time.time()
+        self._dialog_snapshot_limit = max(1, min(limit or self.max_dialogs, self.max_dialogs))
+
     def memory_dialogs(self, *, limit: int | None = None) -> list[Any] | None:
-        if not self._dialogs:
+        requested = max(1, min(limit or self.max_dialogs, self.max_dialogs))
+        if self._dialog_snapshot_at <= 0 or requested > self._dialog_snapshot_limit:
             return None
-        now = time.time()
-        fresh = [(observed, dialog) for observed, dialog in self._dialogs.values() if now - observed <= self.dialog_ttl]
-        if not fresh:
+        if time.time() - self._dialog_snapshot_at > self.dialog_ttl:
+            return None
+        fresh = [(observed, dialog) for observed, dialog in self._dialogs.values() if time.time() - observed <= self.dialog_ttl]
+        if len(fresh) < min(requested, self._dialog_snapshot_limit):
             return None
         fresh.sort(key=lambda item: item[0], reverse=True)
-        cap = max(1, min(limit or self.max_dialogs, self.max_dialogs))
-        return [dialog for _, dialog in fresh[:cap]]
+        return [dialog for _, dialog in fresh[:requested]]
 
     async def get_dialog_state(self, peer: Any, *, fresh: bool = True) -> DialogState | None:
         key = self.peer_key(peer)
@@ -314,6 +321,8 @@ class TelegramStateCache:
     async def invalidate_dialog(self, peer: Any) -> None:
         key = self.peer_key(peer)
         self._dialogs.pop(key, None)
+        self._dialog_snapshot_at = 0.0
+        self._dialog_snapshot_limit = 0
         await self.storage.execute("DELETE FROM telegram_dialogs WHERE peer_key=?", (key,))
 
     def snapshot(self) -> dict[str, Any]:
@@ -321,6 +330,8 @@ class TelegramStateCache:
             "entities_memory": len(self._entities),
             "entity_states_memory": len(self._entity_states),
             "dialogs_memory": len(self._dialogs),
+            "dialog_snapshot_limit": self._dialog_snapshot_limit,
+            "dialog_snapshot_age": max(0.0, time.time() - self._dialog_snapshot_at) if self._dialog_snapshot_at else None,
             "inflight": len(self._inflight),
             "max_entities": self.max_entities,
             "max_dialogs": self.max_dialogs,
