@@ -24,36 +24,7 @@ class TelegramEventJournal:
     async def start(self) -> None:
         if self._started:
             return
-        await self.storage.execute(
-            """
-            CREATE TABLE IF NOT EXISTS telegram_event_journal (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                event_id TEXT NOT NULL UNIQUE,
-                fingerprint TEXT NOT NULL UNIQUE,
-                event_type TEXT NOT NULL,
-                observed_at REAL NOT NULL,
-                source_peer TEXT,
-                message_id INTEGER,
-                entity_id INTEGER,
-                payload_json TEXT NOT NULL,
-                schema_version INTEGER NOT NULL,
-                processing_state TEXT NOT NULL DEFAULT 'PENDING',
-                attempt_count INTEGER NOT NULL DEFAULT 0,
-                last_error TEXT,
-                created_at REAL NOT NULL,
-                processed_at REAL
-            )
-            """
-        )
-        await self.storage.execute(
-            "CREATE INDEX IF NOT EXISTS idx_telegram_event_type_time ON telegram_event_journal(event_type, observed_at DESC)"
-        )
-        await self.storage.execute(
-            "CREATE INDEX IF NOT EXISTS idx_telegram_event_peer_time ON telegram_event_journal(source_peer, observed_at DESC)"
-        )
-        await self.storage.execute(
-            "CREATE INDEX IF NOT EXISTS idx_telegram_event_state_time ON telegram_event_journal(processing_state, created_at)"
-        )
+        await self.storage.fetchone("SELECT 1 FROM telegram_event_journal LIMIT 1")
         # A process crash can leave a claimed event in PROCESSING. Projection
         # operations are idempotent, so make interrupted work retryable on restart.
         await self.storage.execute(
