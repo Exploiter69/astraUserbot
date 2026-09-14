@@ -13,6 +13,7 @@ from core.services.secrets import SecretStore, SecretStoreError
 from core.services.storage import StorageError, StorageService
 from core.services.subprocess import SubprocessResult, SubprocessService
 from core.services.telegram import TelegramFacade
+from core.services.telegram_traffic import TelegramTrafficController
 from core.services.workspace import Workspace, WorkspaceService
 
 __all__ = [
@@ -27,6 +28,6 @@ __all__ = [
     "SecretStore", "SecretStoreError",
     "StorageError", "StorageService",
     "SubprocessResult", "SubprocessService",
-    "TelegramFacade",
+    "TelegramFacade", "TelegramTrafficController",
     "Workspace", "WorkspaceService",
 ]
