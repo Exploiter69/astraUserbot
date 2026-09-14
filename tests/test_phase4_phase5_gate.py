@@ -21,16 +21,14 @@ class StorageAndJobsGateTests(unittest.IsolatedAsyncioTestCase):
     async def test_clean_install_reaches_platform_schema(self):
         tables = await self.storage.fetchall("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
         names = {row[0] for row in tables}
-        self.assertTrue({'schema_migrations', 'jobs', 'job_attempts', 'job_events', 'leases', 'audit_events', 'telegram_entities', 'telegram_dialogs'} <= names)
+        self.assertTrue({'schema_migrations', 'jobs', 'job_attempts', 'job_events', 'leases', 'audit_events', 'telegram_entities', 'telegram_dialogs', 'telegram_latest_messages', 'telegram_entity_observations', 'telegram_timeline', 'intel_sources', 'intel_entities', 'intel_observations', 'intel_relationships'} <= names)
         self.assertTrue(await self.storage.integrity_check())
 
     async def test_migration_is_idempotent(self):
         await self.storage.close()
         await self.storage.start()
-        rows = await self.storage.fetchall(
-            "SELECT version FROM schema_migrations ORDER BY version"
-        )
-        self.assertEqual([row[0] for row in rows], [1, 2, 3, 4, 5])
+        rows = await self.storage.fetchall("SELECT version FROM schema_migrations ORDER BY version")
+        self.assertEqual([row[0] for row in rows], [1, 2, 3, 4, 5, 6, 7])
 
     async def test_foreign_keys_are_enabled(self):
         row = await self.storage.fetchone("PRAGMA foreign_keys")
@@ -107,11 +105,9 @@ class StorageAndJobsGateTests(unittest.IsolatedAsyncioTestCase):
     async def test_handler_success_is_durable(self):
         engine = JobEngine(self.storage, poll_seconds=0.01)
         seen = asyncio.Event()
-
         async def handler(job):
             seen.set()
             return {'value': job.payload['value'] + 1}
-
         engine.register_handler('TEST', handler)
         job = await engine.enqueue('TEST', {'value': 4})
         await engine.start()
@@ -125,7 +121,6 @@ class StorageAndJobsGateTests(unittest.IsolatedAsyncioTestCase):
         engine = JobEngine(self.storage, poll_seconds=0.01)
         calls = 0
         ready = asyncio.Event()
-
         async def handler(job):
             nonlocal calls
             calls += 1
@@ -133,7 +128,6 @@ class StorageAndJobsGateTests(unittest.IsolatedAsyncioTestCase):
                 raise JobError('temporary', code='TEMP', retryable=True)
             ready.set()
             return 'ok'
-
         engine.register_handler('TEST', handler)
         job = await engine.enqueue('TEST', max_attempts=2)
         await engine.start()
@@ -185,11 +179,9 @@ class StorageAndJobsGateTests(unittest.IsolatedAsyncioTestCase):
         engine = JobEngine(self.storage, poll_seconds=0.01)
         started = asyncio.Event()
         release = asyncio.Event()
-
         async def handler(_job):
             started.set()
             await release.wait()
-
         engine.register_handler('TEST', handler)
         job = await engine.enqueue('TEST')
         await engine.start()
