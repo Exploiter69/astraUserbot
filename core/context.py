@@ -8,8 +8,8 @@ from typing import Any, Protocol, TypeVar
 
 from core.services import (
     CacheService, HttpService, IntelGraph, JobEngine, MediaService, SecretStore, StorageService,
-    SubprocessService, TelegramEventCollector, TelegramEventJournal, TelegramEventProjections,
-    TelegramEventReplay, TelegramFacade, TelegramStateCache, WorkspaceService,
+    SubprocessService, TelegramArchiveService, TelegramEventCollector, TelegramEventJournal,
+    TelegramEventProjections, TelegramEventReplay, TelegramFacade, TelegramStateCache, WorkspaceService,
 )
 from core.services.ai import AIService
 from core.services.flags import FeatureFlagService
@@ -59,6 +59,17 @@ class ApplicationContext:
         self.register("secrets", SecretStore())
         self.register("ai", AIService(self.get("http")))
         self.register("search", SearchService(self.get("storage"), self.project_root))
+        self.register(
+            "telegram_archive",
+            TelegramArchiveService(
+                self.get("storage"),
+                self.get("telegram"),
+                self.get("search"),
+                self.get("media"),
+                self.get("jobs"),
+                self.project_root,
+            ),
+        )
         self.register("metrics", MetricsService(self.project_root))
         self.register("flags", FeatureFlagService(self.get("storage")))
 
