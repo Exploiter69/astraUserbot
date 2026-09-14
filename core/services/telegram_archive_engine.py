@@ -8,11 +8,12 @@ import json
 import mimetypes
 import os
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
 from core.errors import ResourceError
-from core.services.jobs import Job, JobEngine, JobError
+from core.services.jobs import Job, JobEngine, JobError, JobState
 from core.services.media import MediaService
 from core.services.search import SearchService
 from core.services.storage import StorageService
@@ -30,6 +31,7 @@ class TelegramArchiveService:
     MAX_METADATA_CHARS = 32 * 1024
     SOURCE = "archive_message"
     CURSOR_EVENT = "ARCHIVE_CURSOR"
+    TERMINAL_STATES = frozenset({JobState.COMPLETED, JobState.FAILED, JobState.CANCELLED, JobState.UNCERTAIN})
 
     def __init__(self, storage: StorageService, telegram: TelegramFacade, search: SearchService, media: MediaService, jobs: JobEngine, project_root: str | Path) -> None:
         self.storage = storage
@@ -55,7 +57,11 @@ class TelegramArchiveService:
 
     async def enqueue(self, peer: str, *, limit: int = 100, min_message_id: int = 0, include_media: bool = False, owner: str | None = None) -> Job:
         request = TelegramArchiveJobModel.request(peer, limit=limit, min_message_id=min_message_id, include_media=include_media)
-        return await self.jobs.enqueue(owner=owner, **TelegramArchiveJobModel.enqueue_kwargs(request))
+        kwargs = TelegramArchiveJobModel.enqueue_kwargs(request)
+        row = await self.storage.fetchone("SELECT state FROM jobs WHERE idempotency_key=? LIMIT 1", (request.idempotency_key,))
+        if row and JobState(str(row[0])) in self.TERMINAL_STATES:
+            kwargs["idempotency_key"] = f"{request.idempotency_key}:run:{uuid.uuid4().hex}"
+        return await self.jobs.enqueue(owner=owner, **kwargs)
 
     async def search_archive(self, query: str, *, limit: int = 10) -> list[dict[str, Any]]:
         cleaned = self.search._clean_query(query)
