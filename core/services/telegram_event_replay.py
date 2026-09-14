@@ -12,7 +12,7 @@ from core.services.telegram_event_projections import TelegramEventProjections
 
 
 class TelegramEventReplay:
-    """Rebuild selected Telegram projections in resumable bounded batches."""
+    """Rebuild Telegram projections in bounded, resumable batches."""
 
     MAX_BATCH = 500
     PROJECTION = "telegram"
@@ -27,8 +27,7 @@ class TelegramEventReplay:
     async def start(self) -> None:
         if self._started:
             return
-        await self.storage.execute(
-            """
+        await self.storage.execute("""
             CREATE TABLE IF NOT EXISTS telegram_replay_runs (
                 run_id TEXT PRIMARY KEY,
                 projection TEXT NOT NULL,
@@ -39,11 +38,8 @@ class TelegramEventReplay:
                 updated_at REAL NOT NULL,
                 last_error TEXT
             )
-            """
-        )
-        await self.storage.execute(
-            "CREATE INDEX IF NOT EXISTS idx_telegram_replay_state ON telegram_replay_runs(state, updated_at DESC)"
-        )
+        """)
+        await self.storage.execute("CREATE INDEX IF NOT EXISTS idx_telegram_replay_state ON telegram_replay_runs(state, updated_at DESC)")
         self._started = True
 
     async def close(self) -> None:
@@ -60,8 +56,7 @@ class TelegramEventReplay:
             ("DELETE FROM telegram_latest_messages", ()),
             ("DELETE FROM telegram_entity_observations", ()),
             ("DELETE FROM telegram_timeline", ()),
-            ("INSERT INTO telegram_replay_runs(run_id,projection,state,cursor_id,processed_count,started_at,updated_at,last_error) VALUES (?,?,?,0,0,?,?,NULL)",
-             (run_id, projection, "RUNNING", now, now)),
+            ("INSERT INTO telegram_replay_runs(run_id,projection,state,cursor_id,processed_count,started_at,updated_at,last_error) VALUES (?,?,?,0,0,?,?,NULL)", (run_id, projection, "RUNNING", now, now)),
         ])
         self._cancelled = False
         return run_id
@@ -79,50 +74,29 @@ class TelegramEventReplay:
         if run["state"] not in {"RUNNING", "PAUSED"}:
             raise RuntimeError(f"Replay run is not resumable: {run['state']}")
         await self.storage.execute("UPDATE telegram_replay_runs SET state='RUNNING', updated_at=? WHERE run_id=?", (time.time(), run_id))
-
         try:
             while not self._cancelled:
                 current = await self._get_run(run_id)
                 if current is None:
                     raise KeyError(f"Unknown replay run: {run_id}")
-                cursor = int(current["cursor_id"])
-                rows = await self.storage.fetchall(
-                    "SELECT * FROM telegram_event_journal WHERE id>? ORDER BY id LIMIT ?",
-                    (cursor, bounded),
-                )
+                rows = await self.storage.fetchall("SELECT * FROM telegram_event_journal WHERE id>? ORDER BY id LIMIT ?", (int(current["cursor_id"]), bounded))
                 if not rows:
-                    await self.storage.execute(
-                        "UPDATE telegram_replay_runs SET state='COMPLETED', updated_at=? WHERE run_id=?",
-                        (time.time(), run_id),
-                    )
+                    await self.storage.execute("UPDATE telegram_replay_runs SET state='COMPLETED', updated_at=? WHERE run_id=?", (time.time(), run_id))
                     break
                 for row in rows:
                     await self.projections.apply_row(row)
-                    await self.storage.execute(
-                        "UPDATE telegram_replay_runs SET cursor_id=?, processed_count=processed_count+1, updated_at=? WHERE run_id=? AND state='RUNNING'",
-                        (int(row["id"]), time.time(), run_id),
-                    )
+                    await self.storage.execute("UPDATE telegram_replay_runs SET cursor_id=?, processed_count=processed_count+1, updated_at=? WHERE run_id=? AND state='RUNNING'", (int(row["id"]), time.time(), run_id))
                     if self._cancelled:
                         break
                 await asyncio.sleep(0)
         except asyncio.CancelledError:
-            await self.storage.execute(
-                "UPDATE telegram_replay_runs SET state='PAUSED', updated_at=?, last_error=NULL WHERE run_id=? AND state='RUNNING'",
-                (time.time(), run_id),
-            )
+            await asyncio.shield(self._mark_paused(run_id))
             raise
         except Exception as exc:
-            await self.storage.execute(
-                "UPDATE telegram_replay_runs SET state='FAILED', updated_at=?, last_error=? WHERE run_id=? AND state='RUNNING'",
-                (time.time(), str(exc)[:1024], run_id),
-            )
+            await self.storage.execute("UPDATE telegram_replay_runs SET state='FAILED', updated_at=?, last_error=? WHERE run_id=? AND state='RUNNING'", (time.time(), str(exc)[:1024], run_id))
             raise
-
         if self._cancelled:
-            await self.storage.execute(
-                "UPDATE telegram_replay_runs SET state='PAUSED', updated_at=? WHERE run_id=? AND state='RUNNING'",
-                (time.time(), run_id),
-            )
+            await self._mark_paused(run_id)
         return self._summary(await self._get_run(run_id))
 
     async def resume(self, run_id: str, *, batch_size: int = MAX_BATCH) -> dict[str, int | str]:
@@ -139,6 +113,9 @@ class TelegramEventReplay:
     async def cancel(self) -> None:
         self._cancelled = True
 
+    async def _mark_paused(self, run_id: str) -> None:
+        await self.storage.execute("UPDATE telegram_replay_runs SET state='PAUSED', updated_at=?, last_error=NULL WHERE run_id=? AND state='RUNNING'", (time.time(), run_id))
+
     async def _get_run(self, run_id: str) -> dict | None:
         row = await self.storage.fetchone("SELECT * FROM telegram_replay_runs WHERE run_id=?", (run_id,))
         return dict(row) if row else None
@@ -147,13 +124,7 @@ class TelegramEventReplay:
     def _summary(run: dict | None) -> dict[str, int | str]:
         if run is None:
             raise KeyError("Replay run no longer exists")
-        return {
-            "run_id": str(run["run_id"]),
-            "projection": str(run["projection"]),
-            "state": str(run["state"]),
-            "cursor_id": int(run["cursor_id"]),
-            "processed_count": int(run["processed_count"]),
-        }
+        return {"run_id": str(run["run_id"]), "projection": str(run["projection"]), "state": str(run["state"]), "cursor_id": int(run["cursor_id"]), "processed_count": int(run["processed_count"])}
 
     def _require_started(self) -> None:
         if not self._started:
