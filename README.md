@@ -14,6 +14,8 @@ AstraUserbot began as a broad feature-rich userbot. The engineering program extr
 
 The active post-1.0 feature program is defined in **`ROADMAP.md`**. It is the working roadmap for Telegram Core 2.0, product/UX expansion, AI 2.0, durable automation, IntelGraph/IOC intelligence, media intelligence, cases, security intelligence, public-code intelligence and the plugin ecosystem.
 
+**`ROADMAP_COMPETITIVE_ADDENDUM.md`** extends that roadmap with the continuous competitor matrix, Command Bus/command contracts, command discovery, unified search, entity inspection, explicit correlation engine, plugin compatibility API and Astra Control Plane.
+
 ## Core principles
 
 1. Telegram remains the transport layer.
@@ -75,6 +77,7 @@ Quarantine is intentional. Do not remove it merely because an AI command is unav
 | Document | Purpose |
 |---|---|
 | `ROADMAP.md` | Active Astra 2.x feature and implementation roadmap |
+| `ROADMAP_COMPETITIVE_ADDENDUM.md` | Competitive-completeness extensions and revised dependencies |
 | `ARCHITECTURE.md` | Canonical architecture and production invariants |
 | `DATA_MODEL.md` | Data ownership and persistence |
 | `JOB_MODEL.md` | Durable job lifecycle and recovery semantics |
