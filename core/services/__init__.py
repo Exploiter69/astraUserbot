@@ -14,7 +14,7 @@ from core.services.storage import StorageError, StorageService
 from core.services.subprocess import SubprocessResult, SubprocessService
 from core.services.telegram import TelegramFacade
 from core.services.telegram_archive import TelegramArchiveJobModel, TelegramArchiveRequest
-from core.services.telegram_archive_worker import TelegramArchiveService
+from core.services.telegram_archive_engine import TelegramArchiveService
 from core.services.telegram_event_journal import TelegramEventJournal
 from core.services.telegram_event_projections import TelegramEventProjections
 from core.services.telegram_event_replay import TelegramEventReplay
