@@ -2,10 +2,11 @@ import asyncio
 import time
 import unittest
 
+from core.errors import ResourceError
 from core.services.telegram_traffic import (
     P0_OWNER,
-    P5_MAINTENANCE,
     P2_NORMAL,
+    P5_MAINTENANCE,
     TelegramTrafficController,
 )
 
@@ -112,11 +113,32 @@ class TelegramTrafficControllerTests(unittest.IsolatedAsyncioTestCase):
             self.controller.execute("send_message", lambda: asyncio.sleep(0))
         )
         await asyncio.sleep(0.01)
-        with self.assertRaises(Exception) as raised:
+        with self.assertRaises(ResourceError):
             await self.controller.execute("send_message", lambda: asyncio.sleep(0))
-        self.assertEqual(raised.exception.code.value, "RESOURCE")
         release.set()
         await asyncio.gather(first, queued)
+
+    async def test_cancellation_stops_running_operation(self):
+        self.controller = TelegramTrafficController(max_concurrency=1)
+        started = asyncio.Event()
+        cancelled = asyncio.Event()
+
+        async def blocking():
+            started.set()
+            try:
+                await asyncio.sleep(10)
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
+
+        task = asyncio.create_task(self.controller.execute("send_message", blocking))
+        await started.wait()
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        await asyncio.wait_for(cancelled.wait(), timeout=0.5)
+        await asyncio.sleep(0)
+        self.assertEqual(self.controller.snapshot()["active"], 0)
 
 
 if __name__ == "__main__":
