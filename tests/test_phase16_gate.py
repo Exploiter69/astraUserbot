@@ -76,6 +76,7 @@ class Phase16Gate(unittest.TestCase):
                 "subprocess",
                 "telegram_state",
                 "telegram",
+                "telegram_event_journal",
                 "telegram_events",
                 "workspace",
                 "media",
