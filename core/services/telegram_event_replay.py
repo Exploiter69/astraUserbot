@@ -27,7 +27,23 @@ class TelegramEventReplay:
     async def start(self) -> None:
         if self._started:
             return
-        await self.storage.fetchone("SELECT 1 FROM telegram_replay_runs LIMIT 1")
+        await self.storage.execute(
+            """
+            CREATE TABLE IF NOT EXISTS telegram_replay_runs (
+                run_id TEXT PRIMARY KEY,
+                projection TEXT NOT NULL,
+                state TEXT NOT NULL,
+                cursor_id INTEGER NOT NULL DEFAULT 0,
+                processed_count INTEGER NOT NULL DEFAULT 0,
+                started_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                last_error TEXT
+            )
+            """
+        )
+        await self.storage.execute(
+            "CREATE INDEX IF NOT EXISTS idx_telegram_replay_state ON telegram_replay_runs(state, updated_at DESC)"
+        )
         self._started = True
 
     async def close(self) -> None:
@@ -65,27 +81,43 @@ class TelegramEventReplay:
         await self.storage.execute("UPDATE telegram_replay_runs SET state='RUNNING', updated_at=? WHERE run_id=?", (time.time(), run_id))
         self._cancelled = False
 
-        while not self._cancelled:
-            cursor = int((await self._get_run(run_id))["cursor_id"])
-            rows = await self.storage.fetchall(
-                "SELECT * FROM telegram_event_journal WHERE id>? ORDER BY id LIMIT ?",
-                (cursor, bounded),
-            )
-            if not rows:
-                await self.storage.execute(
-                    "UPDATE telegram_replay_runs SET state='COMPLETED', updated_at=? WHERE run_id=?",
-                    (time.time(), run_id),
+        try:
+            while not self._cancelled:
+                current = await self._get_run(run_id)
+                if current is None:
+                    raise KeyError(f"Unknown replay run: {run_id}")
+                cursor = int(current["cursor_id"])
+                rows = await self.storage.fetchall(
+                    "SELECT * FROM telegram_event_journal WHERE id>? ORDER BY id LIMIT ?",
+                    (cursor, bounded),
                 )
-                break
-            for row in rows:
-                await self.projections.apply_row(row)
-                await self.storage.execute(
-                    "UPDATE telegram_replay_runs SET cursor_id=?, processed_count=processed_count+1, updated_at=? WHERE run_id=? AND state='RUNNING'",
-                    (int(row["id"]), time.time(), run_id),
-                )
-                if self._cancelled:
+                if not rows:
+                    await self.storage.execute(
+                        "UPDATE telegram_replay_runs SET state='COMPLETED', updated_at=? WHERE run_id=?",
+                        (time.time(), run_id),
+                    )
                     break
-            await asyncio.sleep(0)
+                for row in rows:
+                    await self.projections.apply_row(row)
+                    await self.storage.execute(
+                        "UPDATE telegram_replay_runs SET cursor_id=?, processed_count=processed_count+1, updated_at=? WHERE run_id=? AND state='RUNNING'",
+                        (int(row["id"]), time.time(), run_id),
+                    )
+                    if self._cancelled:
+                        break
+                await asyncio.sleep(0)
+        except asyncio.CancelledError:
+            await self.storage.execute(
+                "UPDATE telegram_replay_runs SET state='PAUSED', updated_at=?, last_error=NULL WHERE run_id=? AND state='RUNNING'",
+                (time.time(), run_id),
+            )
+            raise
+        except Exception as exc:
+            await self.storage.execute(
+                "UPDATE telegram_replay_runs SET state='FAILED', updated_at=?, last_error=? WHERE run_id=? AND state='RUNNING'",
+                (time.time(), str(exc)[:1024], run_id),
+            )
+            raise
 
         if self._cancelled:
             await self.storage.execute(
