@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
+import uuid
 from collections.abc import Sequence
 from typing import Any
 
 from telethon.errors import FloodWaitError, SlowModeWaitError
 
 from core.errors import ExternalServiceError, TimeoutError
+from core.services.telegram_recorder import TelegramOperationRecorder, request_fingerprint
 from core.services.telegram_traffic import (
     DESTRUCTIVE,
     DISCOVERY,
@@ -37,6 +40,7 @@ class TelegramFacade:
         per_method_limit: int = 4,
         per_peer_limit: int = 2,
         max_queue: int = 512,
+        recorder: TelegramOperationRecorder | None = None,
     ) -> None:
         self.client = client
         self.flood_wait_cap = max(0.0, float(flood_wait_cap))
@@ -47,6 +51,7 @@ class TelegramFacade:
             per_peer_limit=per_peer_limit,
             max_queue=max_queue,
         )
+        self.recorder = recorder
 
     async def start(self) -> None:
         await self.traffic.start()
@@ -56,69 +61,74 @@ class TelegramFacade:
 
     async def send_message(self, entity: Any, message: str, **kwargs: Any) -> Any:
         return await self._call(
-            "send_message",
-            entity,
-            message,
-            operation_class=WRITE,
-            priority=P1_INTERACTIVE,
-            **kwargs,
+            "send_message", entity, message, operation_class=WRITE, priority=P1_INTERACTIVE, **kwargs
         )
 
     async def send_file(
-        self,
-        entity: Any,
-        file: Any,
-        *,
-        caption: str | None = None,
-        **kwargs: Any,
+        self, entity: Any, file: Any, *, caption: str | None = None, **kwargs: Any
     ) -> Any:
         if caption is not None:
             kwargs["caption"] = caption
         return await self._call(
-            "send_file",
-            entity,
-            file,
-            operation_class=MEDIA,
-            priority=P2_NORMAL,
-            **kwargs,
+            "send_file", entity, file, operation_class=MEDIA, priority=P2_NORMAL, **kwargs
         )
 
     async def edit_message(self, entity: Any, message: Any, text: str, **kwargs: Any) -> Any:
         return await self._call(
-            "edit_message",
-            entity,
-            message,
-            text,
-            operation_class=WRITE,
-            priority=P1_INTERACTIVE,
-            **kwargs,
+            "edit_message", entity, message, text, operation_class=WRITE, priority=P1_INTERACTIVE, **kwargs
         )
 
     async def delete_messages(
-        self,
-        entity: Any,
-        message_ids: int | Sequence[int],
-        **kwargs: Any,
+        self, entity: Any, message_ids: int | Sequence[int], **kwargs: Any
     ) -> Any:
         return await self._call(
-            "delete_messages",
-            entity,
-            message_ids,
-            operation_class=DESTRUCTIVE,
-            priority=P1_INTERACTIVE,
-            **kwargs,
+            "delete_messages", entity, message_ids, operation_class=DESTRUCTIVE,
+            priority=P1_INTERACTIVE, **kwargs
         )
 
     async def get_entity(self, entity: Any) -> Any:
         return await self._call(
-            "get_entity",
-            entity,
-            operation_class=DISCOVERY,
-            priority=P2_NORMAL,
+            "get_entity", entity, operation_class=DISCOVERY, priority=P2_NORMAL
         )
 
     def traffic_snapshot(self) -> dict[str, Any]:
         return self.traffic.snapshot()
+
+    async def _record(
+        self,
+        *,
+        operation_id: str,
+        started_at: float,
+        method: str,
+        peer_key: str | None,
+        operation_class: str,
+        request_hash: str,
+        payload_size: int,
+        result_classification: str,
+        error_class: str | None = None,
+        retry_count: int = 0,
+        flood_wait_seconds: float | None = None,
+        slow_mode_seconds: float | None = None,
+        peer_flood: bool = False,
+    ) -> None:
+        if self.recorder is None:
+            return
+        await self.recorder.record(
+            operation_id=operation_id,
+            started_at=started_at,
+            method=method,
+            peer_id=peer_key,
+            operation_class=operation_class,
+            request_hash=request_hash,
+            result_classification=result_classification,
+            latency_ms=(time.monotonic() - started_at) * 1000.0,
+            error_class=error_class,
+            retry_count=retry_count,
+            flood_wait_seconds=flood_wait_seconds,
+            slow_mode_seconds=slow_mode_seconds,
+            peer_flood=peer_flood,
+            payload_size=payload_size,
+        )
 
     async def _call(
         self,
@@ -130,39 +140,78 @@ class TelegramFacade:
     ) -> Any:
         operation = getattr(self.client, method)
         peer_key = self._peer_key(args[0] if args else None)
+        request_hash, payload_size = request_fingerprint(method, args, kwargs)
+        operation_id = uuid.uuid4().hex
+
         for attempt in range(self.retries + 1):
+            started_at = time.monotonic()
             try:
-                return await self.traffic.execute(
+                result = await self.traffic.execute(
                     method,
                     lambda: operation(*args, **kwargs),
                     peer_key=peer_key,
                     operation_class=operation_class,
                     priority=priority,
                 )
+                await self._record(
+                    operation_id=operation_id, started_at=started_at, method=method,
+                    peer_key=peer_key, operation_class=operation_class,
+                    request_hash=request_hash, payload_size=payload_size,
+                    result_classification="SUCCESS", retry_count=attempt,
+                )
+                return result
             except FloodWaitError as exc:
                 wait = float(exc.seconds)
+                await self._record(
+                    operation_id=operation_id, started_at=started_at, method=method,
+                    peer_key=peer_key, operation_class=operation_class,
+                    request_hash=request_hash, payload_size=payload_size,
+                    result_classification="FLOOD_WAIT", error_class=type(exc).__name__,
+                    retry_count=attempt, flood_wait_seconds=wait,
+                )
                 if attempt >= self.retries or wait <= 0 or wait > self.flood_wait_cap:
                     raise ExternalServiceError("Telegram rate limit prevented the operation.") from exc
                 self.traffic.record_flood_wait(method, wait, peer_key=peer_key)
                 logger.warning(
                     "Telegram flood wait operation=%s seconds=%s retry=%s",
-                    method,
-                    int(wait),
-                    attempt + 1,
+                    method, int(wait), attempt + 1,
                 )
             except SlowModeWaitError as exc:
                 wait = float(exc.seconds)
+                await self._record(
+                    operation_id=operation_id, started_at=started_at, method=method,
+                    peer_key=peer_key, operation_class=operation_class,
+                    request_hash=request_hash, payload_size=payload_size,
+                    result_classification="SLOW_MODE", error_class=type(exc).__name__,
+                    retry_count=attempt, slow_mode_seconds=wait,
+                )
                 if attempt >= self.retries or wait <= 0 or wait > self.flood_wait_cap:
                     raise ExternalServiceError("Telegram slow mode prevented the operation.") from exc
                 self.traffic.record_slow_mode(method, wait, peer_key=peer_key)
                 logger.warning(
                     "Telegram slow mode operation=%s seconds=%s retry=%s",
-                    method,
-                    int(wait),
-                    attempt + 1,
+                    method, int(wait), attempt + 1,
                 )
             except asyncio.TimeoutError as exc:
+                await self._record(
+                    operation_id=operation_id, started_at=started_at, method=method,
+                    peer_key=peer_key, operation_class=operation_class,
+                    request_hash=request_hash, payload_size=payload_size,
+                    result_classification="TIMEOUT", error_class=type(exc).__name__,
+                    retry_count=attempt,
+                )
                 raise TimeoutError("Telegram operation timed out.") from exc
+            except Exception as exc:
+                peer_flood = type(exc).__name__ == "PeerFloodError"
+                classification = "PEER_FLOOD" if peer_flood else "ERROR"
+                await self._record(
+                    operation_id=operation_id, started_at=started_at, method=method,
+                    peer_key=peer_key, operation_class=operation_class,
+                    request_hash=request_hash, payload_size=payload_size,
+                    result_classification=classification, error_class=type(exc).__name__,
+                    retry_count=attempt, peer_flood=peer_flood,
+                )
+                raise
         raise ExternalServiceError("Telegram operation failed.")
 
     @staticmethod
