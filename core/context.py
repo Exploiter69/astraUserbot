@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Protocol, TypeVar
 
 from core.services import (
-    CacheService, HttpService, JobEngine, MediaService, SecretStore, StorageService,
+    CacheService, HttpService, IntelGraph, JobEngine, MediaService, SecretStore, StorageService,
     SubprocessService, TelegramEventCollector, TelegramEventJournal, TelegramEventProjections,
     TelegramFacade, TelegramStateCache, WorkspaceService,
 )
@@ -50,6 +50,7 @@ class ApplicationContext:
         self.register("telegram_event_projections", TelegramEventProjections(self.get("storage"), self.get("telegram_event_journal")))
         self.get("telegram_events").add_sink(self.get("telegram_event_journal").append)
         self.get("telegram_events").add_sink(self._project_event)
+        self.register("intelgraph", IntelGraph(self.get("storage")))
         self.register("workspace", WorkspaceService(self.project_root))
         self.register("isolation", IsolationService())
         self.register("media", MediaService(self.get("workspace"), self.get("subprocess"), self.get("isolation")))
@@ -61,7 +62,6 @@ class ApplicationContext:
         self.register("flags", FeatureFlagService(self.get("storage")))
 
     async def _project_event(self, _event: Any) -> None:
-        """Project newly journaled events without creating a second event store."""
         if not self.get("telegram_event_projections")._started:
             return
         await self.get("telegram_event_projections").process_pending(limit=1)
