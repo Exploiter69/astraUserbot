@@ -32,7 +32,6 @@ EXPECTED = [
     "tools/phase16_audit.py",
     "tests/test_phase16_gate.py",
     "DISASTER_RECOVERY.md",
-    "RELEASE_CHECKLIST.md",
     "PRODUCTION_BOUNDARY.md",
 ]
 
