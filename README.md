@@ -12,6 +12,8 @@ A modular, service-oriented Telegram userbot platform designed for reliability, 
 
 AstraUserbot began as a broad feature-rich userbot. The engineering program extracted shared infrastructure without requiring a framework rewrite. Reliability, safety, compatibility and recovery are platform contracts; plugins remain the feature edge.
 
+The active post-1.0 feature program is defined in **`ROADMAP.md`**. It is the working roadmap for Telegram Core 2.0, product/UX expansion, AI 2.0, durable automation, IntelGraph/IOC intelligence, media intelligence, cases, security intelligence, public-code intelligence and the plugin ecosystem.
+
 ## Core principles
 
 1. Telegram remains the transport layer.
@@ -72,6 +74,7 @@ Quarantine is intentional. Do not remove it merely because an AI command is unav
 
 | Document | Purpose |
 |---|---|
+| `ROADMAP.md` | Active Astra 2.x feature and implementation roadmap |
 | `ARCHITECTURE.md` | Canonical architecture and production invariants |
 | `DATA_MODEL.md` | Data ownership and persistence |
 | `JOB_MODEL.md` | Durable job lifecycle and recovery semantics |
