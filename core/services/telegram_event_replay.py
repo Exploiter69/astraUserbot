@@ -27,19 +27,7 @@ class TelegramEventReplay:
     async def start(self) -> None:
         if self._started:
             return
-        await self.storage.execute("""
-            CREATE TABLE IF NOT EXISTS telegram_replay_runs (
-                run_id TEXT PRIMARY KEY,
-                projection TEXT NOT NULL,
-                state TEXT NOT NULL,
-                cursor_id INTEGER NOT NULL DEFAULT 0,
-                processed_count INTEGER NOT NULL DEFAULT 0,
-                started_at REAL NOT NULL,
-                updated_at REAL NOT NULL,
-                last_error TEXT
-            )
-        """)
-        await self.storage.execute("CREATE INDEX IF NOT EXISTS idx_telegram_replay_state ON telegram_replay_runs(state, updated_at DESC)")
+        await self.storage.fetchone("SELECT 1 FROM telegram_replay_runs LIMIT 1")
         self._started = True
 
     async def close(self) -> None:
