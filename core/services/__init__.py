@@ -20,6 +20,7 @@ from core.services.telegram_state import DialogState, EntityState, TelegramState
 from core.services.telegram_sync import SyncCursor, SyncResult, TelegramIncrementalSync
 from core.services.telegram_traffic import TelegramTrafficController
 from core.services.workspace import Workspace, WorkspaceService
+from core.services.intelgraph import IntelGraph
 
 __all__ = [
     "Artifact", "CacheEntry", "CacheService", "CacheStats", "FeatureFlagService", "HttpService",
@@ -28,5 +29,5 @@ __all__ = [
     "SecretStore", "SecretStoreError", "StorageError", "StorageService", "SubprocessResult", "SubprocessService",
     "DialogState", "EntityState", "TelegramStateCache", "SyncCursor", "SyncResult", "TelegramIncrementalSync",
     "TelegramEvent", "TelegramEventCollector", "TelegramEventJournal", "TelegramEventProjections",
-    "TelegramFacade", "TelegramTrafficController", "Workspace", "WorkspaceService",
+    "TelegramFacade", "TelegramTrafficController", "Workspace", "WorkspaceService", "IntelGraph",
 ]
