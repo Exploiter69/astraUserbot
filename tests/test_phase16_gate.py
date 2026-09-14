@@ -49,7 +49,7 @@ class Phase16Gate(unittest.TestCase):
             expected = {
                 "storage", "cache", "http", "subprocess", "telegram_state", "telegram",
                 "telegram_event_journal", "telegram_events", "telegram_event_projections", "telegram_event_replay", "intelgraph",
-                "workspace", "media", "jobs", "secrets", "ai", "search", "metrics", "flags", "isolation",
+                "telegram_archive", "workspace", "media", "jobs", "secrets", "ai", "search", "metrics", "flags", "isolation",
             }
             self.assertEqual(set(context.services), expected)
             await context.start()
