@@ -94,6 +94,101 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
     CREATE INDEX IF NOT EXISTS idx_telegram_dialogs_sync ON telegram_dialogs(last_sync_at DESC);
     CREATE INDEX IF NOT EXISTS idx_telegram_dialogs_username ON telegram_dialogs(username);
     """),
+    (6, """
+    CREATE TABLE IF NOT EXISTS telegram_latest_messages (
+        message_id INTEGER NOT NULL,
+        source_peer TEXT,
+        event_id TEXT PRIMARY KEY,
+        event_type TEXT NOT NULL,
+        entity_id INTEGER,
+        payload_json TEXT NOT NULL,
+        observed_at REAL NOT NULL,
+        updated_at REAL NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_tg_latest_message_key ON telegram_latest_messages(source_peer, message_id);
+    CREATE TABLE IF NOT EXISTS telegram_entity_observations (
+        event_id TEXT PRIMARY KEY,
+        entity_id INTEGER,
+        source_peer TEXT,
+        event_type TEXT NOT NULL,
+        observed_at REAL NOT NULL,
+        payload_json TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_tg_entity_obs_entity_time ON telegram_entity_observations(entity_id, observed_at DESC);
+    CREATE TABLE IF NOT EXISTS telegram_timeline (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_id TEXT NOT NULL UNIQUE,
+        event_type TEXT NOT NULL,
+        source_peer TEXT,
+        entity_id INTEGER,
+        message_id INTEGER,
+        observed_at REAL NOT NULL,
+        payload_json TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_tg_timeline_peer_time ON telegram_timeline(source_peer, observed_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_tg_timeline_entity_time ON telegram_timeline(entity_id, observed_at DESC);
+    """),
+    (7, """
+    CREATE TABLE IF NOT EXISTS intel_sources (
+        source_id TEXT PRIMARY KEY,
+        source_family TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        dataset_id TEXT,
+        dataset_version TEXT,
+        source_type TEXT NOT NULL,
+        uri TEXT,
+        lineage_class TEXT NOT NULL DEFAULT 'UNKNOWN',
+        lineage_confidence REAL NOT NULL DEFAULT 0,
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        created_at REAL NOT NULL,
+        updated_at REAL NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS intel_entities (
+        entity_id TEXT PRIMARY KEY,
+        entity_type TEXT NOT NULL,
+        canonical_value TEXT NOT NULL,
+        display_value TEXT,
+        created_at REAL NOT NULL,
+        updated_at REAL NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_intel_entity_canonical ON intel_entities(entity_type, canonical_value);
+    CREATE TABLE IF NOT EXISTS intel_observations (
+        observation_id TEXT PRIMARY KEY,
+        entity_id TEXT NOT NULL,
+        source_id TEXT NOT NULL,
+        source_family TEXT NOT NULL,
+        source_dataset TEXT,
+        source_version TEXT,
+        retrieved_at REAL NOT NULL,
+        observed_at REAL,
+        query_context TEXT,
+        matched_field TEXT,
+        match_type TEXT,
+        evidence_state TEXT NOT NULL DEFAULT 'OBSERVED',
+        confidence REAL NOT NULL DEFAULT 0,
+        provenance_json TEXT NOT NULL DEFAULT '{}',
+        FOREIGN KEY(entity_id) REFERENCES intel_entities(entity_id) ON DELETE CASCADE,
+        FOREIGN KEY(source_id) REFERENCES intel_sources(source_id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_intel_obs_entity_time ON intel_observations(entity_id, observed_at DESC, retrieved_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_intel_obs_source_time ON intel_observations(source_id, retrieved_at DESC);
+    CREATE TABLE IF NOT EXISTS intel_relationships (
+        relationship_id TEXT PRIMARY KEY,
+        from_entity_id TEXT NOT NULL,
+        relationship_type TEXT NOT NULL,
+        to_entity_id TEXT NOT NULL,
+        evidence_state TEXT NOT NULL DEFAULT 'CORRELATED',
+        confidence REAL NOT NULL DEFAULT 0,
+        observation_id TEXT,
+        created_at REAL NOT NULL,
+        updated_at REAL NOT NULL,
+        FOREIGN KEY(from_entity_id) REFERENCES intel_entities(entity_id) ON DELETE CASCADE,
+        FOREIGN KEY(to_entity_id) REFERENCES intel_entities(entity_id) ON DELETE CASCADE,
+        FOREIGN KEY(observation_id) REFERENCES intel_observations(observation_id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_intel_rel_from ON intel_relationships(from_entity_id, relationship_type);
+    CREATE INDEX IF NOT EXISTS idx_intel_rel_to ON intel_relationships(to_entity_id, relationship_type);
+    """),
 )
 
 
@@ -126,9 +221,7 @@ class StorageService:
             await self.conn.execute("PRAGMA synchronous=NORMAL")
             await self.conn.execute("PRAGMA foreign_keys=ON")
             await self.conn.execute(f"PRAGMA busy_timeout={self.BUSY_TIMEOUT_MS}")
-            await self.conn.execute(
-                "CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, checksum TEXT NOT NULL, applied_at REAL NOT NULL)"
-            )
+            await self.conn.execute("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, checksum TEXT NOT NULL, applied_at REAL NOT NULL)")
             await self.conn.commit()
             await self._migrate()
             if not await self.integrity_check():
@@ -151,9 +244,7 @@ class StorageService:
             checksum = hashlib.sha256(sql.encode()).hexdigest()
             try:
                 await self.conn.execute("BEGIN IMMEDIATE")
-                async with self.conn.execute(
-                    "SELECT checksum FROM schema_migrations WHERE version=?", (version,)
-                ) as cursor:
+                async with self.conn.execute("SELECT checksum FROM schema_migrations WHERE version=?", (version,)) as cursor:
                     row = await cursor.fetchone()
                 if row is not None:
                     if row[0] != checksum:
@@ -162,10 +253,7 @@ class StorageService:
                     continue
                 for statement in (part.strip() for part in sql.split(";") if part.strip()):
                     await self.conn.execute(statement)
-                await self.conn.execute(
-                    "INSERT INTO schema_migrations(version, checksum, applied_at) VALUES (?, ?, ?)",
-                    (version, checksum, time.time()),
-                )
+                await self.conn.execute("INSERT INTO schema_migrations(version, checksum, applied_at) VALUES (?, ?, ?)", (version, checksum, time.time()))
                 await self.conn.commit()
             except Exception:
                 await self.conn.rollback()
@@ -226,25 +314,13 @@ class StorageService:
     async def fts_consistency(self) -> dict[str, int | bool]:
         documents = await self.fetchone("SELECT COUNT(*) FROM search_documents")
         fts_rows = await self.fetchone("SELECT COUNT(*) FROM search_fts")
-        orphan_fts = await self.fetchone(
-            "SELECT COUNT(*) FROM search_fts f LEFT JOIN search_documents d ON d.id=f.id WHERE d.id IS NULL"
-        )
-        missing_fts = await self.fetchone(
-            "SELECT COUNT(*) FROM search_documents d LEFT JOIN search_fts f ON f.id=d.id WHERE f.id IS NULL"
-        )
-        result = {
-            "documents": int(documents[0]) if documents else 0,
-            "fts_rows": int(fts_rows[0]) if fts_rows else 0,
-            "orphan_fts": int(orphan_fts[0]) if orphan_fts else 0,
-            "missing_fts": int(missing_fts[0]) if missing_fts else 0,
-        }
-        result["consistent"] = (
-            result["orphan_fts"] == 0 and result["missing_fts"] == 0 and result["documents"] == result["fts_rows"]
-        )
+        orphan_fts = await self.fetchone("SELECT COUNT(*) FROM search_fts f LEFT JOIN search_documents d ON d.id=f.id WHERE d.id IS NULL")
+        missing_fts = await self.fetchone("SELECT COUNT(*) FROM search_documents d LEFT JOIN search_fts f ON f.id=d.id WHERE f.id IS NULL")
+        result = {"documents": int(documents[0]) if documents else 0, "fts_rows": int(fts_rows[0]) if fts_rows else 0, "orphan_fts": int(orphan_fts[0]) if orphan_fts else 0, "missing_fts": int(missing_fts[0]) if missing_fts else 0}
+        result["consistent"] = result["orphan_fts"] == 0 and result["missing_fts"] == 0 and result["documents"] == result["fts_rows"]
         return result
 
     async def database_size(self) -> int:
-        """Return the database footprint including WAL/SHM sidecars when present."""
         total = 0
         for suffix in ("", "-wal", "-shm"):
             candidate = Path(str(self.path) + suffix)
@@ -265,7 +341,6 @@ class StorageService:
                 raise StorageError(f"WAL checkpoint failed: {exc}") from exc
 
     async def backup(self, destination: str | Path) -> Path:
-        """Create an integrity-verified SQLite backup and atomically publish it."""
         if self.conn is None:
             raise StorageError("StorageService is not started")
         target = Path(destination).resolve()
@@ -276,7 +351,6 @@ class StorageService:
             raise StorageError("Database exceeds configured backup size bound")
         if not await self.integrity_check():
             raise StorageError("Refusing backup of an integrity-failed database")
-
         temp_path: Path | None = None
         async with self.lock:
             try:
@@ -286,9 +360,7 @@ class StorageService:
                 target_conn = sqlite3.connect(temp_path)
                 try:
                     await self.conn.commit()
-                    await asyncio.wait_for(
-                        self.conn.backup(target_conn), timeout=self.BACKUP_TIMEOUT_SECONDS
-                    )
+                    await asyncio.wait_for(self.conn.backup(target_conn), timeout=self.BACKUP_TIMEOUT_SECONDS)
                     target_conn.commit()
                     check = target_conn.execute("PRAGMA integrity_check").fetchone()
                     if not check or str(check[0]).lower() != "ok":
@@ -308,7 +380,6 @@ class StorageService:
                         pass
 
     async def restore(self, backup: str | Path) -> None:
-        """Restore an integrity-checked backup into this database before normal use."""
         if self._started or self.conn is not None:
             raise StorageError("Restore requires a stopped StorageService")
         source = Path(backup).resolve()
