@@ -55,7 +55,7 @@ class RuntimeServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(context.snapshot()["state"], "RUNNING")
             self.assertEqual(
                 set(context.services),
-                {"storage", "cache", "http", "subprocess", "telegram", "workspace", "media", "jobs", "secrets", "ai", "search", "metrics", "flags", "isolation"},
+                {"storage", "cache", "http", "subprocess", "telegram_state", "telegram", "workspace", "media", "jobs", "secrets", "ai", "search", "metrics", "flags", "isolation"},
             )
             self.assertIsNotNone(context.get("http").session)
             self.assertTrue(context.get("cache").db_path.exists())
@@ -67,6 +67,7 @@ class RuntimeServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(context.get("search")._ready)
             self.assertTrue(context.get("flags")._started)
             self.assertTrue(context.get("isolation")._started)
+            self.assertTrue(context.get("telegram_state")._started)
 
             await context.close()
             self.assertEqual(context.snapshot()["state"], "CLOSED")
