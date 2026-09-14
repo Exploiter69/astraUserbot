@@ -39,7 +39,7 @@ class DialogState:
 class TelegramStateCache:
     """Bounded state cache for Telegram entities and dialogs.
 
-    Durable rows are observations only.  In-memory Telegram objects are kept
+    Durable rows are observations only. In-memory Telegram objects are kept
     separately and are never reconstructed into mutation authority from stale
     SQLite data.
     """
@@ -61,10 +61,16 @@ class TelegramStateCache:
         self._entities: OrderedDict[str, tuple[float, Any]] = OrderedDict()
         self._entity_states: OrderedDict[str, EntityState] = OrderedDict()
         self._dialogs: OrderedDict[str, tuple[float, Any]] = OrderedDict()
-        self._locks: dict[str, asyncio.Lock] = {}
+        self._inflight: dict[str, asyncio.Future[Any]] = {}
         self._lock_guard = asyncio.Lock()
         self._started = False
-        self._stats = {"entity_hits": 0, "entity_misses": 0, "dialog_hits": 0, "dialog_misses": 0, "inflight_joins": 0}
+        self._stats = {
+            "entity_hits": 0,
+            "entity_misses": 0,
+            "dialog_hits": 0,
+            "dialog_misses": 0,
+            "inflight_joins": 0,
+        }
 
     async def start(self) -> None:
         self._started = True
@@ -73,7 +79,11 @@ class TelegramStateCache:
         self._entities.clear()
         self._entity_states.clear()
         self._dialogs.clear()
-        self._locks.clear()
+        async with self._lock_guard:
+            for future in self._inflight.values():
+                if not future.done():
+                    future.cancel()
+            self._inflight.clear()
         self._started = False
 
     @staticmethod
@@ -142,10 +152,9 @@ class TelegramStateCache:
             return None
         state = EntityState(
             lookup_key=str(row[0]), entity_id=int(row[1]) if row[1] is not None else None,
-            access_hash=int(row[2]) if row[2] is not None else None,
-            username=row[3], title=row[4], first_name=row[5], last_name=row[6],
-            entity_type=str(row[7]), last_seen=float(row[8]), photo_id=row[9],
-            capabilities=json.loads(row[10] or "{}"),
+            access_hash=int(row[2]) if row[2] is not None else None, username=row[3], title=row[4],
+            first_name=row[5], last_name=row[6], entity_type=str(row[7]), last_seen=float(row[8]),
+            photo_id=row[9], capabilities=json.loads(row[10] or "{}"),
         )
         self._entity_states[key] = state
         self._entity_states.move_to_end(key)
@@ -173,18 +182,38 @@ class TelegramStateCache:
         if cached is not None:
             self._stats["entity_hits"] += 1
             return cached
+
+        key = f"entity:{self.entity_key(lookup)}"
+        async with self._lock_guard:
+            future = self._inflight.get(key)
+            owner = future is None
+            if owner:
+                future = asyncio.get_running_loop().create_future()
+                self._inflight[key] = future
+            else:
+                self._stats["inflight_joins"] += 1
+        assert future is not None
+        if not owner:
+            return await asyncio.shield(future)
+
         self._stats["entity_misses"] += 1
-        lock = await self._key_lock(f"entity:{self.entity_key(lookup)}")
-        if lock.locked():
-            self._stats["inflight_joins"] += 1
-        async with lock:
-            cached = self.get_memory_entity(lookup)
-            if cached is not None:
-                self._stats["entity_hits"] += 1
-                return cached
+        try:
             entity = await resolver()
-            await self.remember_entity(lookup, entity)
+            try:
+                await self.remember_entity(lookup, entity)
+            except Exception:
+                # Cache persistence is advisory; a successful Telegram lookup
+                # must never be converted into a failed user operation.
+                pass
+            future.set_result(entity)
             return entity
+        except BaseException as exc:
+            if not future.done():
+                future.set_exception(exc)
+            raise
+        finally:
+            async with self._lock_guard:
+                self._inflight.pop(key, None)
 
     async def remember_dialog(self, dialog: Any, *, sync_state: str = "OBSERVED") -> DialogState:
         key = self.peer_key(getattr(dialog, "entity", dialog))
@@ -215,6 +244,17 @@ class TelegramStateCache:
         await self._prune_dialogs()
         return state
 
+    def memory_dialogs(self, *, limit: int | None = None) -> list[Any] | None:
+        if not self._dialogs:
+            return None
+        now = time.time()
+        fresh = [(observed, dialog) for observed, dialog in self._dialogs.values() if now - observed <= self.dialog_ttl]
+        if not fresh:
+            return None
+        fresh.sort(key=lambda item: item[0], reverse=True)
+        cap = max(1, min(limit or self.max_dialogs, self.max_dialogs))
+        return [dialog for _, dialog in fresh[:cap]]
+
     async def get_dialog_state(self, peer: Any, *, fresh: bool = True) -> DialogState | None:
         key = self.peer_key(peer)
         item = self._dialogs.get(key)
@@ -223,10 +263,10 @@ class TelegramStateCache:
             self._dialogs.move_to_end(key)
             self._stats["dialog_hits"] += 1
             dialog = item[1]
+            entity = getattr(dialog, "entity", dialog)
             return DialogState(
-                peer_key=key, dialog_type=type(getattr(dialog, "entity", dialog)).__name__,
-                title=self._text(getattr(getattr(dialog, "entity", dialog), "title", None)),
-                username=self._text(getattr(getattr(dialog, "entity", dialog), "username", None)),
+                peer_key=key, dialog_type=type(entity).__name__,
+                title=self._text(getattr(entity, "title", None)), username=self._text(getattr(entity, "username", None)),
                 last_message_id=self._int(getattr(getattr(dialog, "message", None), "id", None)),
                 last_sync_at=item[0], sync_state="MEMORY",
             )
@@ -281,20 +321,13 @@ class TelegramStateCache:
             "entities_memory": len(self._entities),
             "entity_states_memory": len(self._entity_states),
             "dialogs_memory": len(self._dialogs),
+            "inflight": len(self._inflight),
             "max_entities": self.max_entities,
             "max_dialogs": self.max_dialogs,
             "entity_ttl": self.entity_ttl,
             "dialog_ttl": self.dialog_ttl,
             **self._stats,
         }
-
-    async def _key_lock(self, key: str) -> asyncio.Lock:
-        async with self._lock_guard:
-            lock = self._locks.get(key)
-            if lock is None:
-                lock = asyncio.Lock()
-                self._locks[key] = lock
-            return lock
 
     async def _prune_entities(self) -> None:
         row = await self.storage.fetchone("SELECT COUNT(*) FROM telegram_entities")
