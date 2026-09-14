@@ -7,7 +7,7 @@ import logging
 from collections.abc import Sequence
 from typing import Any
 
-from telethon.errors import FloodWaitError
+from telethon.errors import FloodWaitError, SlowModeWaitError
 
 from core.errors import ExternalServiceError, TimeoutError
 from core.services.telegram_traffic import (
@@ -146,6 +146,17 @@ class TelegramFacade:
                 self.traffic.record_flood_wait(method, wait, peer_key=peer_key)
                 logger.warning(
                     "Telegram flood wait operation=%s seconds=%s retry=%s",
+                    method,
+                    int(wait),
+                    attempt + 1,
+                )
+            except SlowModeWaitError as exc:
+                wait = float(exc.seconds)
+                if attempt >= self.retries or wait <= 0 or wait > self.flood_wait_cap:
+                    raise ExternalServiceError("Telegram slow mode prevented the operation.") from exc
+                self.traffic.record_slow_mode(method, wait, peer_key=peer_key)
+                logger.warning(
+                    "Telegram slow mode operation=%s seconds=%s retry=%s",
                     method,
                     int(wait),
                     attempt + 1,
