@@ -14,6 +14,7 @@ from core.services.storage import StorageError, StorageService
 from core.services.subprocess import SubprocessResult, SubprocessService
 from core.services.telegram import TelegramFacade
 from core.services.telegram_event_journal import TelegramEventJournal
+from core.services.telegram_event_projections import TelegramEventProjections
 from core.services.telegram_events import TelegramEvent, TelegramEventCollector
 from core.services.telegram_state import DialogState, EntityState, TelegramStateCache
 from core.services.telegram_sync import SyncCursor, SyncResult, TelegramIncrementalSync
@@ -21,20 +22,11 @@ from core.services.telegram_traffic import TelegramTrafficController
 from core.services.workspace import Workspace, WorkspaceService
 
 __all__ = [
-    "Artifact", "CacheEntry", "CacheService", "CacheStats",
-    "FeatureFlagService",
-    "HttpService",
-    "IsolationAssessment", "IsolationService", "IsolationUnavailable",
-    "Job", "JobEngine", "JobError", "JobState",
-    "MediaArtifact", "MediaService",
-    "MetricSnapshot", "MetricsService",
-    "SearchResult", "SearchService",
-    "SecretStore", "SecretStoreError",
-    "StorageError", "StorageService",
-    "SubprocessResult", "SubprocessService",
-    "DialogState", "EntityState", "TelegramStateCache",
-    "SyncCursor", "SyncResult", "TelegramIncrementalSync",
-    "TelegramEvent", "TelegramEventCollector", "TelegramEventJournal",
-    "TelegramFacade", "TelegramTrafficController",
-    "Workspace", "WorkspaceService",
+    "Artifact", "CacheEntry", "CacheService", "CacheStats", "FeatureFlagService", "HttpService",
+    "IsolationAssessment", "IsolationService", "IsolationUnavailable", "Job", "JobEngine", "JobError", "JobState",
+    "MediaArtifact", "MediaService", "MetricSnapshot", "MetricsService", "SearchResult", "SearchService",
+    "SecretStore", "SecretStoreError", "StorageError", "StorageService", "SubprocessResult", "SubprocessService",
+    "DialogState", "EntityState", "TelegramStateCache", "SyncCursor", "SyncResult", "TelegramIncrementalSync",
+    "TelegramEvent", "TelegramEventCollector", "TelegramEventJournal", "TelegramEventProjections",
+    "TelegramFacade", "TelegramTrafficController", "Workspace", "WorkspaceService",
 ]
