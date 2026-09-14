@@ -98,8 +98,9 @@ class TelegramIncrementalSync:
             )
             newest = max(message_ids) if message_ids else previous_id
             now = time.time()
-            await self._write_cursor(peer, newest, now, SYNCED)
-            return SyncResult(key, len(messages), newest, gap, SYNCED)
+            state = GAP_DETECTED if gap else SYNCED
+            await self._write_cursor(peer, newest, now, state)
+            return SyncResult(key, len(messages), newest, gap, state)
         except Exception:
             await self._write_cursor(peer, previous_id, time.time(), FAILED)
             raise
