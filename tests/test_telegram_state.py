@@ -1,11 +1,11 @@
 import asyncio
 import tempfile
-import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
 from core.services.storage import StorageService
+from core.services.telegram import TelegramFacade
 from core.services.telegram_state import TelegramStateCache
 
 
@@ -65,6 +65,25 @@ class TelegramStateCacheTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(state.access_hash, 70)
         self.assertEqual(state.username, "alice")
         self.assertEqual(state.photo_id, "700")
+
+    async def test_facade_entity_resolution_uses_cache_after_first_lookup(self):
+        class Client:
+            def __init__(self):
+                self.calls = 0
+                self.entity = TelegramStateCacheTests.entity(12)
+
+            async def get_entity(self, _lookup):
+                self.calls += 1
+                return self.entity
+
+        client = Client()
+        facade = TelegramFacade(client, retries=0, state_cache=self.cache)
+        first = await facade.get_entity("@alice")
+        second = await facade.get_entity("alice")
+        await facade.close()
+        self.assertIs(first, client.entity)
+        self.assertIs(second, client.entity)
+        self.assertEqual(client.calls, 1)
 
     async def test_concurrent_entity_resolution_is_single_flight(self):
         calls = 0
