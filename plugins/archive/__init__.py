@@ -1,0 +1,1 @@
+"""Telegram archive command plugin."""
