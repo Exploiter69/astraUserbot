@@ -56,6 +56,92 @@ class TelegramTrafficControllerTests(unittest.IsolatedAsyncioTestCase):
         await asyncio.gather(first_task, high_task, low_task)
         self.assertEqual(order, ["first", "high", "low"])
 
+    async def test_starved_low_priority_work_is_promoted(self):
+        self.controller = TelegramTrafficController(
+            max_concurrency=1, starvation_timeout=0.05
+        )
+        first_started = asyncio.Event()
+        release = asyncio.Event()
+        low_started = asyncio.Event()
+        high_runs = 0
+
+        async def first():
+            first_started.set()
+            await release.wait()
+            return "first"
+
+        async def low():
+            low_started.set()
+            return "low"
+
+        async def high():
+            nonlocal high_runs
+            high_runs += 1
+            await asyncio.sleep(0)
+            return "high"
+
+        first_task = asyncio.create_task(
+            self.controller.execute("send_message", first, priority=P2_NORMAL)
+        )
+        await first_started.wait()
+        low_task = asyncio.create_task(
+            self.controller.execute("send_message", low, priority=P5_MAINTENANCE)
+        )
+
+        await asyncio.sleep(0.06)
+        self.assertGreaterEqual(self.controller.snapshot()["starved"], 1)
+
+        high_tasks = [
+            asyncio.create_task(
+                self.controller.execute("send_message", high, priority=P0_OWNER)
+            )
+            for _ in range(20)
+        ]
+        release.set()
+        await asyncio.wait_for(low_started.wait(), timeout=0.5)
+        await asyncio.gather(first_task, low_task, *high_tasks)
+
+        self.assertEqual(high_runs, 20)
+        self.assertGreaterEqual(
+            self.controller.snapshot()["counters"].get("starvation_promotions", 0), 1
+        )
+
+    async def test_starvation_promotion_is_oldest_waiting_eligible_work(self):
+        self.controller = TelegramTrafficController(
+            max_concurrency=1, starvation_timeout=0.04
+        )
+        started = asyncio.Event()
+        release = asyncio.Event()
+        order: list[str] = []
+
+        async def first():
+            started.set()
+            await release.wait()
+            order.append("first")
+
+        async def low(name: str):
+            order.append(name)
+
+        first_task = asyncio.create_task(
+            self.controller.execute("send_message", first, priority=P2_NORMAL)
+        )
+        await started.wait()
+        older = asyncio.create_task(
+            self.controller.execute(
+                "send_message", lambda: low("older"), priority=P5_MAINTENANCE
+            )
+        )
+        await asyncio.sleep(0.02)
+        newer = asyncio.create_task(
+            self.controller.execute(
+                "send_message", lambda: low("newer"), priority=P5_MAINTENANCE
+            )
+        )
+        await asyncio.sleep(0.05)
+        release.set()
+        await asyncio.gather(first_task, older, newer)
+        self.assertEqual(order[:2], ["first", "older"])
+
     async def test_per_peer_limit_prevents_same_peer_overlap(self):
         self.controller = TelegramTrafficController(
             max_concurrency=4, per_peer_limit=1
