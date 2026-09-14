@@ -6,7 +6,20 @@ import logging
 from pathlib import Path
 from typing import Any, Protocol, TypeVar
 
-from core.services import CacheService, HttpService, JobEngine, MediaService, SecretStore, StorageService, SubprocessService, TelegramEventCollector, TelegramEventJournal, TelegramFacade, TelegramStateCache, WorkspaceService
+from core.services import (
+    CacheService,
+    HttpService,
+    JobEngine,
+    MediaService,
+    SecretStore,
+    StorageService,
+    SubprocessService,
+    TelegramEventCollector,
+    TelegramEventJournal,
+    TelegramFacade,
+    TelegramStateCache,
+    WorkspaceService,
+)
 from core.services.ai import AIService
 from core.services.flags import FeatureFlagService
 from core.services.isolation import IsolationService
@@ -42,17 +55,23 @@ class ApplicationContext:
         self.register("http", HttpService())
         self.register("subprocess", SubprocessService())
         self.register("telegram_state", TelegramStateCache(self.get("storage")))
-        self.register("telegram", TelegramFacade(
-            client,
-            recorder=TelegramOperationRecorder(self.get("storage")),
-            state_cache=self.get("telegram_state"),
-        ))
+        self.register(
+            "telegram",
+            TelegramFacade(
+                client,
+                recorder=TelegramOperationRecorder(self.get("storage")),
+                state_cache=self.get("telegram_state"),
+            ),
+        )
         self.register("telegram_event_journal", TelegramEventJournal(self.get("storage")))
         self.register("telegram_events", TelegramEventCollector(client))
         self.get("telegram_events").add_sink(self.get("telegram_event_journal").append)
         self.register("workspace", WorkspaceService(self.project_root))
         self.register("isolation", IsolationService())
-        self.register("media", MediaService(self.get("workspace"), self.get("subprocess"), self.get("isolation")))
+        self.register(
+            "media",
+            MediaService(self.get("workspace"), self.get("subprocess"), self.get("isolation")),
+        )
         self.register("jobs", JobEngine(self.get("storage")))
         self.register("secrets", SecretStore())
         self.register("ai", AIService(self.get("http")))
