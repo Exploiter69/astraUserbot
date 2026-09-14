@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Sequence
 from typing import Any
@@ -10,7 +11,6 @@ from telethon.errors import FloodWaitError
 
 from core.errors import ExternalServiceError, TimeoutError
 from core.services.telegram_traffic import (
-    BULK,
     DESTRUCTIVE,
     DISCOVERY,
     MEDIA,
@@ -152,8 +152,6 @@ class TelegramFacade:
                 )
             except asyncio.TimeoutError as exc:
                 raise TimeoutError("Telegram operation timed out.") from exc
-            except Exception:
-                raise
         raise ExternalServiceError("Telegram operation failed.")
 
     @staticmethod
