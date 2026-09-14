@@ -28,7 +28,7 @@ class FakeTelegram:
     async def get_messages(self, peer: str, *, limit: int, max_id: int | None = None):
         self.calls.append((peer, limit, max_id))
         if max_id is None:
-            return [FakeMessage(i, f"message {i}") for i in range(6, 1, -1)]
+            return [FakeMessage(i, f"message {i}") for i in range(101, 1, -1)]
         if max_id == 1:
             return [FakeMessage(1, "message 1")]
         return []
@@ -64,16 +64,16 @@ async def test_archive_worker_is_bounded_resumable_and_searchable(tmp_path: Path
     service = TelegramArchiveService(storage, telegram, search, FakeMedia(), jobs, tmp_path)
     await service.start()
 
-    job = type("Job", (), {"id": "archive-job", "payload": {"peer": "123", "limit": 6, "min_message_id": 0, "include_media": False}})()
+    job = type("Job", (), {"id": "archive-job", "payload": {"peer": "123", "limit": 101, "min_message_id": 0, "include_media": False}})()
     result = await service._handle_job(job)
 
-    assert result["archived"] == 6
+    assert result["archived"] == 101
     assert len(telegram.calls) == 2
-    assert telegram.calls[0] == ("123", 6, None)
+    assert telegram.calls[0] == ("123", 100, None)
     assert telegram.calls[1] == ("123", 1, 1)
-    assert await storage.fetchone("SELECT COUNT(*) FROM search_documents WHERE source='archive_message'") == (None) or True
     row = await storage.fetchone("SELECT COUNT(*) FROM search_documents WHERE source='archive_message'")
-    assert int(row[0]) == 6
+    assert row is not None
+    assert int(row[0]) == 101
 
     results = await service.search_archive("message 4", limit=10)
     assert len(results) == 1
