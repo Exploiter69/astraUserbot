@@ -10,7 +10,7 @@ import uuid
 from dataclasses import asdict, dataclass
 from typing import Any, Awaitable, Callable
 
-from telethon import events
+from telethon import events, types
 
 logger = logging.getLogger("astra.telegram_events")
 
@@ -45,6 +45,17 @@ class TelegramEventCollector:
     MAX_SINKS = 32
     MAX_TEXT_BYTES = 4096
 
+    _REACTION_UPDATE_TYPES = (
+        types.UpdateMessageReactions,
+        types.UpdateBotMessageReaction,
+        types.UpdateBotMessageReactions,
+    )
+    _CALL_UPDATE_TYPES = (
+        types.UpdatePhoneCall,
+        types.UpdateGroupCall,
+        types.UpdateGroupCallConnection,
+    )
+
     def __init__(self, client: Any) -> None:
         self.client = client
         self._sinks: list[EventSink] = []
@@ -71,9 +82,9 @@ class TelegramEventCollector:
             (self._handle_new_message, events.NewMessage()),
             (self._handle_message_edit, events.MessageEdited()),
             (self._handle_message_delete, events.MessageDeleted()),
-            (self._handle_reaction, events.MessageReactionUpdated()),
+            (self._handle_reaction, events.Raw(types=self._REACTION_UPDATE_TYPES)),
             (self._handle_chat_action, events.ChatAction()),
-            (self._handle_raw, events.Raw()),
+            (self._handle_raw, events.Raw(types=self._CALL_UPDATE_TYPES)),
         )
         for callback, builder in registrations:
             self.client.add_event_handler(callback, builder)
@@ -91,7 +102,14 @@ class TelegramEventCollector:
         self._sinks.clear()
         logger.info("Telegram event collector stopped")
 
-    async def _emit(self, event_type: str, event: Any, *, payload: dict[str, Any], message_id: int | None = None) -> None:
+    async def _emit(
+        self,
+        event_type: str,
+        event: Any,
+        *,
+        payload: dict[str, Any],
+        message_id: int | None = None,
+    ) -> None:
         normalized = TelegramEvent(
             event_id=uuid.uuid4().hex,
             event_type=event_type,
@@ -114,20 +132,43 @@ class TelegramEventCollector:
 
     async def _handle_new_message(self, event: Any) -> None:
         message = getattr(event, "message", None)
-        await self._emit("MESSAGE_NEW", event, payload=self._message_payload(message), message_id=self._message_id(message))
+        await self._emit(
+            "MESSAGE_NEW",
+            event,
+            payload=self._message_payload(message),
+            message_id=self._message_id(message),
+        )
 
     async def _handle_message_edit(self, event: Any) -> None:
         message = getattr(event, "message", None)
-        await self._emit("MESSAGE_EDIT", event, payload=self._message_payload(message), message_id=self._message_id(message))
+        await self._emit(
+            "MESSAGE_EDIT",
+            event,
+            payload=self._message_payload(message),
+            message_id=self._message_id(message),
+        )
 
     async def _handle_message_delete(self, event: Any) -> None:
         ids = getattr(event, "deleted_ids", None) or ()
         for message_id in tuple(ids)[:100]:
-            await self._emit("MESSAGE_DELETE", event, payload={"deleted": True}, message_id=int(message_id))
+            await self._emit(
+                "MESSAGE_DELETE",
+                event,
+                payload={"deleted": True},
+                message_id=int(message_id),
+            )
 
     async def _handle_reaction(self, event: Any) -> None:
-        message = getattr(event, "message", None)
-        await self._emit("REACTION_CHANGED", event, payload={"message": self._message_id(message)}, message_id=self._message_id(message))
+        message_id = getattr(event, "msg_id", None)
+        await self._emit(
+            "REACTION_CHANGED",
+            event,
+            payload={
+                "message": int(message_id) if isinstance(message_id, int) else None,
+                "update": type(event).__name__,
+            },
+            message_id=int(message_id) if isinstance(message_id, int) else None,
+        )
 
     async def _handle_chat_action(self, event: Any) -> None:
         action = getattr(event, "action_message", None)
@@ -138,8 +179,6 @@ class TelegramEventCollector:
         )
 
     async def _handle_raw(self, update: Any) -> None:
-        if type(update).__name__ not in {"UpdatePhoneCall", "UpdateGroupCall", "UpdateGroupCallConnection"}:
-            return
         phone_call = getattr(update, "phone_call", None)
         call_id = getattr(phone_call, "id", None)
         await self._emit(
@@ -172,6 +211,8 @@ class TelegramEventCollector:
         value = getattr(event, "chat_id", None)
         if value is None:
             value = getattr(event, "peer_id", None)
+        if value is None:
+            value = getattr(event, "peer", None)
         if value is None:
             return None
         return str(value)
