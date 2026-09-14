@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import time
 import uuid
@@ -13,7 +14,7 @@ from telethon import events
 
 logger = logging.getLogger("astra.telegram_events")
 
-EventSink = Callable[["TelegramEvent"], Awaitable[None]]
+EventSink = Callable[["TelegramEvent"], Awaitable[None] | None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,7 +35,7 @@ class TelegramEvent:
 
 
 class TelegramEventCollector:
-    """Collect supported Telegram updates and fan out normalized envelopes.
+    """Collect supported Telegram updates and fan out normalized event envelopes.
 
     The collector is deliberately transport-adjacent: it observes Telethon updates,
     strips them down to bounded metadata, and forwards the normalized event to sinks.
@@ -49,7 +50,6 @@ class TelegramEventCollector:
         self._sinks: list[EventSink] = []
         self._handlers: list[tuple[Any, Any]] = []
         self._started = False
-        self._lock = asyncio.Lock()
 
     def add_sink(self, sink: EventSink) -> None:
         if not callable(sink):
@@ -103,7 +103,9 @@ class TelegramEventCollector:
         sinks = tuple(self._sinks)
         for sink in sinks:
             try:
-                await sink(normalized)
+                result = sink(normalized)
+                if inspect.isawaitable(result):
+                    await result
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -119,7 +121,6 @@ class TelegramEventCollector:
 
     async def _handle_message_delete(self, event: Any) -> None:
         ids = getattr(event, "deleted_ids", None) or ()
-        peer = self._peer_key(event)
         for message_id in tuple(ids)[:100]:
             await self._emit("MESSAGE_DELETE", event, payload={"deleted": True}, message_id=int(message_id))
 
