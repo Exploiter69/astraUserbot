@@ -25,4 +25,4 @@ The journal is not a projection engine and is not a second job system. C3 owns r
 
 The default journal bound is 100,000 rows. Pruning occurs in bounded batches and removes the oldest journal rows first.
 
-The C2 implementation currently bootstraps its table/index schema with `CREATE TABLE IF NOT EXISTS` through the canonical `StorageService`. Future schema changes must preserve deterministic startup and should be promoted to numbered Storage migrations when the journal schema becomes externally depended upon.
+The journal table and indexes are owned by numbered `StorageService` migration 9. The runtime service only validates that the canonical schema exists and performs restart recovery for interrupted `PROCESSING` rows.
