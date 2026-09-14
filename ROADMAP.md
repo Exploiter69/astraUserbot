@@ -1484,3 +1484,1016 @@ This file is the long-term feature map. Individual implementation gates should r
 Update this roadmap when scope changes materially. Do not rewrite completed history to make progress look cleaner.
 
 **Roadmap objective:** make AstraUserbot one coherent, feature-rich, zero-cost Telegram automation and local intelligence platform without sacrificing the production-grade engineering foundation already achieved in v1.0.0.
+
+---
+
+# 36. Master dependency model — prerequisites are first-class
+
+The roadmap above remains intact. From this point forward, every program is governed by an explicit prerequisite chain. A program is not implementation-ready merely because its name appears earlier in the roadmap.
+
+The standard lifecycle is:
+
+```text
+PREREQUISITES
+    ↓
+DISCOVERY / DESIGN
+    ↓
+IMPLEMENTATION
+    ↓
+TEST / FAILURE VALIDATION
+    ↓
+PRODUCTION ACCEPTANCE
+    ↓
+DOCUMENTATION / STATE UPDATE
+    ↓
+UNLOCK NEXT DEPENDENT GATE
+```
+
+A later feature must not be implemented by bypassing a missing prerequisite merely because the feature is attractive or easy to prototype.
+
+### Global dependency rules
+
+1. Telegram transport changes precede Telegram-heavy product expansion.
+2. Durable state/events precede intelligence projections that depend on them.
+3. Intelligence schemas precede source-specific intelligence adapters.
+4. Dataset discovery and lineage precede large external-dataset integration.
+5. Source selection precedes forking/retaining authoritative external datasets.
+6. Canonical schema mapping precedes cross-dataset correlation.
+7. Evidence/provenance precedes high-confidence correlation.
+8. IntelGraph precedes full correlation and case fusion.
+9. Media extraction precedes media-derived intelligence.
+10. Command contracts precede large-scale command ecosystem expansion.
+11. Plugin compatibility contracts precede serious third-party ecosystem claims.
+12. Release/operations gates remain mandatory after every major integration.
+
+---
+
+# 37. Program-by-program prerequisite matrix
+
+| Program | Prerequisites before implementation | Primary gate/output |
+|---|---|---|
+| A — Telegram Core | current Telegram facade, current error/rate paths, plugin call-path audit | `TG-*` governed transport |
+| B — Telegram State | A transport control, current entity/dialog model, durable DB migrations | `STATE-*` durable state/cache |
+| C — Telegram Events | B state model, event normalization contract, SQLite/WAL event schema | `EVENT-*` durable/replayable events |
+| D — Archive | A+B+C, bounded media workspace, JobEngine, FTS5/search contracts | `ARCH-*` resumable archive |
+| E — UX/Product | command inventory, Command Contract, Telegram traffic control, permission model | `UX-*` coherent product surface |
+| F — AI | AI service/provider abstraction, context bounds, JobEngine, command contracts | `AI-*` unified advisory AI |
+| G — Automation | Event Engine, JobEngine, command/action authorization, durable state | `AUTO-*` durable workflows |
+| H — IntelGraph | event/observation concepts, source/provenance schema, canonical entity model | `INTEL-*` intelligence substrate |
+| I — IOC | H foundation, normalization rules, extraction tests | `IOC-*` deterministic indicators |
+| J — TGINTEL | A+B+C+H, explicit Telegram observation scope | `TGINTEL-*` Telegram intelligence |
+| K — Identity | H+I, source registry, evidence/confidence model | `USER-*` bounded identity pivots |
+| L — Domain | H+I, central HTTP/network service, public-source adapters | `DOMAIN-*` infrastructure graph |
+| M — Links | I+L, HTTP resource policy, URL normalization | `LINK-*` link graph |
+| N — Media | D, Media service, isolation, hashing/OCR/STT availability | `MEDIAINTEL-*` media evidence |
+| O — Cases | H+I+correlation inputs+timeline primitives | `CASE-*` investigations |
+| P — Security | I+M+L, bounded network policy | `SEC-*` defensive intelligence |
+| Q — Git | H+I, public Git provider adapter and provenance | `GIT-*` public-code intelligence |
+| R — Plugin ecosystem | Command Contract, service interfaces, permissions, compatibility metadata | `SDK-*` stable plugin API |
+| S — Competitive catch-up | feature matrix, command inventory, test evidence | `COMP-*` verified parity |
+| T — Release/Operations | every preceding feature's tests/metrics/migrations | production acceptance |
+
+This matrix is a dependency contract, not a promise that all programs execute linearly. Independent work may proceed in parallel only when its prerequisites are already satisfied.
+
+---
+
+# 38. Intelligence foundation expansion — Source Registry + Evidence Model
+
+The intelligence side of Astra now explicitly includes a source registry beneath IntelGraph.
+
+## 38.1 Canonical intelligence entities
+
+The canonical entity layer may represent:
+
+- person;
+- organization;
+- Telegram account;
+- Telegram chat/channel;
+- username;
+- phone-like indicator;
+- email;
+- domain;
+- IP/ASN;
+- URL;
+- hash;
+- file/media;
+- message;
+- dataset;
+- dataset family;
+- source;
+- event;
+- case;
+- location;
+- unknown entity.
+
+## 38.2 Observation model
+
+Every imported intelligence observation should be traceable to:
+
+```text
+observation_id
+entity_id
+source_id
+source_family
+source_dataset
+source_version
+retrieved_at
+observed_at
+query/context
+matched_field
+match_type
+confidence
+provenance
+```
+
+## 38.3 Evidence states
+
+Use explicit states:
+
+- `OBSERVED`
+- `DERIVED`
+- `CORRELATED`
+- `INFERRED`
+- `UNKNOWN`
+- `CONTRADICTED`
+
+AI and correlation layers must preserve these states rather than flattening them into a single “truth” field.
+
+---
+
+# 39. New intelligence subsystem — Intel Dataset Lineage Engine
+
+Astra will not treat every external dataset repository as an independent intelligence source.
+
+The objective is:
+
+> **maximize genuinely unique intelligence coverage while collapsing duplicate and derived copies.**
+
+This is a discovery/lineage problem first and a query-engine problem second.
+
+## 39.1 What this subsystem does
+
+The Dataset Lineage Engine determines:
+
+- which repositories belong to the same dataset family;
+- which repositories are duplicates;
+- which are derived copies;
+- which are subsets;
+- which are re-indexed/reformatted versions;
+- which are merged/composite datasets;
+- which appear independent;
+- which are plausible master/root candidates;
+- how much unique coverage each family contributes.
+
+## 39.2 Classification model
+
+The primary lineage classification is:
+
+- `MASTER_CANDIDATE`
+- `VERSION`
+- `DERIVED`
+- `DUPLICATE`
+- `SUBSET`
+- `MERGED`
+- `INDEPENDENT`
+- `UNKNOWN`
+
+The classification is about **data lineage**, not about whether the dataset is interesting or sensitive.
+
+### Important rule
+
+Sensitivity must not be used as a dataset-discovery filter.
+
+A dataset can therefore simultaneously be:
+
+```text
+MASTER_CANDIDATE
++ unique lineage
++ high coverage
++ sensitive
+```
+
+and still remain in the lineage/corpus inventory.
+
+Operational handling of sensitive information is a separate policy dimension and must not distort lineage analysis.
+
+---
+
+# 40. Dataset intelligence prerequisite gate — complete the census first
+
+Before implementing the Hugging Face dataset query layer in Astra, complete the external dataset census.
+
+This is a hard prerequisite.
+
+## DS-0 — Account discovery
+
+Inventory every supplied account and then expand to related public dataset references where useful.
+
+Current known account set from the research phase includes:
+
+- `greyexploiter`
+- `tfqdeadlo`
+- `PhisherJR`
+- `Kzr0xx`
+- `Bruhletme`
+- `sauravsingh2111`
+- `warmifans`
+
+For each account record:
+
+- account identity;
+- datasets;
+- Spaces/APIs;
+- models that reference datasets;
+- linked dataset families;
+- visible repository relationships;
+- activity/history useful for lineage.
+
+**Exit:** every supplied account has a machine-readable inventory.
+
+## DS-1 — Dataset inventory
+
+For every discovered dataset collect metadata before downloading large content:
+
+- repository ID;
+- provider;
+- dataset name;
+- file list;
+- formats;
+- file sizes;
+- row counts when available;
+- schema/columns;
+- data types;
+- partitions;
+- indexes;
+- README/documentation;
+- commit history;
+- creation/update history;
+- linked Spaces/APIs;
+- known source declarations;
+- related repositories.
+
+**Exit:** all candidate datasets have normalized metadata records.
+
+## DS-2 — Dataset family clustering
+
+Group repositories that appear to originate from the same underlying corpus.
+
+Examples of families discovered during research include large HITECH/ICMR/India-data/Telegram-style families. The family label is provisional until lineage analysis confirms it.
+
+**Exit:** every dataset is assigned to a provisional family or `UNKNOWN`.
+
+## DS-3 — Duplicate detection
+
+Use progressively stronger evidence:
+
+### Level 1 — metadata
+
+Compare:
+
+- row count;
+- total size;
+- schema;
+- partition layout;
+- file naming;
+- index structure.
+
+### Level 2 — file identity
+
+Where accessible, compare:
+
+- SHA-256/file hashes;
+- exact file sizes;
+- Parquet metadata;
+- row-group statistics.
+
+### Level 3 — schema fingerprint
+
+Normalize:
+
+- column names;
+- column order;
+- data types;
+- nullable structure.
+
+### Level 4 — controlled content fingerprints
+
+Use bounded samples/record fingerprints rather than blindly downloading hundreds of GB.
+
+### Level 5 — overlap evidence
+
+Where legitimate remote query access exists, compare controlled record samples and stable fingerprints.
+
+**Exit:** likely duplicates are clustered and no longer counted as independent sources.
+
+## DS-4 — Derived/subset detection
+
+Determine whether one source is:
+
+- cleaned from another;
+- reformatted from another;
+- re-indexed from another;
+- a temporal/version copy;
+- a subset;
+- an extracted partition;
+- an enrichment of another;
+- a partial mirror.
+
+A smaller dataset is not automatically discarded. It may contain unique records or a useful partition not present in the selected master.
+
+**Exit:** derived/subset relationships are represented explicitly.
+
+## DS-5 — Merge/composite detection
+
+Identify repositories that combine multiple source families.
+
+Example:
+
+```text
+A + B → composite C
+```
+
+Composite datasets must retain both parent lineage and additive coverage information.
+
+**Exit:** merged sources are not incorrectly classified as independent originals.
+
+## DS-6 — Master/root candidate detection
+
+Rank master candidates using:
+
+- coverage;
+- chronology;
+- provenance;
+- schema completeness;
+- source declarations;
+- commit history;
+- record overlap;
+- partition structure;
+- index structure;
+- version relationships.
+
+**Largest does not automatically mean master.**
+
+The result is a confidence-ranked master candidate, not an unsupported claim of original ownership.
+
+**Exit:** every important family has one or more master candidates with reasons.
+
+## DS-7 — Source lineage graph
+
+Represent lineage as a graph:
+
+```text
+                    MASTER CANDIDATE
+                           │
+             ┌─────────────┼─────────────┐
+             ▼             ▼             ▼
+          VERSION        SUBSET        DERIVED
+             │             │             │
+             ▼             ▼             ▼
+           FORK          INDEXED       CLEANED
+             \             │             /
+              \            ▼            /
+               └─────── MERGED ───────┘
+```
+
+Each repository becomes a node with lineage edges.
+
+**Exit:** source families can be traversed from root candidates to descendants.
+
+## DS-8 — Unique coverage analysis
+
+For each family calculate/estimate:
+
+- repositories discovered;
+- master candidates;
+- duplicates;
+- derived copies;
+- subsets;
+- merged/composite sources;
+- independent sources;
+- unknown lineage;
+- estimated unique coverage;
+- duplicate volume;
+- lineage confidence.
+
+**Exit:** we know which repositories materially add information.
+
+## DS-9 — Fork/retain decision
+
+Only after DS-0 through DS-8:
+
+```text
+account census
+    ↓
+dataset inventory
+    ↓
+family clustering
+    ↓
+duplicate analysis
+    ↓
+derived/subset analysis
+    ↓
+merged-source analysis
+    ↓
+master candidates
+    ↓
+unique coverage
+    ↓
+SELECT AUTHORITATIVE SOURCES
+    ↓
+fork/retain selected sources
+    ↓
+freeze source manifest
+```
+
+Do not build Astra's query adapters around random duplicate forks before this gate passes.
+
+**Exit:** a deliberately selected set of source repositories/families is frozen for implementation.
+
+## DS-10 — Canonical source manifest
+
+Create a machine-readable manifest with fields such as:
+
+```yaml
+source_family: <family>
+master_candidates:
+  - repository: <repo>
+    confidence: <score>
+derived: []
+duplicates: []
+subsets: []
+merged: []
+independent: []
+coverage:
+  estimated_unique: <value>
+query_methods:
+  - dataset_viewer
+  - remote_parquet
+  - api
+lineage_confidence: <score>
+```
+
+This manifest becomes the source-of-truth for external intelligence integration.
+
+---
+
+# 41. Hugging Face implementation gate — only after dataset census
+
+After DS-0 through DS-10 passes, implement the actual remote intelligence layer.
+
+## HF-1 — Remote source registry
+
+Create a registry of selected sources, not an unbounded list of every discovered fork.
+
+Conceptual components:
+
+```text
+SourceRegistry
+DatasetAdapter
+SchemaMapper
+QueryPlanner
+RemoteQueryExecutor
+ResultNormalizer
+ProvenanceRecorder
+SensitiveDataPolicy
+ResultCache
+IntelGraphIngestor
+```
+
+## HF-2 — Remote-first querying
+
+Prefer remote querying for large sources where supported.
+
+Do not automatically download multi-hundred-GB/billion-row datasets to the laptop merely to make them searchable.
+
+The adapter should choose among legitimate available transports such as:
+
+- public dataset viewer/query interfaces;
+- remote Parquet access where supported;
+- an explicitly provided public query API/Space;
+- other documented remote interfaces.
+
+## HF-3 — Canonical schema mapping
+
+Map source-specific fields into Astra's canonical entity/indicator schema.
+
+Examples:
+
+```text
+mobile / phone / phoneNumber / msisdn → PHONE
+email / mail / emailAddress          → EMAIL
+username / handle                    → USERNAME
+name / full_name                     → NAME
+address / location                   → ADDRESS
+```
+
+Mappings must retain original field names for provenance.
+
+## HF-4 — Provenance
+
+Every result must retain, where available:
+
+- source ID;
+- dataset ID;
+- dataset version;
+- source family;
+- record/row identifier;
+- retrieval timestamp;
+- query;
+- matched field;
+- match type;
+- confidence;
+- lineage relationship.
+
+## HF-5 — Lineage-aware result aggregation
+
+If five repositories are derived from the same master family, Astra must not present them as five independent confirmations.
+
+The result layer should say, conceptually:
+
+```text
+5 repositories
+1 source family
+1 lineage cluster
+```
+
+and score evidence accordingly.
+
+## HF-6 — Remote result caching
+
+Cache only the minimum useful metadata/result evidence required for repeatability and local search. Avoid turning Astra into an uncontrolled mirror of every remote dataset.
+
+## HF-7 — IntelGraph ingestion
+
+Normalized observations flow into IntelGraph with source lineage intact.
+
+**Exit:** selected external datasets become queryable intelligence sources without sacrificing provenance or wasting local storage on redundant copies.
+
+---
+
+# 42. Remote intelligence source framework
+
+The Hugging Face layer is one implementation of a broader source framework.
+
+Future source types should plug into the same contracts:
+
+```text
+Telegram source
+Web source
+Domain source
+Git source
+Dataset source
+Media source
+Public API source
+Local archive source
+        ↓
+SourceRegistry
+        ↓
+Adapter
+        ↓
+Normalizer
+        ↓
+Provenance
+        ↓
+IntelGraph
+```
+
+This prevents every OSINT provider from becoming an isolated plugin with incompatible schemas.
+
+---
+
+# 43. Dataset intelligence commands
+
+The final user-facing surface should expose dataset intelligence without requiring knowledge of internal source IDs.
+
+Potential commands:
+
+- `.intel sources`
+- `.intel source <id>`
+- `.intel source family <id>`
+- `.intel source lineage <id>`
+- `.intel source coverage <id>`
+- `.intel search <indicator>`
+- `.intel investigate <indicator>`
+- `.intel graph <entity>`
+- `.intel timeline <entity>`
+- `.intel evidence <entity>`
+- `.intel export <case>`
+
+Exact names remain subject to Command Contract collision review.
+
+---
+
+# 44. Intelligence correlation architecture
+
+The final intelligence flow is:
+
+```text
+Telegram
+Web / Domain
+Public Code
+Media / OCR / STT
+Selected External Datasets
+Local Archive
+        │
+        ▼
+Source Registry
+        │
+        ▼
+Normalization
+        │
+        ▼
+Entity Resolution
+        │
+        ▼
+Evidence / Provenance
+        │
+        ▼
+IntelGraph
+        │
+        ▼
+Correlation Engine
+        │
+ ┌──────┼──────────┐
+ ▼      ▼          ▼
+IOC   Timeline    Cases
+ │      │          │
+ └──────┼──────────┘
+        ▼
+AI-assisted analysis / reporting
+```
+
+The graph is storage/foundation. Correlation is an explicit execution layer. Timeline and Cases are durable projections of evidence and relationships.
+
+---
+
+# 45. Unified Search + Entity Inspector dependency
+
+Unified search and `.inspect` must not become isolated convenience commands.
+
+## SEARCH prerequisites
+
+Before `SEARCH-*` cross-domain implementation:
+
+1. source schemas exist;
+2. local FTS/search contracts exist;
+3. IntelGraph observation model exists;
+4. archive/event projections exist;
+5. provenance fields exist;
+6. result ranking/bounds are defined.
+
+## INSPECT prerequisites
+
+Before `INSPECT-*`:
+
+1. canonical target classifier;
+2. source registry;
+3. intelligence engine registry;
+4. evidence model;
+5. bounded result aggregation;
+6. correlation engine contract.
+
+Then:
+
+```text
+.inspect target
+    ↓
+classify target
+    ↓
+dispatch relevant engines
+    ↓
+retrieve bounded evidence
+    ↓
+correlate
+    ↓
+show concise result
+    ↓
+drip into source/evidence records
+```
+
+---
+
+# 46. Command Contract is a universal prerequisite for scale
+
+The existing competitive addendum defines the Command Bus/Command Contract. This roadmap now treats it as a prerequisite for broad product expansion rather than a late cleanup task.
+
+Every new command should declare:
+
+- canonical name;
+- aliases;
+- argument schema;
+- description;
+- category;
+- permissions;
+- operation class;
+- priority;
+- resource limits;
+- timeout;
+- cancellation support;
+- durable/non-durable behavior;
+- confirmation requirements;
+- network usage;
+- destructive-effect classification;
+- owner plugin/version.
+
+This prevents the growing feature surface from turning into command collisions or undocumented behavior.
+
+---
+
+# 47. Control-plane prerequisite model
+
+The Control Plane remains an in-process coordination/observation model, not a new service.
+
+Its prerequisite chain is:
+
+```text
+Command Contract
++ JobEngine
++ TelegramTrafficController
++ Event Engine
++ IntelGraph
++ Media/Search services
+        ↓
+Control Plane projections
+        ↓
+.status / .health / .jobs / .plugins / .telegram / .intel / .media / .storage
+```
+
+The control plane must never become a second storage authority or a second workflow engine.
+
+---
+
+# 48. Full Astra 2.x dependency graph
+
+The detailed implementation order is now:
+
+```text
+CURRENT v1.0.0 BASELINE
+        │
+        ▼
+A — Telegram Core 2.0
+        │
+        ▼
+B — Telegram State Engine
+        │
+        ▼
+C — Telegram Event Engine
+        │
+        ├───────────────────────┐
+        ▼                       ▼
+D — Archive Engine        H0 — IntelGraph Foundation
+        │                       │
+        ▼                       ▼
+E — Command/UX foundation I — IOC foundation
+        │                       │
+        ├──────────────┬────────┘
+        ▼              ▼
+G — Automation    DATASET CENSUS / LINEAGE
+                       │
+                       ▼
+              MASTER SOURCE SELECTION
+                       │
+                       ▼
+                HF / REMOTE SOURCES
+                       │
+                       ▼
+        J/K/L/M/Q — intelligence sources
+                       │
+                       ▼
+                 N — Media Intel
+                       │
+                       ▼
+              CORRELATION ENGINE
+                       │
+                       ▼
+               O — Timeline/Cases
+                       │
+              ┌────────┴────────┐
+              ▼                 ▼
+        F — AI 2.0          P — Security
+              │                 │
+              └────────┬────────┘
+                       ▼
+                 R — Plugin SDK
+                       │
+                       ▼
+                 S — Competitive
+                       │
+                       ▼
+                 T — Operations
+```
+
+This does not delete or invalidate the original A–T programs. It makes the dependencies explicit so implementation does not outrun the architecture.
+
+---
+
+# 49. Intelligence dataset selection policy
+
+For the dataset-discovery phase, the primary optimization objective is **unique information coverage**, not dataset count.
+
+Therefore:
+
+- duplicate repositories should collapse into one lineage cluster;
+- derived repositories remain recorded but should not be counted as independent sources;
+- subsets are retained when they add unique coverage or useful queryability;
+- merged datasets retain all parent lineage;
+- independent datasets remain separate source families;
+- uncertain relationships remain `UNKNOWN` until evidence improves;
+- the largest dataset is only a master candidate until lineage evidence supports it.
+
+The dataset corpus should therefore be described as:
+
+```text
+repositories discovered
+→ source families
+→ master candidates
+→ unique coverage
+```
+
+rather than simply:
+
+```text
+number of repositories
+```
+
+---
+
+# 50. Sensitive-data handling is a separate operational dimension
+
+The dataset-lineage objective is not to discard sources because their contents are sensitive. Dataset discovery, deduplication and lineage analysis operate independently from the later operation policy layer.
+
+The operational layer may still need to know:
+
+- what class of data an operation would expose;
+- whether a query can return raw records;
+- whether output should be minimized/redacted;
+- what authorization context applies;
+- whether the operation is permitted by Astra's policy.
+
+These controls do **not** determine whether a dataset is unique, a master candidate, derived or duplicated.
+
+This separation is intentional:
+
+```text
+DATASET DISCOVERY
+    ↓
+What exists?
+What is unique?
+What is derived?
+What is the master candidate?
+
+OPERATION POLICY
+    ↓
+What can this operation expose?
+What output is appropriate?
+What authorization applies?
+```
+
+---
+
+# 51. Intelligence quality rules
+
+Astra's intelligence quality should be measured by evidence quality, not by raw result count.
+
+### Rule 1 — provenance first
+
+Every meaningful result should have a source and observation timestamp.
+
+### Rule 2 — lineage-aware corroboration
+
+Multiple copies of one source family do not equal multiple independent confirmations.
+
+### Rule 3 — correlation is not identity
+
+A shared username, address fragment, image similarity or other weak signal is not automatically proof of identity.
+
+### Rule 4 — contradictions are first-class
+
+Conflicting observations must be retained and surfaced rather than silently overwritten.
+
+### Rule 5 — unknown is valid
+
+The system must be able to say `UNKNOWN` rather than manufacture certainty.
+
+### Rule 6 — AI is advisory
+
+AI may explain evidence and propose hypotheses, but the durable graph stores the evidence and provenance, not the model's unsupported conclusion.
+
+---
+
+# 52. New acceptance gates for the intelligence corpus
+
+The intelligence corpus is not production-ready until all of these are satisfied:
+
+### `DS-ACCEPT-1` — Census complete
+
+All supplied external accounts and discovered datasets have normalized inventory records.
+
+### `DS-ACCEPT-2` — Lineage map complete
+
+Major families have duplicate/derived/subset/merged/master-candidate relationships.
+
+### `DS-ACCEPT-3` — Unique coverage measured
+
+The corpus can distinguish repository count from estimated unique coverage.
+
+### `DS-ACCEPT-4` — Source manifest frozen
+
+Selected sources and their lineage are recorded in a versioned manifest.
+
+### `DS-ACCEPT-5` — Remote query validated
+
+Each selected source has a documented query mechanism and bounded failure behavior.
+
+### `DS-ACCEPT-6` — Provenance verified
+
+Astra can trace a returned observation back to source family/dataset/version/query context.
+
+### `DS-ACCEPT-7` — Graph ingestion verified
+
+Normalized observations enter IntelGraph without losing lineage.
+
+### `DS-ACCEPT-8` — Duplicate corroboration suppressed
+
+The same underlying source family is not incorrectly counted as independent corroboration.
+
+---
+
+# 53. What happens when a new dataset is discovered later
+
+A new dataset must not immediately become a new Astra source.
+
+Its lifecycle is:
+
+```text
+NEW DATASET
+    ↓
+metadata inventory
+    ↓
+family candidate
+    ↓
+lineage comparison
+    ↓
+duplicate / derived / subset / merged / independent
+    ↓
+coverage delta
+    ↓
+source selection decision
+    ↓
+manifest update
+    ↓
+adapter enablement
+```
+
+If it adds no unique coverage and is merely a duplicate, it remains a lineage record rather than becoming another query target.
+
+If it adds unique records, a unique partition, a new independent family or a materially better query interface, it may be promoted into the active source set.
+
+---
+
+# 54. Zero-cost intelligence architecture
+
+The intelligence platform must remain compatible with the project's ₹0/$0 constraint.
+
+Prefer:
+
+- public/free data interfaces;
+- public GitHub metadata;
+- public DNS/RDAP/CT sources;
+- local SQLite/FTS5;
+- local caching;
+- open-source parsers;
+- local processing;
+- free/public remote query interfaces where legitimately available.
+
+No intelligence capability may become dependent on a paid provider simply because it is convenient.
+
+Provider-specific integrations must remain replaceable adapters.
+
+---
+
+# 55. Final roadmap execution rule
+
+**Do not code ahead of the dependency graph.**
+
+If the next feature requires a missing contract, build the contract first.
+
+If the next intelligence feature requires a missing source lineage map, complete the lineage map first.
+
+If a dataset family has ten apparent repositories, do not integrate all ten before determining whether they are one underlying source.
+
+If a master candidate has not been established, keep the source provisional.
+
+If a correlation has no explainable evidence, keep it uncertain.
+
+If a feature is durable, build its recovery path with it rather than adding recovery later.
+
+If a feature adds Telegram traffic, route it through the TelegramTrafficController rather than creating another rate-control path.
+
+This is the governing principle for the remainder of AstraUserbot 2.x:
+
+> **Discover → normalize → verify lineage → select authoritative sources → implement → correlate → prove → release.**
+
+---
+
+**Roadmap objective remains unchanged:** make AstraUserbot one coherent, feature-rich, zero-cost Telegram automation and local intelligence platform without sacrificing the production-grade engineering foundation already achieved in v1.0.0. The new dataset lineage and prerequisite model expands the roadmap; it does not remove or invalidate any existing A–T capability.
