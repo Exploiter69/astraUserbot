@@ -65,6 +65,35 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
     CREATE INDEX IF NOT EXISTS idx_telegram_operations_peer ON telegram_operations(peer_id, timestamp DESC);
     CREATE INDEX IF NOT EXISTS idx_telegram_operations_result ON telegram_operations(result_classification, timestamp DESC);
     """),
+    (5, """
+    CREATE TABLE IF NOT EXISTS telegram_entities (
+        lookup_key TEXT PRIMARY KEY,
+        entity_id INTEGER,
+        access_hash INTEGER,
+        username TEXT,
+        title TEXT,
+        first_name TEXT,
+        last_name TEXT,
+        entity_type TEXT NOT NULL,
+        last_seen REAL NOT NULL,
+        photo_id TEXT,
+        capabilities_json TEXT NOT NULL DEFAULT '{}'
+    );
+    CREATE INDEX IF NOT EXISTS idx_telegram_entities_seen ON telegram_entities(last_seen DESC);
+    CREATE INDEX IF NOT EXISTS idx_telegram_entities_id ON telegram_entities(entity_id);
+    CREATE INDEX IF NOT EXISTS idx_telegram_entities_username ON telegram_entities(username);
+    CREATE TABLE IF NOT EXISTS telegram_dialogs (
+        peer_key TEXT PRIMARY KEY,
+        dialog_type TEXT NOT NULL,
+        title TEXT,
+        username TEXT,
+        last_message_id INTEGER,
+        last_sync_at REAL NOT NULL,
+        sync_state TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_telegram_dialogs_sync ON telegram_dialogs(last_sync_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_telegram_dialogs_username ON telegram_dialogs(username);
+    """),
 )
 
 
@@ -218,119 +247,7 @@ class StorageService:
         """Return the database footprint including WAL/SHM sidecars when present."""
         total = 0
         for suffix in ("", "-wal", "-shm"):
-            candidate = Path(str(self.path) + suffix)
-            try:
-                total += candidate.stat().st_size
-            except FileNotFoundError:
-                pass
+            path = Path(f"{self.path}{suffix}")
+            if path.exists():
+                total += path.stat().st_size
         return total
-
-    async def checkpoint(self, *, truncate: bool = False) -> None:
-        if self.conn is None:
-            raise StorageError("StorageService is not started")
-        mode = "TRUNCATE" if truncate else "PASSIVE"
-        async with self.lock:
-            try:
-                await self.conn.execute(f"PRAGMA wal_checkpoint({mode})")
-            except sqlite3.Error as exc:
-                raise StorageError(f"WAL checkpoint failed: {exc}") from exc
-
-    async def backup(self, destination: str | Path) -> Path:
-        """Create an integrity-verified SQLite backup and atomically publish it."""
-        if self.conn is None:
-            raise StorageError("StorageService is not started")
-        target = Path(destination).resolve()
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if target == self.path:
-            raise StorageError("Backup destination must differ from source")
-        if await self.database_size() > self.MAX_BACKUP_BYTES:
-            raise StorageError("Database exceeds configured backup size bound")
-        if not await self.integrity_check():
-            raise StorageError("Refusing backup of an integrity-failed database")
-
-        temp_path: Path | None = None
-        async with self.lock:
-            try:
-                fd, raw_temp = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=target.parent)
-                os.close(fd)
-                temp_path = Path(raw_temp)
-                target_conn = sqlite3.connect(temp_path)
-                try:
-                    await self.conn.commit()
-                    await asyncio.wait_for(
-                        self.conn.backup(target_conn), timeout=self.BACKUP_TIMEOUT_SECONDS
-                    )
-                    target_conn.commit()
-                    check = target_conn.execute("PRAGMA integrity_check").fetchone()
-                    if not check or str(check[0]).lower() != "ok":
-                        raise StorageError("Backup integrity check failed")
-                finally:
-                    target_conn.close()
-                os.replace(temp_path, target)
-                temp_path = None
-                return target
-            except (sqlite3.Error, asyncio.TimeoutError, OSError) as exc:
-                raise StorageError(f"Database backup failed: {exc}") from exc
-            finally:
-                if temp_path is not None:
-                    try:
-                        temp_path.unlink()
-                    except FileNotFoundError:
-                        pass
-
-    async def restore(self, backup: str | Path) -> None:
-        """Restore an integrity-checked backup into this database before normal use."""
-        if self._started or self.conn is not None:
-            raise StorageError("Restore requires a stopped StorageService")
-        source = Path(backup).resolve()
-        if not source.is_file() or source == self.path:
-            raise StorageError("Invalid restore source")
-        if source.stat().st_size > self.MAX_BACKUP_BYTES:
-            raise StorageError("Restore source exceeds configured database size bound")
-        source_conn = sqlite3.connect(source)
-        try:
-            check = source_conn.execute("PRAGMA integrity_check").fetchone()
-            if not check or str(check[0]).lower() != "ok":
-                raise StorageError("Refusing restore from an integrity-failed backup")
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            fd, raw_temp = tempfile.mkstemp(prefix=f".{self.path.name}.", suffix=".restore", dir=self.path.parent)
-            os.close(fd)
-            temp = Path(raw_temp)
-            try:
-                target_conn = sqlite3.connect(temp)
-                try:
-                    source_conn.backup(target_conn)
-                    target_conn.commit()
-                    check = target_conn.execute("PRAGMA integrity_check").fetchone()
-                    if not check or str(check[0]).lower() != "ok":
-                        raise StorageError("Restored database integrity check failed")
-                finally:
-                    target_conn.close()
-                os.replace(temp, self.path)
-                for suffix in ("-wal", "-shm"):
-                    sidecar = Path(str(self.path) + suffix)
-                    try:
-                        sidecar.unlink()
-                    except FileNotFoundError:
-                        pass
-            finally:
-                try:
-                    temp.unlink()
-                except FileNotFoundError:
-                    pass
-        except sqlite3.Error as exc:
-            raise StorageError(f"Database restore failed: {exc}") from exc
-        finally:
-            source_conn.close()
-
-    async def close(self) -> None:
-        if self.conn is None:
-            self._started = False
-            return
-        async with self.lock:
-            conn, self.conn = self.conn, None
-            try:
-                await conn.execute("PRAGMA optimize")
-                await conn.close()
-            finally:
-                self._started = False
