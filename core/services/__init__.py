@@ -13,6 +13,7 @@ from core.services.secrets import SecretStore, SecretStoreError
 from core.services.storage import StorageError, StorageService
 from core.services.subprocess import SubprocessResult, SubprocessService
 from core.services.telegram import TelegramFacade
+from core.services.telegram_archive import TelegramArchiveJobModel, TelegramArchiveRequest
 from core.services.telegram_event_journal import TelegramEventJournal
 from core.services.telegram_event_projections import TelegramEventProjections
 from core.services.telegram_event_replay import TelegramEventReplay
@@ -31,6 +32,6 @@ __all__ = [
     "SecretStore", "SecretStoreError", "StorageError", "StorageService", "SubprocessResult", "SubprocessService",
     "DialogState", "EntityState", "TelegramStateCache", "SyncCursor", "SyncResult", "TelegramIncrementalSync",
     "TelegramEvent", "TelegramEventCollector", "TelegramEventJournal", "TelegramEventProjections", "TelegramEventReplay",
-    "TelegramFacade", "TelegramTrafficController", "Workspace", "WorkspaceService", "IntelGraph",
+    "TelegramArchiveJobModel", "TelegramArchiveRequest", "TelegramFacade", "TelegramTrafficController", "Workspace", "WorkspaceService", "IntelGraph",
     "IOC", "extract_iocs", "normalize_ioc",
 ]
