@@ -73,6 +73,7 @@ class TelegramEventCollector:
             (self._handle_message_delete, events.MessageDeleted()),
             (self._handle_reaction, events.MessageReactionUpdated()),
             (self._handle_chat_action, events.ChatAction()),
+            (self._handle_raw, events.Raw()),
         )
         for callback, builder in registrations:
             self.client.add_event_handler(callback, builder)
@@ -134,6 +135,21 @@ class TelegramEventCollector:
             "CHAT_MEMBER_CHANGED",
             event,
             payload={"action": type(action).__name__ if action is not None else type(event).__name__},
+        )
+
+    async def _handle_raw(self, update: Any) -> None:
+        if type(update).__name__ not in {"UpdatePhoneCall", "UpdateGroupCall", "UpdateGroupCallConnection"}:
+            return
+        phone_call = getattr(update, "phone_call", None)
+        call_id = getattr(phone_call, "id", None)
+        await self._emit(
+            "CALL_STATE_CHANGED",
+            update,
+            payload={
+                "update": type(update).__name__,
+                "call_id": int(call_id) if isinstance(call_id, int) else None,
+                "state": type(phone_call).__name__ if phone_call is not None else None,
+            },
         )
 
     @staticmethod
