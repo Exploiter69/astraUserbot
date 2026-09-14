@@ -12,6 +12,7 @@ from core.services.flags import FeatureFlagService
 from core.services.isolation import IsolationService
 from core.services.metrics import MetricsService
 from core.services.search import SearchService
+from core.services.telegram_recorder import TelegramOperationRecorder
 from core.tasks import TaskSupervisor
 
 logger = logging.getLogger("astra.context")
@@ -40,7 +41,7 @@ class ApplicationContext:
         self.register("cache", CacheService(self.project_root))
         self.register("http", HttpService())
         self.register("subprocess", SubprocessService())
-        self.register("telegram", TelegramFacade(client))
+        self.register("telegram", TelegramFacade(client, recorder=TelegramOperationRecorder(self.get("storage"))))
         self.register("workspace", WorkspaceService(self.project_root))
         self.register("isolation", IsolationService())
         self.register("media", MediaService(self.get("workspace"), self.get("subprocess"), self.get("isolation")))
@@ -99,16 +100,24 @@ class ApplicationContext:
 
     def snapshot(self) -> dict[str, Any]:
         return {
-            "state": "CLOSED" if self._closed else "RUNNING",
-            "services": ",".join(self.services),
-            "task_count": len(self.tasks.active()),
+            "services": {
+                name: (
+                    service.snapshot() if hasattr(service, "snapshot") else {"type": type(service).__name__}
+                )
+                for name, service in self.services.items()
+            },
+            "tasks": self.tasks.snapshot(),
+            "started": list(self._started),
+            "closed": self._closed,
         }
 
 
-def set_application_context(context: ApplicationContext | None) -> None:
+def set_application_context(context: ApplicationContext) -> None:
     global _application_context
     _application_context = context
 
 
-def get_application_context() -> ApplicationContext | None:
+def get_application_context() -> ApplicationContext:
+    if _application_context is None:
+        raise RuntimeError("Application context is not initialized")
     return _application_context
