@@ -189,6 +189,19 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
     CREATE INDEX IF NOT EXISTS idx_intel_rel_from ON intel_relationships(from_entity_id, relationship_type);
     CREATE INDEX IF NOT EXISTS idx_intel_rel_to ON intel_relationships(to_entity_id, relationship_type);
     """),
+    (8, """
+    CREATE TABLE IF NOT EXISTS telegram_replay_runs (
+        run_id TEXT PRIMARY KEY,
+        projection TEXT NOT NULL,
+        state TEXT NOT NULL,
+        cursor_id INTEGER NOT NULL DEFAULT 0,
+        processed_count INTEGER NOT NULL DEFAULT 0,
+        started_at REAL NOT NULL,
+        updated_at REAL NOT NULL,
+        last_error TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_telegram_replay_state ON telegram_replay_runs(state, updated_at DESC);
+    """),
 )
 
 
