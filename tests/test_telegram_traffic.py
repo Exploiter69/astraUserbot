@@ -4,9 +4,13 @@ import unittest
 
 from core.errors import ResourceError
 from core.services.telegram_traffic import (
+    NORMAL,
+    PRESSURE,
     P0_OWNER,
     P2_NORMAL,
     P5_MAINTENANCE,
+    PROBE,
+    THROTTLED,
     TelegramTrafficController,
 )
 
@@ -97,6 +101,38 @@ class TelegramTrafficControllerTests(unittest.IsolatedAsyncioTestCase):
         elapsed = time.monotonic() - started
         self.assertEqual(result, "ok")
         self.assertGreaterEqual(elapsed, 0.04)
+
+    async def test_adaptive_governor_enters_pressure_and_reduces_concurrency(self):
+        self.controller = TelegramTrafficController(max_concurrency=8)
+        self.controller.record_flood_wait("send_message", 0.03, peer_key="chat:9")
+        snapshot = self.controller.snapshot()
+        self.assertEqual(snapshot["governor"]["account"]["state"], PRESSURE)
+        self.assertEqual(snapshot["effective_concurrency"], 7)
+        self.assertEqual(
+            snapshot["governor"]["method:send_message"]["state"], PRESSURE
+        )
+
+    async def test_repeated_flood_wait_enters_throttled_state(self):
+        self.controller = TelegramTrafficController(max_concurrency=8)
+        for _ in range(2):
+            self.controller.record_flood_wait("send_message", 0.05)
+        snapshot = self.controller.snapshot()
+        self.assertEqual(snapshot["governor"]["account"]["state"], THROTTLED)
+        self.assertEqual(snapshot["effective_concurrency"], 4)
+
+    async def test_success_after_cooldown_returns_from_probe_to_normal(self):
+        self.controller = TelegramTrafficController(max_concurrency=2)
+        self.controller.record_flood_wait("send_message", 0.02)
+        await asyncio.sleep(0.03)
+        snapshot = self.controller.snapshot()
+        self.assertEqual(snapshot["governor"]["account"]["state"], PROBE)
+
+        result = await self.controller.execute(
+            "send_message", lambda: asyncio.sleep(0, result="ok")
+        )
+        self.assertEqual(result, "ok")
+        snapshot = self.controller.snapshot()
+        self.assertEqual(snapshot["governor"]["account"]["state"], NORMAL)
 
     async def test_queue_limit_is_bounded(self):
         self.controller = TelegramTrafficController(max_concurrency=1, max_queue=1)
