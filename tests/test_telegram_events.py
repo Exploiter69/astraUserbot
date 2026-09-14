@@ -4,6 +4,8 @@ import asyncio
 import unittest
 from types import SimpleNamespace
 
+from telethon import types
+
 from core.services.telegram_events import TelegramEvent, TelegramEventCollector
 
 
@@ -80,13 +82,28 @@ class TelegramEventCollectorTests(unittest.TestCase):
 
         asyncio.run(scenario())
 
+    def test_reaction_update_is_normalized_from_raw_telethon_update(self) -> None:
+        async def scenario() -> None:
+            collector = TelegramEventCollector(FakeClient())
+            received: list[TelegramEvent] = []
+            collector.add_sink(received.append)
+            update = SimpleNamespace(peer=types.PeerUser(user_id=99), msg_id=42)
+            await collector._handle_reaction(update)
+            self.assertEqual(len(received), 1)
+            item = received[0]
+            self.assertEqual(item.event_type, "REACTION_CHANGED")
+            self.assertEqual(item.message_id, 42)
+            self.assertEqual(item.source_peer, "PeerUser(user_id=99)")
+            self.assertEqual(item.payload["message"], 42)
+
+        asyncio.run(scenario())
+
     def test_call_update_is_normalized_without_retaining_raw_update(self) -> None:
         async def scenario() -> None:
             collector = TelegramEventCollector(FakeClient())
             received: list[TelegramEvent] = []
             collector.add_sink(received.append)
-            update = type("UpdatePhoneCall", (), {})()
-            update.phone_call = SimpleNamespace(id=55, __class__=SimpleNamespace)
+            update = types.UpdatePhoneCall(phone_call=types.PhoneCallEmpty(id=55))
             await collector._handle_raw(update)
             self.assertEqual(len(received), 1)
             item = received[0]
