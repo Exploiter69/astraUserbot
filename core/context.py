@@ -100,24 +100,16 @@ class ApplicationContext:
 
     def snapshot(self) -> dict[str, Any]:
         return {
-            "services": {
-                name: (
-                    service.snapshot() if hasattr(service, "snapshot") else {"type": type(service).__name__}
-                )
-                for name, service in self.services.items()
-            },
-            "tasks": self.tasks.snapshot(),
-            "started": list(self._started),
-            "closed": self._closed,
+            "state": "CLOSED" if self._closed else "RUNNING",
+            "services": ",".join(self.services),
+            "task_count": len(self.tasks.active()),
         }
 
 
-def set_application_context(context: ApplicationContext) -> None:
+def set_application_context(context: ApplicationContext | None) -> None:
     global _application_context
     _application_context = context
 
 
-def get_application_context() -> ApplicationContext:
-    if _application_context is None:
-        raise RuntimeError("Application context is not initialized")
+def get_application_context() -> ApplicationContext | None:
     return _application_context
