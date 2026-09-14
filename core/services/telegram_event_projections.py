@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any
 
 from core.services.storage import StorageService
 from core.services.telegram_event_journal import TelegramEventJournal
@@ -24,42 +23,8 @@ class TelegramEventProjections:
     async def start(self) -> None:
         if self._started:
             return
-        await self.storage.execute(
-            """CREATE TABLE IF NOT EXISTS telegram_latest_messages (
-                message_id INTEGER NOT NULL,
-                source_peer TEXT,
-                event_id TEXT PRIMARY KEY,
-                event_type TEXT NOT NULL,
-                entity_id INTEGER,
-                payload_json TEXT NOT NULL,
-                observed_at REAL NOT NULL,
-                updated_at REAL NOT NULL
-            )"""
-        )
-        await self.storage.execute(
-            """CREATE TABLE IF NOT EXISTS telegram_entity_observations (
-                event_id TEXT PRIMARY KEY,
-                entity_id INTEGER,
-                source_peer TEXT,
-                event_type TEXT NOT NULL,
-                observed_at REAL NOT NULL,
-                payload_json TEXT NOT NULL
-            )"""
-        )
-        await self.storage.execute(
-            """CREATE TABLE IF NOT EXISTS telegram_timeline (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                event_id TEXT NOT NULL UNIQUE,
-                event_type TEXT NOT NULL,
-                source_peer TEXT,
-                entity_id INTEGER,
-                message_id INTEGER,
-                observed_at REAL NOT NULL,
-                payload_json TEXT NOT NULL
-            )"""
-        )
-        await self.storage.execute("CREATE INDEX IF NOT EXISTS idx_tg_timeline_peer_time ON telegram_timeline(source_peer, observed_at DESC)")
-        await self.storage.execute("CREATE INDEX IF NOT EXISTS idx_tg_timeline_entity_time ON telegram_timeline(entity_id, observed_at DESC)")
+        # Projection tables are owned by the canonical numbered storage migration.
+        await self.storage.fetchone("SELECT 1 FROM telegram_timeline LIMIT 1")
         self._started = True
 
     async def close(self) -> None:
