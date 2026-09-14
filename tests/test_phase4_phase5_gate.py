@@ -21,14 +21,14 @@ class StorageAndJobsGateTests(unittest.IsolatedAsyncioTestCase):
     async def test_clean_install_reaches_platform_schema(self):
         tables = await self.storage.fetchall("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
         names = {row[0] for row in tables}
-        self.assertTrue({'schema_migrations', 'jobs', 'job_attempts', 'job_events', 'leases', 'audit_events', 'telegram_entities', 'telegram_dialogs', 'telegram_latest_messages', 'telegram_entity_observations', 'telegram_timeline', 'telegram_replay_runs', 'intel_sources', 'intel_entities', 'intel_observations', 'intel_relationships'} <= names)
+        self.assertTrue({'schema_migrations', 'jobs', 'job_attempts', 'job_events', 'leases', 'audit_events', 'telegram_entities', 'telegram_dialogs', 'telegram_latest_messages', 'telegram_entity_observations', 'telegram_timeline', 'telegram_replay_runs', 'telegram_event_journal', 'intel_sources', 'intel_entities', 'intel_observations', 'intel_relationships'} <= names)
         self.assertTrue(await self.storage.integrity_check())
 
     async def test_migration_is_idempotent(self):
         await self.storage.close()
         await self.storage.start()
         rows = await self.storage.fetchall("SELECT version FROM schema_migrations ORDER BY version")
-        self.assertEqual([row[0] for row in rows], [1, 2, 3, 4, 5, 6, 7, 8])
+        self.assertEqual([row[0] for row in rows], [1, 2, 3, 4, 5, 6, 7, 8, 9])
 
     async def test_foreign_keys_are_enabled(self):
         row = await self.storage.fetchone("PRAGMA foreign_keys")
