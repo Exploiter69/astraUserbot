@@ -61,6 +61,7 @@ class TelegramTrafficController:
         self._condition = asyncio.Condition()
         self._dispatcher: asyncio.Task[None] | None = None
         self._running: set[asyncio.Task[None]] = set()
+        self._future_tasks: dict[asyncio.Future[Any], asyncio.Task[None]] = {}
         self._closed = False
         self._sequence = 0
         self._active = 0
@@ -99,6 +100,7 @@ class TelegramTrafficController:
         if running:
             await asyncio.gather(*running, return_exceptions=True)
         self._running.clear()
+        self._future_tasks.clear()
 
     async def execute(
         self,
@@ -136,8 +138,13 @@ class TelegramTrafficController:
         try:
             return await future
         except asyncio.CancelledError:
-            if not future.done():
-                future.cancel()
+            async with self._condition:
+                task = self._future_tasks.get(future)
+                if task is not None:
+                    task.cancel()
+                if not future.done():
+                    future.cancel()
+                self._condition.notify_all()
             raise
 
     def record_flood_wait(
@@ -211,20 +218,19 @@ class TelegramTrafficController:
                     return
                 item = self._pop_eligible()
                 if item is None:
-                    # Cooldowns may expire without a new enqueue; do not hold the
-                    # condition lock while yielding to the event loop.
-                    waiter = asyncio.create_task(asyncio.sleep(0.01))
+                    cooldown_wait = 0.01
                 else:
-                    waiter = None
+                    cooldown_wait = None
                     self._active += 1
                     self._method_active[item.method] += 1
                     if item.peer_key is not None:
                         self._peer_active[item.peer_key] += 1
-            if waiter is not None:
-                await waiter
+            if cooldown_wait is not None:
+                await asyncio.sleep(cooldown_wait)
                 continue
             task = asyncio.create_task(self._run(item))
             self._running.add(task)
+            self._future_tasks[item.future] = task
             task.add_done_callback(self._task_done)
 
     async def _run(self, item: _QueuedCall) -> None:
@@ -253,3 +259,7 @@ class TelegramTrafficController:
 
     def _task_done(self, task: asyncio.Task[None]) -> None:
         self._running.discard(task)
+        for future, mapped in tuple(self._future_tasks.items()):
+            if mapped is task:
+                self._future_tasks.pop(future, None)
+                break
