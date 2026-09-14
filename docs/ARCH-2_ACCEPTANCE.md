@@ -56,4 +56,22 @@
 
 ## Validation status
 
-Implementation is on GitHub. The owner-host acceptance gate remains pending until the local repository runs the focused archive tests and the complete existing suite, followed by the normal clean-tree/commit verification procedure.
+### Automated owner-host validation
+
+- Focused archive/runtime tests: **PASS** — 17 passed.
+- Complete existing test suite: **PASS** — 269 passed.
+- Phase 16 runtime-service lifecycle expectation updated to include `telegram_archive`.
+
+### Remaining production acceptance
+
+The ARCH-2 production acceptance gate remains pending the owner-host runtime smoke with the real Telegram session. The smoke must exercise the actual `enqueue()` → `JobEngine` path and verify, using a small bounded archive scope:
+
+1. owner-only command authorization;
+2. successful `.archive chat <small-limit>` execution;
+3. durable job creation/completion and progress;
+4. durable archive records and archive-only FTS search;
+5. governed Telegram history traffic through `TelegramFacade`/`TelegramTrafficController`;
+6. restart/recovery behavior for an interrupted archive job;
+7. media archival only when explicitly requested and within the documented bounds.
+
+ARCH-2 is **test-green but not production-accepted** until this runtime smoke is completed and recorded.
