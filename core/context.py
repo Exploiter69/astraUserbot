@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from typing import Any, Protocol, TypeVar
 
-from core.services import CacheService, HttpService, JobEngine, MediaService, SecretStore, StorageService, SubprocessService, TelegramFacade, WorkspaceService
+from core.services import CacheService, HttpService, JobEngine, MediaService, SecretStore, StorageService, SubprocessService, TelegramFacade, TelegramStateCache, WorkspaceService
 from core.services.ai import AIService
 from core.services.flags import FeatureFlagService
 from core.services.isolation import IsolationService
@@ -41,7 +41,12 @@ class ApplicationContext:
         self.register("cache", CacheService(self.project_root))
         self.register("http", HttpService())
         self.register("subprocess", SubprocessService())
-        self.register("telegram", TelegramFacade(client, recorder=TelegramOperationRecorder(self.get("storage"))))
+        self.register("telegram_state", TelegramStateCache(self.get("storage")))
+        self.register("telegram", TelegramFacade(
+            client,
+            recorder=TelegramOperationRecorder(self.get("storage")),
+            state_cache=self.get("telegram_state"),
+        ))
         self.register("workspace", WorkspaceService(self.project_root))
         self.register("isolation", IsolationService())
         self.register("media", MediaService(self.get("workspace"), self.get("subprocess"), self.get("isolation")))
