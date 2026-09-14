@@ -1,23 +1,80 @@
-# Telegram Archive Job Contract
+# Telegram Archive Engine
 
-`ARCH-1` defines the durable contract for bounded Telegram archival.
+`ARCH-1` defines the durable archive job contract; `ARCH-2` implements bounded execution, persistence, search, media handling and owner commands.
 
-## Scope
+## Pipeline
 
-The archive request is represented as a validated JobEngine payload before a worker is introduced.
+`TelegramFacade → bounded JobEngine worker → SQLite search_documents → SQLite FTS5`
 
-Fields:
+Optional media follows:
 
-- `peer`
-- bounded `limit` (1–500)
-- `min_message_id` cursor
-- `include_media`
-- `schema_version`
+`TelegramFacade.download_media → MediaService bounded workspace → SHA-256 content-addressed archive/media`
 
-The request produces a deterministic idempotency key so repeated submissions of the same archive scope do not create duplicate durable jobs.
+The archive worker does not call raw Telethon transport directly. Telegram history and media operations remain behind the existing governed facade.
 
-## Deliberate boundary
+## Scope and bounds
 
-`ARCH-1` does **not** fetch Telegram history, download media, or register a JobEngine worker. Those belong to the archive execution gates.
+- one durable `TELEGRAM_ARCHIVE` job per request;
+- maximum 500 messages per job;
+- maximum 100 messages per Telegram history request;
+- history is paged backwards with `max_id`;
+- `min_message_id` is an inclusive lower boundary;
+- optional media is capped at 50 files per job and 512 MiB total;
+- individual media remains subject to the existing MediaService input/workspace/disk limits;
+- message text is bounded to 64 KiB;
+- stored per-message archive metadata is bounded to 32 KiB;
+- archive search is bounded to 50 results;
+- binary media is stored outside SQLite as SHA-256 content-addressed files;
+- SQLite stores searchable metadata including peer, message ID, timestamps, sender/reply references, job ID and media provenance.
 
-When execution is added, it must use `TelegramFacade`/`TelegramTrafficController`, JobEngine leases/recovery, bounded batches, cancellation, deduplication, Search/FTS5 and the existing media workspace rather than creating a second workflow or transport path.
+## Durable storage
+
+Archive records use the existing canonical `search_documents` SQLite table with source `archive_message`. This keeps archive metadata inside the platform database and makes it naturally available to the canonical FTS5 index without introducing a second database.
+
+The logical document identity is:
+
+`archive_message:<peer>:<message_id>`
+
+Repeated execution of the same batch therefore performs an idempotent upsert rather than duplicating FTS rows.
+
+## Cursor and recovery
+
+The JobEngine owns lifecycle, leasing, heartbeat, retry and shutdown uncertainty. The archive worker writes an `ARCHIVE_CURSOR` job event only after the preceding batch has been persisted. If a worker disappears before that event, the previous batch is replayed safely because archive records are idempotent.
+
+An active job interrupted by cancellation or shutdown is not reported as cleanly complete. Existing JobEngine semantics mark it `UNCERTAIN`; explicit operator verification/requeue remains required before replaying uncertain work.
+
+## Media
+
+Media is downloaded through `TelegramFacade.download_media`, which classifies the operation as governed `MEDIA` traffic. `MediaService` supplies the bounded workspace, disk guard and Telegram download progress guard.
+
+Completed media is SHA-256 hashed and moved atomically into:
+
+`data/archive/media/<first-two-hash-characters>/<sha256><original-suffix>`
+
+Identical content reuses the existing object. SQLite metadata records the relative path, hash, byte size, MIME type, original name and archive status.
+
+Media failures/limits do not discard the text/message metadata. The record is retained with a bounded media status/error classification.
+
+## Commands
+
+The owner-facing plugin supports:
+
+- `.archive chat [limit]` — archive bounded history from the current chat;
+- `.archive channel [limit]` — archive bounded history from the current channel context;
+- `.archive since <message_id> [limit]` — archive backward to the supplied message-ID floor;
+- `.archive media [limit]` — archive bounded history with optional media capture;
+- `.archive search <query>` — search only archived messages through FTS5.
+
+The commands are deterministic and text-first. Interactive pagination/job controls can be added by the later UX program without changing the durable archive contract.
+
+## Takeout sessions
+
+Telegram takeout sessions are intentionally not mandatory for ARCH-2. They remain a future optimization for suitable bulk-export workflows. The normal archive path already uses bounded requests and resumable JobEngine state.
+
+## Failure policy
+
+- invalid job input → permanent `ARCHIVE_INVALID_PAYLOAD`;
+- Telegram history failure → bounded JobEngine retry;
+- media size/storage/validation issue → retain message metadata and mark media skipped;
+- cancellation/shutdown → existing JobEngine uncertainty semantics;
+- no unbounded message batches, media buffers or job payloads are introduced.
