@@ -13,6 +13,7 @@ from core.services.secrets import SecretStore, SecretStoreError
 from core.services.storage import StorageError, StorageService
 from core.services.subprocess import SubprocessResult, SubprocessService
 from core.services.telegram import TelegramFacade
+from core.services.telegram_event_journal import TelegramEventJournal
 from core.services.telegram_events import TelegramEvent, TelegramEventCollector
 from core.services.telegram_state import DialogState, EntityState, TelegramStateCache
 from core.services.telegram_sync import SyncCursor, SyncResult, TelegramIncrementalSync
@@ -33,7 +34,7 @@ __all__ = [
     "SubprocessResult", "SubprocessService",
     "DialogState", "EntityState", "TelegramStateCache",
     "SyncCursor", "SyncResult", "TelegramIncrementalSync",
-    "TelegramEvent", "TelegramEventCollector",
+    "TelegramEvent", "TelegramEventCollector", "TelegramEventJournal",
     "TelegramFacade", "TelegramTrafficController",
     "Workspace", "WorkspaceService",
 ]
