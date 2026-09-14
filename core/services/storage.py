@@ -40,6 +40,31 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
     CREATE INDEX IF NOT EXISTS idx_job_attempts_job_attempt ON job_attempts(job_id, attempt);
     CREATE INDEX IF NOT EXISTS idx_job_events_job_created ON job_events(job_id, created_at);
     """),
+    (4, """
+    CREATE TABLE IF NOT EXISTS telegram_operations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        operation_id TEXT NOT NULL,
+        timestamp REAL NOT NULL,
+        method TEXT NOT NULL,
+        peer_id TEXT,
+        operation_class TEXT NOT NULL,
+        request_hash TEXT NOT NULL,
+        result_classification TEXT NOT NULL,
+        latency_ms REAL NOT NULL,
+        flood_wait_seconds REAL,
+        slow_mode_seconds REAL,
+        peer_flood INTEGER NOT NULL DEFAULT 0,
+        error_class TEXT,
+        retry_count INTEGER NOT NULL DEFAULT 0,
+        payload_size INTEGER,
+        job_id TEXT,
+        source TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_telegram_operations_timestamp ON telegram_operations(timestamp DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS idx_telegram_operations_method ON telegram_operations(method, timestamp DESC);
+    CREATE INDEX IF NOT EXISTS idx_telegram_operations_peer ON telegram_operations(peer_id, timestamp DESC);
+    CREATE INDEX IF NOT EXISTS idx_telegram_operations_result ON telegram_operations(result_classification, timestamp DESC);
+    """),
 )
 
 
