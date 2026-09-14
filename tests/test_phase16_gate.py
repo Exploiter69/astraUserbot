@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import ast
 import asyncio
-import tempfile
 import unittest
 from pathlib import Path
 
@@ -49,7 +48,7 @@ class Phase16Gate(unittest.TestCase):
             context = ApplicationContext(object(), ROOT)
             expected = {
                 "storage", "cache", "http", "subprocess", "telegram_state", "telegram",
-                "telegram_event_journal", "telegram_events", "telegram_event_projections",
+                "telegram_event_journal", "telegram_events", "telegram_event_projections", "intelgraph",
                 "workspace", "media", "jobs", "secrets", "ai", "search", "metrics", "flags", "isolation",
             }
             self.assertEqual(set(context.services), expected)
