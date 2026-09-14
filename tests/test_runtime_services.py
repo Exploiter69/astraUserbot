@@ -53,10 +53,7 @@ class RuntimeServiceTests(unittest.IsolatedAsyncioTestCase):
             await context.start()
 
             self.assertEqual(context.snapshot()["state"], "RUNNING")
-            self.assertEqual(
-                set(context.services),
-                {"storage", "cache", "http", "subprocess", "telegram_state", "telegram", "telegram_event_journal", "telegram_events", "workspace", "media", "jobs", "secrets", "ai", "search", "metrics", "flags", "isolation"},
-            )
+            self.assertEqual(set(context.services), {"storage", "cache", "http", "subprocess", "telegram_state", "telegram", "telegram_event_journal", "telegram_events", "telegram_event_projections", "workspace", "media", "jobs", "secrets", "ai", "search", "metrics", "flags", "isolation"})
             self.assertIsNotNone(context.get("http").session)
             self.assertTrue(context.get("cache").db_path.exists())
             self.assertIsNotNone(context.get("storage").conn)
@@ -70,6 +67,7 @@ class RuntimeServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(context.get("telegram_state")._started)
             self.assertTrue(context.get("telegram_event_journal")._started)
             self.assertTrue(context.get("telegram_events")._started)
+            self.assertTrue(context.get("telegram_event_projections")._started)
 
             await context.close()
             self.assertEqual(context.snapshot()["state"], "CLOSED")
@@ -102,7 +100,6 @@ class RuntimeServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(workspace.resolve("output.bin").parent, workspace.path)
             with self.assertRaises(ValueError):
                 workspace.resolve("../../escape")
-
             output = workspace.resolve("output.bin")
             output.write_bytes(b"123456789")
             with self.assertRaises(ResourceError):
@@ -121,7 +118,6 @@ class RuntimeServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_http_service_uses_shared_session_and_enforces_response_limit(self):
         async def handler(_request):
             return web.Response(body=b"0123456789")
-
         app = web.Application()
         app.router.add_get("/", handler)
         runner = web.AppRunner(app)
@@ -155,7 +151,6 @@ class RuntimeServiceTests(unittest.IsolatedAsyncioTestCase):
         async def handler(_request):
             await asyncio.sleep(10)
             return web.Response(text="late")
-
         app = web.Application()
         app.router.add_get("/", handler)
         runner = web.AppRunner(app)
