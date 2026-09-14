@@ -21,7 +21,7 @@ class StorageAndJobsGateTests(unittest.IsolatedAsyncioTestCase):
     async def test_clean_install_reaches_platform_schema(self):
         tables = await self.storage.fetchall("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
         names = {row[0] for row in tables}
-        self.assertTrue({'schema_migrations', 'jobs', 'job_attempts', 'job_events', 'leases', 'audit_events'} <= names)
+        self.assertTrue({'schema_migrations', 'jobs', 'job_attempts', 'job_events', 'leases', 'audit_events', 'telegram_entities', 'telegram_dialogs'} <= names)
         self.assertTrue(await self.storage.integrity_check())
 
     async def test_migration_is_idempotent(self):
@@ -30,7 +30,7 @@ class StorageAndJobsGateTests(unittest.IsolatedAsyncioTestCase):
         rows = await self.storage.fetchall(
             "SELECT version FROM schema_migrations ORDER BY version"
         )
-        self.assertEqual([row[0] for row in rows], [1, 2, 3])
+        self.assertEqual([row[0] for row in rows], [1, 2, 3, 4, 5])
 
     async def test_foreign_keys_are_enabled(self):
         row = await self.storage.fetchone("PRAGMA foreign_keys")
