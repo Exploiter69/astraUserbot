@@ -202,6 +202,28 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
     );
     CREATE INDEX IF NOT EXISTS idx_telegram_replay_state ON telegram_replay_runs(state, updated_at DESC);
     """),
+    (9, """
+    CREATE TABLE IF NOT EXISTS telegram_event_journal (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_id TEXT NOT NULL UNIQUE,
+        fingerprint TEXT NOT NULL UNIQUE,
+        event_type TEXT NOT NULL,
+        observed_at REAL NOT NULL,
+        source_peer TEXT,
+        message_id INTEGER,
+        entity_id INTEGER,
+        payload_json TEXT NOT NULL,
+        schema_version INTEGER NOT NULL,
+        processing_state TEXT NOT NULL DEFAULT 'PENDING',
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        last_error TEXT,
+        created_at REAL NOT NULL,
+        processed_at REAL
+    );
+    CREATE INDEX IF NOT EXISTS idx_telegram_event_type_time ON telegram_event_journal(event_type, observed_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_telegram_event_peer_time ON telegram_event_journal(source_peer, observed_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_telegram_event_state_time ON telegram_event_journal(processing_state, created_at);
+    """),
 )
 
 
