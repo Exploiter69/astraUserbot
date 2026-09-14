@@ -179,6 +179,8 @@ class TelegramEventCollector:
         )
 
     async def _handle_raw(self, update: Any) -> None:
+        if not isinstance(update, self._CALL_UPDATE_TYPES):
+            return
         phone_call = getattr(update, "phone_call", None)
         call_id = getattr(phone_call, "id", None)
         await self._emit(
