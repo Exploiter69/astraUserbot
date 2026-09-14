@@ -66,9 +66,10 @@ class AdaptiveTelegramGovernor:
         return self._scopes.setdefault(key, _GovernorScope())
 
     def _refresh(self, scope: _GovernorScope, now: float) -> None:
-        if scope.state == COOLDOWN and now >= scope.cooldown_until:
-            scope.state = PROBE
+        if scope.cooldown_until and now >= scope.cooldown_until:
             scope.cooldown_until = 0.0
+            if scope.state != NORMAL:
+                scope.state = PROBE
 
     def observe_wait(
         self,
