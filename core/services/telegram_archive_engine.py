@@ -96,10 +96,10 @@ class TelegramArchiveService:
             raise JobError("Archive job payload is invalid", code="ARCHIVE_INVALID_PAYLOAD") from exc
 
         state = await self._load_cursor(job.id) or {"cursor": 0, "archived": 0, "media_archived": 0, "media_bytes": 0}
-        cursor = int(state["cursor"])
-        archived = int(state["archived"])
-        media_archived = int(state["media_archived"])
-        media_bytes = int(state["media_bytes"])
+        cursor = int(state.get("cursor", 0))
+        archived = int(state.get("archived", 0))
+        media_archived = int(state.get("media_archived", 0))
+        media_bytes = int(state.get("media_bytes", 0))
         remaining = max(0, request.limit - archived)
         batches = 0
 
@@ -187,14 +187,25 @@ class TelegramArchiveService:
         elif media is not None:
             metadata["media_status"] = "METADATA_ONLY"
 
-        encoded = json.dumps(metadata, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-        if len(encoded) > self.MAX_METADATA_CHARS:
-            metadata["text"] = text[: max(0, self.MAX_METADATA_CHARS - 2048)]
-            encoded = json.dumps(metadata, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-            if len(encoded) > self.MAX_METADATA_CHARS:
-                encoded = encoded[: self.MAX_METADATA_CHARS]
+        encoded = self._encode_metadata(metadata)
         await self.search.upsert(source=self.SOURCE, ref=f"{peer}:{message_id}", title=f"{peer} #{message_id}", content=encoded)
         return metadata
+
+    def _encode_metadata(self, metadata: dict[str, Any]) -> str:
+        encoded = json.dumps(metadata, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        while len(encoded) > self.MAX_METADATA_CHARS and metadata.get("text"):
+            text = str(metadata["text"])
+            metadata["text"] = text[: max(0, len(text) - 4096)]
+            encoded = json.dumps(metadata, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        if len(encoded) > self.MAX_METADATA_CHARS:
+            for key in ("media_error", "media_name", "reply_to_message_id", "edited_at"):
+                metadata.pop(key, None)
+                encoded = json.dumps(metadata, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+                if len(encoded) <= self.MAX_METADATA_CHARS:
+                    break
+        if len(encoded) > self.MAX_METADATA_CHARS:
+            raise ResourceError("Archive metadata exceeds configured storage limit")
+        return encoded
 
     async def _archive_media(self, media: Any) -> dict[str, Any] | None:
         workspace = await self.media.create_workspace("archive")
