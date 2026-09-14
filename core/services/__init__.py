@@ -15,6 +15,7 @@ from core.services.subprocess import SubprocessResult, SubprocessService
 from core.services.telegram import TelegramFacade
 from core.services.telegram_event_journal import TelegramEventJournal
 from core.services.telegram_event_projections import TelegramEventProjections
+from core.services.telegram_event_replay import TelegramEventReplay
 from core.services.telegram_events import TelegramEvent, TelegramEventCollector
 from core.services.telegram_state import DialogState, EntityState, TelegramStateCache
 from core.services.telegram_sync import SyncCursor, SyncResult, TelegramIncrementalSync
@@ -29,7 +30,7 @@ __all__ = [
     "MediaArtifact", "MediaService", "MetricSnapshot", "MetricsService", "SearchResult", "SearchService",
     "SecretStore", "SecretStoreError", "StorageError", "StorageService", "SubprocessResult", "SubprocessService",
     "DialogState", "EntityState", "TelegramStateCache", "SyncCursor", "SyncResult", "TelegramIncrementalSync",
-    "TelegramEvent", "TelegramEventCollector", "TelegramEventJournal", "TelegramEventProjections",
+    "TelegramEvent", "TelegramEventCollector", "TelegramEventJournal", "TelegramEventProjections", "TelegramEventReplay",
     "TelegramFacade", "TelegramTrafficController", "Workspace", "WorkspaceService", "IntelGraph",
     "IOC", "extract_iocs", "normalize_ioc",
 ]
