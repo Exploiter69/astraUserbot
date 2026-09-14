@@ -97,6 +97,7 @@ class TelegramFacade:
                     await self.state_cache.remember_dialog(dialog)
                 except Exception:
                     logger.warning("Telegram dialog cache write failed", exc_info=True)
+            self.state_cache.mark_dialog_snapshot(limit=limit)
         return list(dialogs)
 
     def traffic_snapshot(self) -> dict[str, Any]:
