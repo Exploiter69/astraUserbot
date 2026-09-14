@@ -24,7 +24,7 @@ class TelegramEventCollectorTests(unittest.TestCase):
             client = FakeClient()
             collector = TelegramEventCollector(client)
             await collector.start()
-            self.assertEqual(len(client.handlers), 5)
+            self.assertEqual(len(client.handlers), 6)
             self.assertTrue(collector._started)
             await collector.close()
             self.assertEqual(client.handlers, [])
@@ -77,6 +77,23 @@ class TelegramEventCollectorTests(unittest.TestCase):
             self.assertEqual(received[0].message_id, 0)
             self.assertEqual(received[-1].message_id, 99)
             self.assertTrue(all(item.event_type == "MESSAGE_DELETE" for item in received))
+
+        asyncio.run(scenario())
+
+    def test_call_update_is_normalized_without_retaining_raw_update(self) -> None:
+        async def scenario() -> None:
+            collector = TelegramEventCollector(FakeClient())
+            received: list[TelegramEvent] = []
+            collector.add_sink(received.append)
+            update = type("UpdatePhoneCall", (), {})()
+            update.phone_call = SimpleNamespace(id=55, __class__=SimpleNamespace)
+            await collector._handle_raw(update)
+            self.assertEqual(len(received), 1)
+            item = received[0]
+            self.assertEqual(item.event_type, "CALL_STATE_CHANGED")
+            self.assertEqual(item.payload["update"], "UpdatePhoneCall")
+            self.assertEqual(item.payload["call_id"], 55)
+            self.assertIsNone(item.source_peer)
 
         asyncio.run(scenario())
 
