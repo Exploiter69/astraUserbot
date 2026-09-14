@@ -63,7 +63,7 @@ class TelegramStateCache:
         self._dialogs: OrderedDict[str, tuple[float, Any]] = OrderedDict()
         self._dialog_snapshot_at = 0.0
         self._dialog_snapshot_limit = 0
-        self._inflight: dict[str, asyncio.Future[Any]] = {}
+        self._inflight: dict[str, asyncio.Task[Any]] = {}
         self._lock_guard = asyncio.Lock()
         self._started = False
         self._stats = {
@@ -84,10 +84,11 @@ class TelegramStateCache:
         self._dialog_snapshot_at = 0.0
         self._dialog_snapshot_limit = 0
         async with self._lock_guard:
-            for future in self._inflight.values():
-                if not future.done():
-                    future.cancel()
+            tasks = list(self._inflight.values())
             self._inflight.clear()
+        for task in tasks:
+            if not task.done():
+                task.cancel()
         self._started = False
 
     @staticmethod
@@ -189,33 +190,28 @@ class TelegramStateCache:
 
         key = f"entity:{self.entity_key(lookup)}"
         async with self._lock_guard:
-            future = self._inflight.get(key)
-            owner = future is None
-            if owner:
-                future = asyncio.get_running_loop().create_future()
-                self._inflight[key] = future
+            task = self._inflight.get(key)
+            if task is None:
+                task = asyncio.create_task(self._resolve_and_store(lookup, resolver))
+                self._inflight[key] = task
             else:
                 self._stats["inflight_joins"] += 1
-        assert future is not None
-        if not owner:
-            return await asyncio.shield(future)
-
-        self._stats["entity_misses"] += 1
         try:
-            entity = await resolver()
-            try:
-                await self.remember_entity(lookup, entity)
-            except Exception:
-                pass
-            future.set_result(entity)
-            return entity
-        except BaseException as exc:
-            if not future.done():
-                future.set_exception(exc)
-            raise
+            return await asyncio.shield(task)
         finally:
-            async with self._lock_guard:
-                self._inflight.pop(key, None)
+            if task.done():
+                async with self._lock_guard:
+                    if self._inflight.get(key) is task:
+                        self._inflight.pop(key, None)
+
+    async def _resolve_and_store(self, lookup: Any, resolver: Callable[[], Awaitable[Any]]) -> Any:
+        self._stats["entity_misses"] += 1
+        entity = await resolver()
+        try:
+            await self.remember_entity(lookup, entity)
+        except Exception:
+            pass
+        return entity
 
     async def remember_dialog(self, dialog: Any, *, sync_state: str = "OBSERVED") -> DialogState:
         key = self.peer_key(getattr(dialog, "entity", dialog))
@@ -256,7 +252,8 @@ class TelegramStateCache:
             return None
         if time.time() - self._dialog_snapshot_at > self.dialog_ttl:
             return None
-        fresh = [(observed, dialog) for observed, dialog in self._dialogs.values() if time.time() - observed <= self.dialog_ttl]
+        now = time.time()
+        fresh = [(observed, dialog) for observed, dialog in self._dialogs.values() if now - observed <= self.dialog_ttl]
         if len(fresh) < min(requested, self._dialog_snapshot_limit):
             return None
         fresh.sort(key=lambda item: item[0], reverse=True)
