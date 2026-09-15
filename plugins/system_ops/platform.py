@@ -11,7 +11,7 @@ from core.errors import CommandError
 from core.registry import COMMANDS, list_registrations, register_cmd
 from helpers.hud import render
 
-PATTERN = rf"^{re.escape(config.PREFIX)}(health|plugins|tasks|jobs|cache|stats|diagnostics|search|reindex|flags|status|ops)(?:\s+(.*))?$"
+PATTERN = rf"^{re.escape(config.PREFIX)}(health|plugins|tasks|cache|stats|diagnostics|search|reindex|flags|status|ops)(?:\s+(.*))?$"
 
 _PLUGIN_STATES = frozenset({
     "DISCOVERED", "LOADED", "RUNNING", "FAILED_IMPORT", "FAILED_SETUP", "DISABLED", "UNLOADED",
@@ -222,7 +222,7 @@ async def handle(event):
             await event.edit(render("PLUGIN OBSERVATORY // FILTER", rows, footer=f"system_ops | plugins {selector.lower()}")); return
         if selector == "QUARANTINED":
             names = list(getattr(manager, "quarantined_modules", ()))
-            rows = [f"State: QUARANTINED", f"Count: {len(names)}", ""] + _pack([_plugin_short_name(name) for name in names], width=1, limit=60)
+            rows = ["State: QUARANTINED", f"Count: {len(names)}", ""] + _pack([_plugin_short_name(name) for name in names], width=1, limit=60)
             await event.edit(render("PLUGIN OBSERVATORY // FILTER", rows, footer="system_ops | plugins quarantined")); return
         record = _find_plugin(records, arg)
         rows = _plugin_detail(record, command_counts)
@@ -231,12 +231,6 @@ async def handle(event):
     if cmd == "tasks":
         records = ctx.tasks.snapshot(); rows = [f"{r['state']} · {r['name']} · {r['owner'] or 'unknown'}" for r in records[-20:]]
         await event.edit(render("TASKS // SUPERVISOR", rows or ["No supervised tasks recorded."], footer="system_ops | tasks")); return
-
-    if cmd == "jobs":
-        jobs = await ctx.get("jobs").list(limit=20); rows = [f"{_state_name(job)} · {job.type} · {job.id[:12]} · {job.progress:.0%}" for job in jobs]
-        attention = _job_attention(jobs)
-        if attention: rows += ["", "ATTENTION"] + attention[:10]
-        await event.edit(render("JOBS // DURABLE", rows or ["No durable jobs recorded."], footer="system_ops | jobs")); return
 
     if cmd == "cache":
         stats = await ctx.get("cache").stats(); rows = [f"{key}: {value}" for key, value in sorted(asdict(stats).items())]
@@ -278,4 +272,4 @@ async def handle(event):
             await event.edit(render("FLAGS // STATE", rows or ["No feature flags."], footer="system_ops | flags")); return
         if len(parts) != 2 or parts[1].lower() not in {"on", "off"}: raise CommandError(f"Usage: {config.PREFIX}flags <name> <on|off>")
         await flags.set(parts[0], parts[1].lower() == "on", {"operator": "owner"})
-        await event.edit(render("FLAGS // UPDATED", [f"{parts[0]}: {'ON' if parts[1].lower() == 'on' else 'OFF'}"], footer="system_ops | flags"))
+        await event.edit(render("FLAGS // UPDATED", [f"{parts[0]}: {'ON' if parts[1].lower() == 'on' else 'OFF'}"], footer="system_ops | flags")); return
