@@ -105,8 +105,18 @@ class TelegramFacade:
         min_id: int | None = None,
         max_id: int | None = None,
     ) -> list[Any]:
-        """Fetch a bounded message batch through the governed transport."""
+        """Fetch a bounded message batch through the governed transport.
+
+        Durable jobs serialize Telegram peer IDs as strings. Telethon treats a
+        numeric string as a username/entity name rather than a numeric peer ID,
+        so normalize numeric peer identifiers before crossing the transport edge.
+        """
         bounded = max(1, min(int(limit), 100))
+        target = entity
+        if isinstance(entity, str):
+            stripped = entity.strip()
+            if stripped and stripped.lstrip("-").isdigit():
+                target = int(stripped)
         kwargs: dict[str, Any] = {"limit": bounded}
         if min_id is not None:
             kwargs["min_id"] = int(min_id)
@@ -114,7 +124,7 @@ class TelegramFacade:
             kwargs["max_id"] = int(max_id)
         result = await self._call(
             "get_messages",
-            entity,
+            target,
             operation_class=READ,
             priority=P2_NORMAL,
             **kwargs,
