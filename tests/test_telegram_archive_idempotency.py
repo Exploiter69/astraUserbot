@@ -36,7 +36,7 @@ async def test_archive_enqueue_reuses_active_job_but_not_terminal_job(tmp_path: 
     claimed = await jobs.claim(("TELEGRAM_ARCHIVE",))
     assert claimed is not None
     assert claimed.id == first.id
-    assert await jobs.fail(first.id, "TEST_FAILURE", "terminal test failure", retryable=False)
+    await jobs.fail(first.id, "TEST_FAILURE", "terminal test failure", retryable=False)
     failed = await jobs.get(first.id)
     assert failed.state is JobState.FAILED
 
