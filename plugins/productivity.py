@@ -63,9 +63,7 @@ async def setup(client):
     register_cmd(client, rf"^{p}tget\s+(\S+)$", handle_tget, "productivity", "Render a reusable template.")
     register_cmd(client, rf"^{p}tlist$", handle_tlist, "productivity", "List reusable templates.")
     register_cmd(client, rf"^{p}tdel\s+(\S+)$", handle_tdel, "productivity", "Delete a reusable template.")
-    register_cmd(client, rf"^{p}filter\s+add\s+(\S+)\s+(.+)$", handle_filter_add, "productivity", "Add a bounded keyword auto-response filter.")
-    register_cmd(client, rf"^{p}filter\s+(?:del|delete)\s+(\d+)$", handle_filter_del, "productivity", "Delete a filter.")
-    register_cmd(client, rf"^{p}filter\s+list$", handle_filter_list, "productivity", "List filters.")
+    register_cmd(client, rf"^{p}filter\s+(add|del|delete|list)(?:\s+(.+))?$", handle_filter, "productivity", "Manage bounded keyword auto-response filters.")
     client.add_event_handler(filter_watcher, events.NewMessage(incoming=True))
 
     context = get_application_context()
@@ -146,22 +144,27 @@ async def handle_tdel(event):
     await event.edit(render("TEMPLATE", [f"Deleted `{name}`."], footer="productivity | template"))
 
 
-async def handle_filter_add(event):
-    term = _clean(event.pattern_match.group(1).lower(), 128)
-    response = _clean(event.pattern_match.group(2), 1000)
+async def handle_filter(event):
+    action = event.pattern_match.group(1).lower()
+    arg = (event.pattern_match.group(2) or "").strip()
+    if action == "list":
+        rows = await DB.fetchall("SELECT id, term, response, enabled FROM filters WHERE chat_id=? ORDER BY id LIMIT ?", (event.chat_id, _MAX_ROWS))
+        lines = [f"`{r[0]}` · `{r[1]}` · {'ON' if r[3] else 'OFF'} · {r[2][:100]}" for r in rows]
+        await event.edit(render("FILTERS", lines or ["No filters in this chat."], footer="productivity | filters"))
+        return
+    if action in {"del", "delete"}:
+        if not re.fullmatch(r"\d+", arg):
+            raise CommandError("Usage: `.filter del <id>`")
+        await DB.execute("DELETE FROM filters WHERE chat_id=? AND id=?", (event.chat_id, int(arg)))
+        await event.edit(render("FILTER", ["Filter removed."], footer="productivity | filter"))
+        return
+    match = re.fullmatch(r"(\S+)\s+(.+)", arg)
+    if not match:
+        raise CommandError("Usage: `.filter add <term> <response>`")
+    term = _clean(match.group(1).lower(), 128)
+    response = _clean(match.group(2), 1000)
     await DB.execute("INSERT INTO filters(chat_id,term,response,created_at) VALUES(?,?,?,?) ON CONFLICT(chat_id,term) DO UPDATE SET response=excluded.response, enabled=1", (event.chat_id, term, response, time.time()))
     await event.edit(render("FILTER SAVED", [f"Term: `{term}`", "Action: bounded auto-response", "Cooldown: 60s per sender"], footer="productivity | filter"))
-
-
-async def handle_filter_del(event):
-    await DB.execute("DELETE FROM filters WHERE chat_id=? AND id=?", (event.chat_id, int(event.pattern_match.group(1))))
-    await event.edit(render("FILTER", ["Filter removed."], footer="productivity | filter"))
-
-
-async def handle_filter_list(event):
-    rows = await DB.fetchall("SELECT id, term, response, enabled FROM filters WHERE chat_id=? ORDER BY id LIMIT ?", (event.chat_id, _MAX_ROWS))
-    lines = [f"`{r[0]}` · `{r[1]}` · {'ON' if r[3] else 'OFF'} · {r[2][:100]}" for r in rows]
-    await event.edit(render("FILTERS", lines or ["No filters in this chat."], footer="productivity | filters"))
 
 
 async def filter_watcher(event):
