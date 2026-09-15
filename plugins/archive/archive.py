@@ -9,6 +9,7 @@ from core.context import get_application_context
 from core.errors import CommandError
 from core.registry import register_cmd
 from helpers.hud import render
+from helpers.ux import job_buttons
 
 PATTERN = rf"^{re.escape(config.PREFIX)}archive(?:\s+(.*))?$"
 MAX_DISPLAY_RESULTS = 10
@@ -112,7 +113,9 @@ async def handle_archive(event):
                 f"Limit: {limit}",
                 f"Media: {'enabled' if include_media else 'metadata only'}",
                 "Work is resumable and rate-governed.",
+                f"Inspect with `{config.PREFIX}job {job.id[:12]}`.",
             ],
             footer="archive | JobEngine",
-        )
+        ),
+        buttons=job_buttons(job.id, state=str(job.state)),
     )
