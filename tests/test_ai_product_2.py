@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 
 import pytest
@@ -40,14 +39,9 @@ class Event:
 class FakeJobs:
     def __init__(self):
         self.handlers = {}
-        self.enqueued = []
 
     async def update_progress(self, job_id, value):
         return None
-
-    async def enqueue(self, *args, **kwargs):
-        self.enqueued.append((args, kwargs))
-        return type("Job", (), {"id": "abcdef1234567890", "state": "QUEUED"})()
 
 
 @pytest.mark.asyncio
@@ -72,7 +66,7 @@ def test_ai_job_surface_is_single_registered_handler():
     source = Path(jobs.__file__).read_text(encoding="utf-8")
     assert '"AI_CHAT"' in source
     assert "register_handler" in source
-    assert "resource_class=\"ai\"" in source
+    assert 'resource_class="ai"' in source
 
 
 @pytest.mark.asyncio
@@ -89,33 +83,15 @@ async def test_ai_job_handler_returns_provider_neutral_result(monkeypatch):
 
 
 def test_ai_job_invalid_payload_is_non_retryable():
-    with pytest.raises(Exception) as exc:
-        asyncio.run(jobs._handle_ai_chat(type("Job", (), {"id": "job-1", "payload": {}})()))
-    assert "prompt" in str(exc.value).lower()
+    with pytest.raises(jobs.JobError) as exc:
+        jobs._job_prompt("")
+    assert exc.value.code == "AI_INVALID_PAYLOAD"
+    assert not exc.value.retryable
 
 
-def test_ai_diagnostics_is_non_sensitive():
-    class Service:
-        provider_name = "groq"
-        remote_enabled = True
-        max_input_chars = 100
-        max_output_chars = 200
-        max_output_tokens = 300
-        max_message_count = 4
-        max_message_chars = 50
-        concurrency = 2
-        timeout = 90.0
-        max_remote_requests = 10
-        remote_window_seconds = 86400.0
-        available_providers = ("groq", "gemini", "ollama")
-        provider_modes = {"groq": "remote", "gemini": "remote", "ollama": "local"}
-        capabilities = {"groq": ("chat", "transcribe")}
-        _remote_requests = []
-
-        @property
-        def diagnostics(self):
-            return {"provider": self.provider_name, "providers": self.available_providers, "modes": self.provider_modes, "capabilities": self.capabilities, "remote_enabled": self.remote_enabled, "remote_requests_used": 0, "remote_requests_limit": self.max_remote_requests, "remote_requests_remaining": 10, "remote_window_seconds": self.remote_window_seconds, "max_input_chars": self.max_input_chars, "max_output_chars": self.max_output_chars, "max_output_tokens": self.max_output_tokens, "max_message_count": self.max_message_count, "max_message_chars": self.max_message_chars, "concurrency": self.concurrency, "timeout": self.timeout}
-
-    data = Service().diagnostics
-    assert "api_key" not in str(data).lower()
-    assert data["remote_requests_remaining"] == 10
+def test_ai_diagnostics_contract_is_non_sensitive():
+    source = Path(__import__("core.services.ai", fromlist=["AIService"]).__file__).read_text(encoding="utf-8")
+    assert "def diagnostics" in source
+    assert "remote_requests_remaining" in source
+    block = source[source.find("def diagnostics"):source.find("def diagnostics") + 2500]
+    assert "api_key" not in block.lower()
