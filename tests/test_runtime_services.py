@@ -23,6 +23,8 @@ class FakeTelegram:
         self.calls.append(("edit_message", entity, message, text, kwargs)); return "edited"
     async def delete_messages(self, entity, message_ids, **kwargs):
         self.calls.append(("delete_messages", entity, message_ids, kwargs)); return "deleted"
+    async def get_messages(self, entity, **kwargs):
+        self.calls.append(("get_messages", entity, kwargs)); return []
     async def get_entity(self, entity): return entity
 
 
@@ -68,6 +70,15 @@ class RuntimeServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_telegram_facade_preserves_raw_client_access(self):
         client = FakeTelegram(); facade = TelegramFacade(client, retries=0); result = await facade.send_message("me", "hello", parse_mode="html")
         self.assertEqual(result, "sent"); self.assertEqual(client.calls[0][0], "send_message"); self.assertEqual(client.calls[0][3]["parse_mode"], "html")
+
+    async def test_telegram_facade_normalizes_numeric_peer_ids(self):
+        client = FakeTelegram(); facade = TelegramFacade(client, retries=0)
+        await facade.get_messages("-1001234567890", limit=5)
+        self.assertEqual(client.calls[0], ("get_messages", -1001234567890, {"limit": 5}))
+        await facade.get_messages("123456789", limit=2)
+        self.assertEqual(client.calls[1], ("get_messages", 123456789, {"limit": 2}))
+        await facade.get_messages("@example", limit=1)
+        self.assertEqual(client.calls[2], ("get_messages", "@example", {"limit": 1}))
 
     async def test_http_service_uses_shared_session_and_enforces_response_limit(self):
         async def handler(_request): return web.Response(body=b"0123456789")
