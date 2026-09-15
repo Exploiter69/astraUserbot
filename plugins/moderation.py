@@ -5,7 +5,8 @@ import re
 import time
 from collections import defaultdict, deque
 
-from telethon.tl.functions.channels import EditBannedRequest, UpdatePinnedMessageRequest
+from telethon.tl.functions.channels import EditBannedRequest
+from telethon.tl.functions.messages import UpdatePinnedMessageRequest
 from telethon.tl.types import ChatBannedRights
 
 from config import config
