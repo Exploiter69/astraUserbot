@@ -9,6 +9,7 @@ SKIP = {"__pycache__", ".git", ".venv", "venv", "env", ".pytest_cache"}
 ALLOWED_DIRECT_EVENTS = {
     Path("plugins/security/account_archiver.py"), Path("plugins/security/acl.py"),
     Path("plugins/security/logger.py"), Path("plugins/security/pmguard.py"), Path("plugins/system/afk.py"),
+    Path("plugins/productivity.py"),
 }
 
 
