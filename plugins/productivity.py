@@ -4,8 +4,10 @@ from __future__ import annotations
 import asyncio
 import re
 import time
+from collections import OrderedDict
 from datetime import datetime, timezone
 
+from telethon import events
 from core.database import Database
 from core.registry import register_cmd
 from core.errors import CommandError
@@ -16,6 +18,8 @@ DB = Database.get("productivity")
 _MAX_TEXT = 4000
 _MAX_NAME = 48
 _MAX_ROWS = 100
+_FILTER_COOLDOWN = 60.0
+_filter_last: OrderedDict[tuple[int, str], float] = OrderedDict()
 
 
 def _parse_delay(value: str) -> int:
@@ -38,42 +42,27 @@ def _clean(value: str, limit: int) -> str:
 
 async def setup(client):
     await DB.init_schema("""
-        CREATE TABLE IF NOT EXISTS reminders (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            chat_id INTEGER NOT NULL,
-            reply_to INTEGER,
-            text TEXT NOT NULL,
-            due_at REAL NOT NULL,
-            delivered INTEGER NOT NULL DEFAULT 0,
-            created_at REAL NOT NULL
-        );
+        CREATE TABLE IF NOT EXISTS reminders (id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER NOT NULL, reply_to INTEGER, text TEXT NOT NULL, due_at REAL NOT NULL, delivered INTEGER NOT NULL DEFAULT 0, created_at REAL NOT NULL);
         CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders(delivered, due_at);
-        CREATE TABLE IF NOT EXISTS bookmarks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            chat_id INTEGER NOT NULL,
-            message_id INTEGER NOT NULL,
-            tag TEXT NOT NULL,
-            text TEXT NOT NULL,
-            created_at REAL NOT NULL,
-            UNIQUE(chat_id, message_id, tag)
-        );
-        CREATE TABLE IF NOT EXISTS templates (
-            name TEXT PRIMARY KEY,
-            text TEXT NOT NULL,
-            created_at REAL NOT NULL,
-            updated_at REAL NOT NULL
-        );
+        CREATE TABLE IF NOT EXISTS bookmarks (id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER NOT NULL, message_id INTEGER NOT NULL, tag TEXT NOT NULL, text TEXT NOT NULL, created_at REAL NOT NULL, UNIQUE(chat_id, message_id, tag));
+        CREATE TABLE IF NOT EXISTS templates (name TEXT PRIMARY KEY, text TEXT NOT NULL, created_at REAL NOT NULL, updated_at REAL NOT NULL);
+        CREATE TABLE IF NOT EXISTS filters (id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER NOT NULL, term TEXT NOT NULL, response TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, created_at REAL NOT NULL, UNIQUE(chat_id, term));
     """)
-    register_cmd(client, rf"^{re.escape(config.PREFIX)}remind\s+(\S+)\s+(.+)$", handle_remind, "productivity", "Set a durable reminder.")
-    register_cmd(client, rf"^{re.escape(config.PREFIX)}reminders$", handle_reminders, "productivity", "List pending reminders.")
-    register_cmd(client, rf"^{re.escape(config.PREFIX)}delremind\s+(\d+)$", handle_delremind, "productivity", "Delete a reminder.")
-    register_cmd(client, rf"^{re.escape(config.PREFIX)}bookmark(?:\s+(\S+))?$", handle_bookmark, "productivity", "Bookmark a replied message.")
-    register_cmd(client, rf"^{re.escape(config.PREFIX)}bookmarks$", handle_bookmarks, "productivity", "List saved bookmarks.")
-    register_cmd(client, rf"^{re.escape(config.PREFIX)}unbookmark\s+(\d+)$", handle_unbookmark, "productivity", "Delete a bookmark.")
-    register_cmd(client, rf"^{re.escape(config.PREFIX)}template\s+(\S+)\s+(.+)$", handle_template, "productivity", "Create or update a reusable template.")
-    register_cmd(client, rf"^{re.escape(config.PREFIX)}tget\s+(\S+)$", handle_tget, "productivity", "Render a reusable template.")
-    register_cmd(client, rf"^{re.escape(config.PREFIX)}tlist$", handle_tlist, "productivity", "List reusable templates.")
-    register_cmd(client, rf"^{re.escape(config.PREFIX)}tdel\s+(\S+)$", handle_tdel, "productivity", "Delete a reusable template.")
+    p = re.escape(config.PREFIX)
+    register_cmd(client, rf"^{p}remind\s+(\S+)\s+(.+)$", handle_remind, "productivity", "Set a durable reminder.")
+    register_cmd(client, rf"^{p}reminders$", handle_reminders, "productivity", "List pending reminders.")
+    register_cmd(client, rf"^{p}delremind\s+(\d+)$", handle_delremind, "productivity", "Delete a reminder.")
+    register_cmd(client, rf"^{p}bookmark(?:\s+(\S+))?$", handle_bookmark, "productivity", "Bookmark a replied message.")
+    register_cmd(client, rf"^{p}bookmarks$", handle_bookmarks, "productivity", "List saved bookmarks.")
+    register_cmd(client, rf"^{p}unbookmark\s+(\d+)$", handle_unbookmark, "productivity", "Delete a bookmark.")
+    register_cmd(client, rf"^{p}template\s+(\S+)\s+(.+)$", handle_template, "productivity", "Create or update a reusable template.")
+    register_cmd(client, rf"^{p}tget\s+(\S+)$", handle_tget, "productivity", "Render a reusable template.")
+    register_cmd(client, rf"^{p}tlist$", handle_tlist, "productivity", "List reusable templates.")
+    register_cmd(client, rf"^{p}tdel\s+(\S+)$", handle_tdel, "productivity", "Delete a reusable template.")
+    register_cmd(client, rf"^{p}filter\s+add\s+(\S+)\s+(.+)$", handle_filter_add, "productivity", "Add a bounded keyword auto-response filter.")
+    register_cmd(client, rf"^{p}filter\s+(?:del|delete)\s+(\d+)$", handle_filter_del, "productivity", "Delete a filter.")
+    register_cmd(client, rf"^{p}filter\s+list$", handle_filter_list, "productivity", "List filters.")
+    client.add_event_handler(filter_watcher, events.NewMessage(incoming=True))
     client.loop.create_task(_reminder_worker(client))
 
 
@@ -145,6 +134,45 @@ async def handle_tdel(event):
     name = _clean(event.pattern_match.group(1), _MAX_NAME)
     await DB.execute("DELETE FROM templates WHERE name=?", (name,))
     await event.edit(render("TEMPLATE", [f"Deleted `{name}`."], footer="productivity | template"))
+
+
+async def handle_filter_add(event):
+    term = _clean(event.pattern_match.group(1).lower(), 128)
+    response = _clean(event.pattern_match.group(2), 1000)
+    await DB.execute("INSERT INTO filters(chat_id,term,response,created_at) VALUES(?,?,?,?) ON CONFLICT(chat_id,term) DO UPDATE SET response=excluded.response, enabled=1", (event.chat_id, term, response, time.time()))
+    await event.edit(render("FILTER SAVED", [f"Term: `{term}`", "Action: bounded auto-response", "Cooldown: 60s per sender"], footer="productivity | filter"))
+
+
+async def handle_filter_del(event):
+    await DB.execute("DELETE FROM filters WHERE chat_id=? AND id=?", (event.chat_id, int(event.pattern_match.group(1))))
+    await event.edit(render("FILTER", ["Filter removed."], footer="productivity | filter"))
+
+
+async def handle_filter_list(event):
+    rows = await DB.fetchall("SELECT id, term, response, enabled FROM filters WHERE chat_id=? ORDER BY id LIMIT ?", (event.chat_id, _MAX_ROWS))
+    lines = [f"`{r[0]}` · `{r[1]}` · {'ON' if r[3] else 'OFF'} · {r[2][:100]}" for r in rows]
+    await event.edit(render("FILTERS", lines or ["No filters in this chat."], footer="productivity | filters"))
+
+
+async def filter_watcher(event):
+    if not event.chat_id or not event.raw_text or event.sender_id == config.OWNER_ID:
+        return
+    rows = await DB.fetchall("SELECT term, response FROM filters WHERE chat_id=? AND enabled=1 LIMIT ?", (event.chat_id, _MAX_ROWS))
+    now = time.time()
+    lowered = event.raw_text.lower()
+    for term, response in rows:
+        if term not in lowered:
+            continue
+        key = (int(event.sender_id), term)
+        previous = _filter_last.get(key, 0.0)
+        if now - previous < _FILTER_COOLDOWN:
+            continue
+        _filter_last[key] = now
+        _filter_last.move_to_end(key)
+        while len(_filter_last) > 2048:
+            _filter_last.popitem(last=False)
+        await event.reply(response)
+        break
 
 
 async def _reminder_worker(client):
