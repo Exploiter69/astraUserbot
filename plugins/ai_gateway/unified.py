@@ -109,12 +109,7 @@ async def _reply_media_context(event, prompt: str) -> str | None:
             if not downloaded:
                 raise CommandError("Failed to download image media.")
             artifact = media_service.artifact(workspace, downloaded)
-            result = await media_service.run_isolated(
-                ["tesseract", "/workspace/" + artifact.path.relative_to(workspace.path).as_posix(), "stdout", "-l", "eng"],
-                workspace=workspace,
-                timeout=60,
-                max_output_bytes=512 * 1024,
-            )
+            result = await media_service.run_isolated(["tesseract", "/workspace/" + artifact.path.relative_to(workspace.path).as_posix(), "stdout", "-l", "eng"], workspace=workspace, timeout=60, max_output_bytes=512 * 1024)
             if result.returncode != 0:
                 raise CommandError("Image OCR failed: " + (result.stderr.strip() or "unknown error"))
             text = result.stdout.strip()[:_MAX_CONTEXT_CHARS]
@@ -147,6 +142,12 @@ async def _run_chat(event, prompt: str, *, title: str = "AI RESPONSE", system: s
     media_prompt = await _reply_media_context(event, prompt)
     if media_prompt:
         prompt = media_prompt
+    elif event.is_reply:
+        reply = await event.get_reply_message()
+        reply_text = _reply_text(reply)
+        if reply_text:
+            reply_text = _bounded_text(reply_text, _MAX_CONTEXT_CHARS)
+            prompt = f"Replied message context:\n{reply_text}\n\nUser request:\n{prompt}"
     messages: list[dict[str, str]] = []
     if system:
         messages.append({"role": "system", "content": system[:_MAX_INSTRUCTION_CHARS]})
@@ -238,16 +239,5 @@ async def handle_diag(event):
     if service is None:
         raise CommandError("AI service is unavailable.")
     diagnostics = service.diagnostics
-    rows = [
-        f"Default provider: {diagnostics['provider']}",
-        f"Remote enabled: {diagnostics['remote_enabled']}",
-        f"Providers: {', '.join(diagnostics['providers'])}",
-        f"Modes: {', '.join(f'{k}={v}' for k, v in diagnostics['modes'].items())}",
-        f"Remote budget: {diagnostics['remote_requests_used']}/{diagnostics['remote_requests_limit']}",
-        f"Budget remaining: {diagnostics['remote_requests_remaining']}",
-        f"Window: {int(diagnostics['remote_window_seconds'])}s",
-        f"Input cap: {diagnostics['max_input_chars']:,} chars",
-        f"Output cap: {diagnostics['max_output_chars']:,} chars",
-        f"Message cap: {diagnostics['max_message_count']} x {diagnostics['max_message_chars']:,} chars",
-    ][: _MAX_DIAGNOSTIC_ROWS]
+    rows = [f"Default provider: {diagnostics['provider']}", f"Remote enabled: {diagnostics['remote_enabled']}", f"Providers: {', '.join(diagnostics['providers'])}", f"Modes: {', '.join(f'{k}={v}' for k, v in diagnostics['modes'].items())}", f"Remote budget: {diagnostics['remote_requests_used']}/{diagnostics['remote_requests_limit']}", f"Budget remaining: {diagnostics['remote_requests_remaining']}", f"Window: {int(diagnostics['remote_window_seconds'])}s", f"Input cap: {diagnostics['max_input_chars']:,} chars", f"Output cap: {diagnostics['max_output_chars']:,} chars", f"Message cap: {diagnostics['max_message_count']} x {diagnostics['max_message_chars']:,} chars"][:_MAX_DIAGNOSTIC_ROWS]
     await event.edit(render(title="AI DIAGNOSTICS", rows=rows, footer="ai | diagnostics | no secrets"))
