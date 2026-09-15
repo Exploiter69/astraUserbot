@@ -81,11 +81,9 @@ async def handle_remind(event):
     seconds = _parse_delay(event.pattern_match.group(1))
     text = _clean(event.pattern_match.group(2), _MAX_TEXT)
     due = time.time() + seconds
-    row = await DB.execute_returning_id(
-        "INSERT INTO reminders(chat_id, reply_to, text, due_at, created_at) VALUES(?,?,?,?,?)",
-        (event.chat_id, event.id, text, due, time.time()),
-    )
-    await event.edit(render("REMINDER SET", [f"ID: `{row}`", f"Due: {datetime.fromtimestamp(due, timezone.utc).astimezone().strftime('%Y-%m-%d %H:%M:%S %Z')}", f"Text: {text}"], footer="productivity | reminder"))
+    cursor = await DB.execute("INSERT INTO reminders(chat_id, reply_to, text, due_at, created_at) VALUES(?,?,?,?,?)", (event.chat_id, event.id, text, due, time.time()))
+    reminder_id = int(cursor.lastrowid)
+    await event.edit(render("REMINDER SET", [f"ID: `{reminder_id}`", f"Due: {datetime.fromtimestamp(due, timezone.utc).astimezone().strftime('%Y-%m-%d %H:%M:%S %Z')}", f"Text: {text}"], footer="productivity | reminder"))
 
 
 async def handle_reminders(event):
