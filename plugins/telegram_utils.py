@@ -10,15 +10,17 @@ from helpers.entity import resolve_target
 from helpers.hud import render
 
 _MAX_BULK = 100
+_MAX_REPLY = 4000
 
 
 async def setup(client):
     p = re.escape(config.PREFIX)
     register_cmd(client, rf"^{p}(msg|inspect)$", handle_inspect, "telegram", "Inspect the replied Telegram message.")
-    register_cmd(client, rf"^{p}(id)$", handle_id, "telegram", "Show chat and message IDs.")
-    register_cmd(client, rf"^{p}(link)$", handle_link, "telegram", "Build a message link when Telegram exposes one.")
+    register_cmd(client, rf"^{p}(id|ref)$", handle_id, "telegram", "Show chat and message IDs.")
+    register_cmd(client, rf"^{p}link$", handle_link, "telegram", "Build a message link when Telegram exposes one.")
     register_cmd(client, rf"^{p}entity(?:\s+(.+))?$", handle_entity, "telegram", "Inspect a Telegram entity.")
     register_cmd(client, rf"^{p}chatdiag$", handle_chatdiag, "telegram", "Show bounded chat diagnostics.")
+    register_cmd(client, rf"^{p}reply\s+(.+)$", handle_reply, "telegram", "Reply to the current message with bounded text.")
     register_cmd(client, rf"^{p}bulkdel(?:\s+(\d+))?$", handle_bulkdel, "telegram", "Delete a bounded number of recent messages.")
 
 
@@ -48,6 +50,17 @@ async def handle_link(event):
     except Exception as exc:
         raise CommandError(f"Telegram did not expose a message link: {type(exc).__name__}.") from exc
     await event.edit(render("MESSAGE LINK", [link], footer="telegram | link"))
+
+
+async def handle_reply(event):
+    text = event.pattern_match.group(1).strip()
+    if len(text) > _MAX_REPLY:
+        raise CommandError(f"Reply text must be {_MAX_REPLY} characters or fewer.")
+    reply = await event.get_reply_message()
+    if reply is None:
+        raise CommandError("Reply to a message to use `.reply`.")
+    await event.client.send_message(event.chat_id, text, reply_to=reply.id)
+    await event.delete()
 
 
 async def handle_entity(event):
