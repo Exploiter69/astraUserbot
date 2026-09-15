@@ -123,7 +123,7 @@ async def handle_template(event):
     text = _clean(event.pattern_match.group(2), _MAX_TEXT)
     now = time.time()
     await DB.execute("INSERT INTO templates(name,text,created_at,updated_at) VALUES(?,?,?,?) ON CONFLICT(name) DO UPDATE SET text=excluded.text, updated_at=excluded.updated_at", (name, text, now, now))
-    await event.edit(render("TEMPLATE SAVED", [f"Name: `{name}`], footer="productivity | template"))
+    await event.edit(render("TEMPLATE SAVED", [f"Name: `{name}`"], footer="productivity | template"))
 
 
 async def handle_tget(event):
