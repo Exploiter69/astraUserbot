@@ -18,6 +18,7 @@ ALLOWED_DIRECT_EVENTS = {
     Path("plugins/security/logger.py"),
     Path("plugins/security/pmguard.py"),
     Path("plugins/system/afk.py"),
+    Path("plugins/productivity.py"),
 }
 
 
