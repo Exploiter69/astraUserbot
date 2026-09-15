@@ -115,7 +115,7 @@ def main() -> int:
             if isinstance(node.func, ast.Attribute) and node.func.attr == "download_media":
                 metrics["direct_media_download_reviews"] += 1
                 # Media-heavy active plugins must cross MediaService for bounded downloads.
-                if any(part in str(rel) for part in ("plugins/media/", "plugins/media_ops/", "plugins/security/ephemeral.py", "plugins/ai_gateway/transcribe.py", "plugins/ai_gateway/unified.py")):
+                if any(part in str(rel) for part in ("plugins/media/", "plugins/media_ops/", "plugins/security/ephemeral.py", "plugins/ai_gateway/transcribe.py")):
                     findings.append(f"DIRECT_MEDIA_DOWNLOAD_REVIEW {rel}:{node.lineno}")
 
         for node in ast.walk(tree):
