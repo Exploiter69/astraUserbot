@@ -8,6 +8,7 @@ from config import config
 from core.context import get_application_context
 from core.errors import CommandError, ConfigurationError, ExternalServiceError, ResourceError, TimeoutError
 from core.registry import register_cmd
+from core.services.jobs import JobError
 from helpers.hud import render
 from helpers.ux import job_buttons
 
@@ -24,6 +25,15 @@ def _prompt(value: str | None) -> str:
     return text
 
 
+def _job_prompt(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        raise JobError("AI job prompt is missing.", code="AI_INVALID_PAYLOAD", retryable=False)
+    if len(text) > _MAX_PROMPT:
+        raise JobError("AI job prompt exceeds the configured limit.", code="AI_INVALID_PAYLOAD", retryable=False)
+    return text
+
+
 async def _handle_ai_chat(job):
     context = get_application_context()
     if context is None:
@@ -31,12 +41,11 @@ async def _handle_ai_chat(job):
     service = context.get("ai")
     if service is None:
         raise RuntimeError("AI service is unavailable")
-    prompt = _prompt(job.payload.get("prompt"))
+    prompt = _job_prompt(job.payload.get("prompt"))
     await context.get("jobs").update_progress(job.id, 0.1)
     try:
         response = await service.chat([{"role": "user", "content": prompt}])
     except (ConfigurationError, ExternalServiceError, ResourceError, TimeoutError) as exc:
-        from core.services.jobs import JobError
         raise JobError(str(exc), code="AI_REQUEST_FAILED", retryable=isinstance(exc, (ExternalServiceError, TimeoutError))) from exc
     await context.get("jobs").update_progress(job.id, 0.9)
     return {"text": response.text, "provider": response.provider, "model": response.model, "input_chars": response.input_chars, "output_chars": response.output_chars}
@@ -59,19 +68,5 @@ async def handle_aijob(event):
         raise CommandError("AI service is unavailable.")
     jobs = context.get("jobs")
     await event.edit(render(title="AI JOB", rows=["Queueing durable AI work..."], footer="ai | durable job"))
-    job = await jobs.enqueue(
-        "AI_CHAT",
-        {"prompt": prompt},
-        owner=str(config.OWNER_ID),
-        max_attempts=3,
-        priority=0,
-        resource_class="ai",
-    )
-    await event.edit(
-        render(
-            title="AI JOB QUEUED",
-            rows=[f"ID: `{job.id[:12]}`", "State: QUEUED", "Use `.job <id>` for status."],
-            footer="ai | durable | resumable",
-        ),
-        buttons=job_buttons(job.id, job.state),
-    )
+    job = await jobs.enqueue("AI_CHAT", {"prompt": prompt}, owner=str(config.OWNER_ID), max_attempts=3, priority=0, resource_class="ai")
+    await event.edit(render(title="AI JOB QUEUED", rows=[f"ID: `{job.id[:12]}`", "State: QUEUED", "Use `.job <id>` for status."], footer="ai | durable | resumable"), buttons=job_buttons(job.id, job.state))
