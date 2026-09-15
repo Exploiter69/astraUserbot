@@ -2,23 +2,27 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 import time
 from collections import OrderedDict
 from datetime import datetime, timezone
 
 from telethon import events
+from core.context import get_application_context
 from core.database import Database
 from core.registry import register_cmd
 from core.errors import CommandError
 from helpers.hud import render
 from config import config
 
+logger = logging.getLogger("astra.productivity")
 DB = Database.get("productivity")
 _MAX_TEXT = 4000
 _MAX_NAME = 48
 _MAX_ROWS = 100
 _FILTER_COOLDOWN = 60.0
+_REMINDER_BATCH = 20
 _filter_last: OrderedDict[tuple[int, str], float] = OrderedDict()
 
 
@@ -63,7 +67,13 @@ async def setup(client):
     register_cmd(client, rf"^{p}filter\s+(?:del|delete)\s+(\d+)$", handle_filter_del, "productivity", "Delete a filter.")
     register_cmd(client, rf"^{p}filter\s+list$", handle_filter_list, "productivity", "List filters.")
     client.add_event_handler(filter_watcher, events.NewMessage(incoming=True))
-    client.loop.create_task(_reminder_worker(client))
+
+    context = get_application_context()
+    if context is not None:
+        context.tasks.create_task(_reminder_worker(context.get("telegram")), name="productivity.reminder_worker", owner="productivity")
+    else:
+        logger.warning("ApplicationContext unavailable; starting unmanaged reminder worker")
+        client.loop.create_task(_reminder_worker(client))
 
 
 async def handle_remind(event):
@@ -113,7 +123,7 @@ async def handle_template(event):
     text = _clean(event.pattern_match.group(2), _MAX_TEXT)
     now = time.time()
     await DB.execute("INSERT INTO templates(name,text,created_at,updated_at) VALUES(?,?,?,?) ON CONFLICT(name) DO UPDATE SET text=excluded.text, updated_at=excluded.updated_at", (name, text, now, now))
-    await event.edit(render("TEMPLATE SAVED", [f"Name: `{name}`"], footer="productivity | template"))
+    await event.edit(render("TEMPLATE SAVED", [f"Name: `{name}`], footer="productivity | template"))
 
 
 async def handle_tget(event):
@@ -175,18 +185,34 @@ async def filter_watcher(event):
         break
 
 
-async def _reminder_worker(client):
-    while True:
+async def _deliver_due_reminders(sender, *, now: float | None = None) -> int:
+    """Deliver one bounded batch; failed sends remain pending for retry."""
+    current = time.time() if now is None else now
+    rows = await DB.fetchall("SELECT id, chat_id, reply_to, text FROM reminders WHERE delivered=0 AND due_at <= ? ORDER BY due_at LIMIT ?", (current, _REMINDER_BATCH))
+    delivered = 0
+    for rid, chat_id, reply_to, text in rows:
         try:
-            rows = await DB.fetchall("SELECT id, chat_id, reply_to, text FROM reminders WHERE delivered=0 AND due_at <= ? ORDER BY due_at LIMIT 20", (time.time(),))
-            for rid, chat_id, reply_to, text in rows:
-                try:
-                    await client.send_message(chat_id, render("REMINDER", [text], footer="productivity | reminder"), reply_to=reply_to)
-                    await DB.execute("UPDATE reminders SET delivered=1 WHERE id=? AND delivered=0", (rid,))
-                except Exception:
-                    continue
+            await sender.send_message(chat_id, render("REMINDER", [text], footer="productivity | reminder"), reply_to=reply_to)
         except asyncio.CancelledError:
             raise
         except Exception:
-            pass
+            logger.warning("Reminder delivery failed id=%s chat_id=%s; will retry", rid, chat_id, exc_info=True)
+            continue
+        try:
+            await DB.execute("UPDATE reminders SET delivered=1 WHERE id=? AND delivered=0", (rid,))
+            delivered += 1
+        except Exception:
+            logger.error("Reminder delivery record failed id=%s; it may be retried", rid, exc_info=True)
+    return delivered
+
+
+async def _reminder_worker(sender):
+    """Poll durable reminders with bounded work and supervised lifecycle."""
+    while True:
+        try:
+            await _deliver_due_reminders(sender)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.error("Reminder worker iteration failed; continuing", exc_info=True)
         await asyncio.sleep(2)
