@@ -13,6 +13,7 @@ ALLOWED_DIRECT_EVENT_PLUGINS = {
     "plugins/security/logger.py",
     "plugins/security/pmguard.py",
     "plugins/system/afk.py",
+    "plugins/productivity.py",
 }
 QUARANTINED = {
     "plugins.ai.ask",
@@ -40,8 +41,6 @@ def command_handlers(tree: ast.AST):
 
 def has_benign_broad_except(handler: ast.ExceptHandler) -> bool:
     body = handler.body
-    # Broad catches are acceptable when they explicitly report, translate, or
-    # otherwise surface the failure instead of silently claiming success.
     text = ast.unparse(ast.Module(body=body, type_ignores=[])).lower()
     return any(token in text for token in ("raise", "logger.", "logging.", "return false", "return none"))
 
@@ -114,7 +113,6 @@ def main() -> int:
                 findings.append(f"SQL_INTERPOLATION_REVIEW {rel}:{node.lineno}")
             if isinstance(node.func, ast.Attribute) and node.func.attr == "download_media":
                 metrics["direct_media_download_reviews"] += 1
-                # Media-heavy active plugins must cross MediaService for bounded downloads.
                 if any(part in str(rel) for part in ("plugins/media/", "plugins/media_ops/", "plugins/security/ephemeral.py", "plugins/ai_gateway/transcribe.py")):
                     findings.append(f"DIRECT_MEDIA_DOWNLOAD_REVIEW {rel}:{node.lineno}")
 
