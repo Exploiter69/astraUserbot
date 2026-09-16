@@ -84,12 +84,13 @@ class IntelGraph:
         if evidence_state not in EVIDENCE_STATES:
             raise ValueError(f"unsupported evidence_state: {evidence_state}")
         observation_id = observation_id or uuid.uuid4().hex
+        bounded_confidence = max(0.0, min(1.0, float(confidence)))
         await self.storage.execute(
             """INSERT INTO intel_observations(observation_id,entity_id,source_id,source_family,source_dataset,source_version,retrieved_at,observed_at,query_context,matched_field,match_type,evidence_state,confidence,provenance_json)
                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (observation_id, entity_id, source_id, source_family, source_dataset, source_version,
              time.time(), observed_at, query_context, matched_field, match_type, evidence_state,
-             max(0.0, min(1.0, float(confidence))), json.dumps(provenance or {}, sort_keys=True)),
+             bounded_confidence, json.dumps(provenance or {}, sort_keys=True)),
         )
         observation = {
             "event_id": f"intel:{observation_id}",
@@ -97,7 +98,7 @@ class IntelGraph:
             "observed_at": observed_at if observed_at is not None else time.time(),
             "source_peer": source_id,
             "message_id": None,
-            "entity_id": None,
+            "entity_id": entity_id,
             "payload": {
                 "observation_id": observation_id,
                 "intel_entity_id": entity_id,
@@ -108,7 +109,7 @@ class IntelGraph:
                 "matched_field": matched_field,
                 "match_type": match_type,
                 "evidence_state": evidence_state,
-                "confidence": max(0.0, min(1.0, float(confidence))),
+                "confidence": bounded_confidence,
             },
         }
         for sink in tuple(self._observation_sinks):
