@@ -150,7 +150,7 @@ The underlying JobEngine continues to enforce its payload/result, worker, lease 
 .autorule disable <id>
 .autorule delete <id>
 .autorule run <id>
-autostatus
+.autostatus
 ```
 
 The JSON creation surface is deliberate: it exposes the complete declarative rule contract without inventing a second natural-language rule parser. A future UX layer can compile friendly syntax into this same typed model.
