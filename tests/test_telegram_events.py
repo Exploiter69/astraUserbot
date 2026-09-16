@@ -50,7 +50,7 @@ class TelegramEventCollectorTests(unittest.TestCase):
             )
             event = SimpleNamespace(chat_id=99, sender_id=123, message=message)
             await collector._handle_new_message(event)
-            self.assertEqual(len(received), 1)
+            self.assertEqual(len(received), 2)
             item = received[0]
             self.assertEqual(item.event_type, "MESSAGE_NEW")
             self.assertEqual(item.source_peer, "99")
@@ -61,6 +61,10 @@ class TelegramEventCollectorTests(unittest.TestCase):
             self.assertTrue(item.payload["out"])
             self.assertEqual(item.payload["reply_to"], 7)
             self.assertEqual(item.schema_version, 1)
+            media = received[1]
+            self.assertEqual(media.event_type, "MEDIA_OBSERVED")
+            self.assertEqual(media.message_id, 42)
+            self.assertTrue(media.payload["has_media"])
 
         asyncio.run(scenario())
 
