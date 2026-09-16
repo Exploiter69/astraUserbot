@@ -14,7 +14,7 @@ from telethon import events, types
 
 logger = logging.getLogger("astra.telegram_events")
 
-EventSink = Callable[["TelegramEvent"], Awaitable[None] | None]
+EventSink = Callable([["TelegramEvent"]], Awaitable[None] | None)
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,7 +140,10 @@ class TelegramEventCollector:
 
     async def _handle_new_message(self, event: Any) -> None:
         message = getattr(event, "message", None)
-        await self._emit("MESSAGE_NEW", event, payload=self._message_payload(message), message_id=self._message_id(message))
+        payload = self._message_payload(message)
+        await self._emit("MESSAGE_NEW", event, payload=payload, message_id=self._message_id(message))
+        if payload.get("has_media"):
+            await self._emit("MEDIA_OBSERVED", event, payload=payload, message_id=self._message_id(message))
 
     async def _handle_message_edit(self, event: Any) -> None:
         message = getattr(event, "message", None)
