@@ -52,6 +52,22 @@ def _reply_text(reply) -> str:
     return str(getattr(reply, "text", "") or "").strip()
 
 
+def _media_kind(media) -> str | None:
+    """Classify Telegram media even when Telethon does not expose a MIME type."""
+    mime = str(getattr(media, "mime_type", "") or "").lower()
+    if mime.startswith("image/") or getattr(media, "photo", None) is not None:
+        return "image"
+    if mime.startswith("audio/") or mime in {"application/ogg", "application/octet-stream"}:
+        return "audio"
+    document = getattr(media, "document", None)
+    document_mime = str(getattr(document, "mime_type", "") or "").lower()
+    if document_mime.startswith("image/"):
+        return "image"
+    if document_mime.startswith("audio/") or document_mime in {"application/ogg", "application/octet-stream"}:
+        return "audio"
+    return None
+
+
 async def _history_context(event, count: int) -> list[dict[str, str]]:
     if count <= 0:
         return []
@@ -99,8 +115,8 @@ async def _reply_media_context(event, prompt: str) -> str | None:
     ai = context.get("ai")
     if media_service is None or ai is None:
         raise CommandError("Required runtime services are unavailable.")
-    mime = str(getattr(media, "mime_type", "") or "").lower()
-    if mime.startswith("image/"):
+    kind = _media_kind(media)
+    if kind == "image":
         if not shutil.which("tesseract"):
             raise CommandError("Tesseract is unavailable for image-to-AI context.")
         workspace = await media_service.create_workspace("ai_ocr")
@@ -116,7 +132,7 @@ async def _reply_media_context(event, prompt: str) -> str | None:
             return f"The replied image was OCR-extracted as:\n{text or '[no text detected]'}\n\nUser request:\n{prompt}"
         finally:
             await media_service.cleanup(workspace)
-    if mime.startswith("audio/") or mime in {"application/ogg", "application/octet-stream"}:
+    if kind == "audio":
         workspace = await media_service.create_workspace("ai_stt")
         try:
             downloaded = await media_service.download_telegram_media(event.client.download_media, media, workspace=workspace)
