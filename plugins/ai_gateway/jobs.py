@@ -69,4 +69,4 @@ async def handle_aijob(event):
     jobs = context.get("jobs")
     await event.edit(render(title="AI JOB", rows=["Queueing durable AI work..."], footer="ai | durable job"))
     job = await jobs.enqueue("AI_CHAT", {"prompt": prompt}, owner=str(config.OWNER_ID), max_attempts=3, priority=0, resource_class="ai")
-    await event.edit(render(title="AI JOB QUEUED", rows=[f"ID: `{job.id[:12]}`", "State: QUEUED", "Use `.job <id>` for status."], footer="ai | durable | resumable"), buttons=job_buttons(job.id, job.state))
+    await event.edit(render(title="AI JOB QUEUED", rows=[f"ID: `{job.id[:12]}`", "State: QUEUED", "Use `.job <id>` for status."], footer="ai | durable | resumable"), buttons=job_buttons(job.id, state=job.state))
