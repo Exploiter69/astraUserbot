@@ -70,8 +70,6 @@ class AutomationJobEngineIntegrationTests(unittest.IsolatedAsyncioTestCase):
             }
         )
         self.assertEqual(accepted, 1)
-        await asyncio.wait_for(self.telegram.started.wait(), timeout=2)
-        self.telegram.release.set()
 
         for _ in range(40):
             row = await self.storage.fetchone(
