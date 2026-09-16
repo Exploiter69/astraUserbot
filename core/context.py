@@ -36,7 +36,7 @@ from core.tasks import TaskSupervisor
 
 logger = logging.getLogger("astra.context")
 T = TypeVar("T")
-_application_context: "ApplicationContext | None" = None
+_application_context: ApplicationContext | None = None
 
 
 class ManagedService(Protocol):
@@ -121,7 +121,7 @@ class ApplicationContext:
                 await starter()
                 self._started.append(name)
             except Exception:
-                logger.error("Failed to start service name=%s", name, exc_info=True)
+                logger.exception("Failed to start service name=%s", name)
                 await self.close()
                 raise
 
@@ -138,7 +138,7 @@ class ApplicationContext:
             try:
                 await closer()
             except Exception:
-                logger.error("Failed to close service name=%s", name, exc_info=True)
+                logger.exception("Failed to close service name=%s", name)
         self._started.clear()
 
     def snapshot(self) -> dict[str, Any]:
