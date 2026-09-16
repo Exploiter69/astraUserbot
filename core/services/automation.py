@@ -18,6 +18,7 @@ from typing import Any, Awaitable, Callable
 
 from core.services.jobs import Job, JobError
 from core.services.telegram_events import TelegramEvent
+from core.tasks import TaskSupervisor
 
 logger = logging.getLogger("astra.automation")
 
@@ -80,7 +81,7 @@ class AutomationEngine:
         self.jobs = jobs
         self.telegram = telegram
         self.owner_id = str(owner_id)
-        self._schedule_task: asyncio.Task[None] | None = None
+        self._supervisor = TaskSupervisor()
         self._started = False
         self._action_handlers: dict[str, tuple[ActionHandler, str]] = {}
         self._last_trigger: dict[tuple[str, str], float] = {}
@@ -91,15 +92,12 @@ class AutomationEngine:
         await self._ensure_schema()
         if AUTOMATION_JOB_TYPE not in self.jobs.handlers:
             self.jobs.register_handler(AUTOMATION_JOB_TYPE, self._handle_job)
-        self._schedule_task = asyncio.create_task(self._schedule_loop(), name="automation.scheduler")
+        self._supervisor.create_task(self._schedule_loop(), name="automation.scheduler", owner="automation")
         self._started = True
         logger.info("Automation Engine started")
 
     async def close(self) -> None:
-        task, self._schedule_task = self._schedule_task, None
-        if task is not None:
-            task.cancel()
-            await asyncio.gather(task, return_exceptions=True)
+        await self._supervisor.shutdown()
         self._started = False
 
     async def _ensure_schema(self) -> None:
@@ -138,7 +136,7 @@ class AutomationEngine:
         now = time.time()
         params = (rid, RULE_SCHEMA_VERSION, 1, self.owner_id, self._dump(trigger), self._dump(scope), self._dump(match), self._dump(actions), float(cooldown_seconds), int(max_runs), now, now)
         await self.storage.execute("INSERT INTO automation_rules(id,version,enabled,owner,trigger_json,scope_json,match_json,actions_json,cooldown_seconds,max_runs,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET version=automation_rules.version+1,enabled=1,owner=excluded.owner,trigger_json=excluded.trigger_json,scope_json=excluded.scope_json,match_json=excluded.match_json,actions_json=excluded.actions_json,cooldown_seconds=excluded.cooldown_seconds,max_runs=excluded.max_runs,updated_at=excluded.updated_at", params)
-        await self.storage.execute("INSERT INTO audit_events(kind,subject_id,payload_json,created_at) VALUES(?,?,?,?)", ("AUTOMATION_RULE_UPSERT", rid, self._dump({"schema": RULE_SCHEMA_VERSION}), now))
+        await self._audit("AUTOMATION_RULE_UPSERT", rid, {"schema": RULE_SCHEMA_VERSION})
         return await self.get_rule(rid)
 
     async def _rule_exists(self, rule_id: str) -> bool:
@@ -196,6 +194,9 @@ class AutomationEngine:
                 if int(row[0]) >= rule.max_runs:
                     continue
             event_id = str(data.get("event_id") or data.get("id") or uuid.uuid4().hex)
+            existing = await self.storage.fetchone("SELECT 1 FROM automation_runs WHERE rule_id=? AND rule_version=? AND trigger_event_id=? LIMIT 1", (rule.id, rule.version, event_id))
+            if existing:
+                continue
             idem = hashlib.sha256(f"{rule.id}:{rule.version}:{event_id}".encode()).hexdigest()
             run_id = uuid.uuid4().hex
             job = await self.jobs.enqueue(AUTOMATION_JOB_TYPE, {"run_id": run_id, "rule_id": rule.id, "rule_version": rule.version, "event": self._bound(data)}, owner=self.owner_id, idempotency_key=f"automation:{idem}", max_attempts=3, priority=2, resource_class="automation")
@@ -216,7 +217,11 @@ class AutomationEngine:
         return await self.trigger({"event_id": uuid.uuid4().hex, "event_type": "OWNER_COMMAND", "source_peer": payload.get("source_peer"), "payload": payload}, trigger_type="OWNER_COMMAND")
 
     async def handle_job_completion(self, job: Job) -> int:
-        return await self.trigger({"event_id": f"job:{job.id}:{job.state.value}", "event_type": "JOB_COMPLETED", "source_peer": None, "entity_id": None, "payload": {"job_id": job.id, "job_type": job.type, "state": job.state.value, "result": job.result}}, trigger_type="JOB_COMPLETED")
+        event_id = f"job:{job.id}:{job.state.value}"
+        existing = await self.storage.fetchone("SELECT 1 FROM automation_runs WHERE trigger_event_id=? LIMIT 1", (event_id,))
+        if existing:
+            return 0
+        return await self.trigger({"event_id": event_id, "event_type": "JOB_COMPLETED", "source_peer": None, "entity_id": None, "payload": {"job_id": job.id, "job_type": job.type, "state": job.state.value, "result": job.result}}, trigger_type="JOB_COMPLETED")
 
     async def _handle_job(self, job: Job) -> dict[str, Any]:
         payload = job.payload
@@ -379,6 +384,8 @@ class AutomationEngine:
         if "prefix" in match and not text.lower().startswith(str(match["prefix"]).lower()): return False
         if "has_media" in match and bool(payload.get("has_media")) != bool(match["has_media"]): return False
         if "sender_id" in match and str(event.get("entity_id")) != str(match["sender_id"]): return False
+        if "job_type" in match and str(payload.get("job_type")) != str(match["job_type"]): return False
+        if "job_state" in match and str(payload.get("state")) != str(match["job_state"]): return False
         return True
 
     @staticmethod
@@ -410,8 +417,7 @@ class AutomationEngine:
         encoded = AutomationEngine._dump(raw)
         if len(encoded.encode()) <= MAX_ACTION_PAYLOAD:
             return raw
-        payload = raw.get("payload")
-        raw["payload"] = str(payload)[:4000]
+        raw["payload"] = str(raw["payload"])[:4000]
         return raw
 
     @staticmethod
