@@ -6,10 +6,25 @@ import logging
 from pathlib import Path
 from typing import Any, Protocol, TypeVar
 
+from config import config
 from core.services import (
-    AutomationEngine, CacheService, HttpService, IntelGraph, JobEngine, MediaService, SecretStore, StorageService,
-    SubprocessService, TelegramArchiveService, TelegramEventCollector, TelegramEventJournal,
-    TelegramEventProjections, TelegramEventReplay, TelegramFacade, TelegramStateCache, WorkspaceService,
+    AutomationEngine,
+    CacheService,
+    HttpService,
+    IntelGraph,
+    JobEngine,
+    MediaService,
+    SecretStore,
+    StorageService,
+    SubprocessService,
+    TelegramArchiveService,
+    TelegramEventCollector,
+    TelegramEventJournal,
+    TelegramEventProjections,
+    TelegramEventReplay,
+    TelegramFacade,
+    TelegramStateCache,
+    WorkspaceService,
 )
 from core.services.ai import AIService
 from core.services.flags import FeatureFlagService
@@ -56,7 +71,7 @@ class ApplicationContext:
         self.register("isolation", IsolationService())
         self.register("media", MediaService(self.get("workspace"), self.get("subprocess"), self.get("isolation")))
         self.register("jobs", JobEngine(self.get("storage")))
-        self.register("automation", AutomationEngine(self.get("storage"), self.get("jobs"), self.get("telegram"), owner_id=getattr(__import__("config", fromlist=["config"]), "config").OWNER_ID))
+        self.register("automation", AutomationEngine(self.get("storage"), self.get("jobs"), self.get("telegram"), owner_id=config.OWNER_ID))
         self.get("telegram_events").add_sink(self.get("automation").trigger)
         self.register("secrets", SecretStore())
         self.register("ai", AIService(self.get("http")))
