@@ -29,6 +29,7 @@ class MediaService:
 
     ALLOWED_RCLONE_OPERATIONS = frozenset({"copy", "copyto", "sync"})
     DEFAULT_MIN_FREE_BYTES = 128 * 1024 * 1024
+    DEFAULT_FFMPEG_THREADS = 2
 
     def __init__(
         self,
@@ -206,7 +207,7 @@ class MediaService:
         if size <= 0:
             raise CommandError("Media operation produced an empty output file.")
         if size > self.max_output_bytes:
-            raise ResourceError("Media output exceeds the configured size limit.")
+            raise ResourceError("Media output exceeds configured size limit.")
         media_type = mimetypes.guess_type(path.name)[0]
         return MediaArtifact(path=path, size_bytes=size, media_type=media_type)
 
@@ -359,7 +360,17 @@ class MediaService:
             raise ValueError("Media output must differ from input")
         input_arg = "/workspace/" + source.relative_to(workspace.path).as_posix()
         output_arg = "/workspace/" + output.relative_to(workspace.path).as_posix()
-        argv = ["ffmpeg", "-hide_banner", "-y", "-i", input_arg, *map(str, options), output_arg]
+        argv = [
+            "ffmpeg",
+            "-hide_banner",
+            "-y",
+            "-threads",
+            str(self.DEFAULT_FFMPEG_THREADS),
+            "-i",
+            input_arg,
+            *map(str, options),
+            output_arg,
+        ]
         result = await self.run_isolated(argv, workspace=workspace, timeout=timeout)
         if result.returncode != 0:
             detail = result.stderr[-500:] or result.stdout[-500:]
