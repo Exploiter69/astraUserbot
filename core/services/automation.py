@@ -181,7 +181,7 @@ class AutomationEngine:
                 continue
             if not self._scope_matches(rule.scope, data) or not self._match_matches(rule.match, data):
                 continue
-            key = self._cooldown_key(rule, data)
+            key = "schedule" if kind == "SCHEDULED" else self._cooldown_key(rule, data)
             now = time.time()
             if rule.cooldown_seconds:
                 memory_last = self._last_trigger.get((rule.id, key), 0.0)
@@ -243,150 +243,110 @@ class AutomationEngine:
                     ("UPDATE automation_runs SET state='QUEUED',updated_at=? WHERE run_id=? AND state='ENQUEUE_PENDING'", (now, run_id)),
                     ("INSERT INTO audit_events(kind,subject_id,payload_json,created_at) VALUES(?,?,?,?)", ("AUTOMATION_RUN_ENQUEUED", run_id, self._dump({"job_id": job.id, "rule_id": rule.id, "trigger": row["trigger_type"], "reconciled": True}), now)),
                 ])
-            except Exception as exc:
-                logger.exception("Automation durable enqueue reconciliation failed run_id=%s", run_id)
-                await self._audit("AUTOMATION_ENQUEUE_DEFERRED", run_id, {"error": type(exc).__name__})
-
-    async def run_owner_command(self, rule_id: str, event: dict[str, Any] | None = None) -> int:
-        rule = await self.get_rule(rule_id)
-        if rule.owner != self.owner_id:
-            raise AutomationError("Rule owner mismatch")
-        payload = dict(event or {})
-        payload["rule_id"] = rule.id
-        return await self.trigger({"event_id": uuid.uuid4().hex, "event_type": "OWNER_COMMAND", "source_peer": payload.get("source_peer"), "payload": payload}, trigger_type="OWNER_COMMAND")
-
-    async def handle_job_completion(self, job: Job) -> int:
-        event_id = f"job:{job.id}:{job.state.value}"
-        existing = await self.storage.fetchone("SELECT 1 FROM automation_runs WHERE trigger_event_id=? LIMIT 1", (event_id,))
-        if existing:
-            return 0
-        return await self.trigger({"event_id": event_id, "event_type": "JOB_COMPLETED", "source_peer": None, "entity_id": None, "payload": {"job_id": job.id, "job_type": job.type, "state": job.state.value, "result": job.result}}, trigger_type="JOB_COMPLETED")
+            except Exception:
+                logger.exception("Automation enqueue reconciliation failed for %s", run_id)
 
     async def _handle_job(self, job: Job) -> dict[str, Any]:
         payload = job.payload
         rule = await self.get_rule(str(payload.get("rule_id", "")))
+        if not rule.enabled:
+            raise JobError("Automation rule is disabled", code="AUTOMATION_RULE_DISABLED", retryable=False)
         if rule.version != int(payload.get("rule_version", -1)):
             raise JobError("Rule version changed after enqueue; refusing stale automation execution", code="AUTOMATION_RULE_VERSION_STALE", retryable=False)
         run_id = str(payload.get("run_id", ""))
-        if not run_id:
-            raise JobError("Automation job has no durable run identity", code="AUTOMATION_RUN_ID_MISSING", retryable=False)
-        row = await self.storage.fetchone("SELECT state FROM automation_runs WHERE run_id=? AND rule_id=?", (run_id, rule.id))
-        if row is None:
-            raise JobError("Automation run record is missing", code="AUTOMATION_RUN_MISSING", retryable=False)
-        await self.storage.execute("UPDATE automation_runs SET state='RUNNING',started_at=COALESCE(started_at,?),updated_at=? WHERE run_id=?", (time.time(), time.time(), run_id))
         event = self._bound(dict(payload.get("event") or {}))
+        row = await self.storage.fetchone("SELECT state FROM automation_runs WHERE run_id=?", (run_id,))
+        if row is None:
+            raise JobError("Automation run record missing", code="AUTOMATION_RUN_MISSING", retryable=False)
+        if row[0] in {"COMPLETED", "FAILED", "RECOVERY_REQUIRED"}:
+            return {"run_id": run_id, "state": row[0], "replayed": True}
+        now = time.time()
+        await self.storage.execute("UPDATE automation_runs SET state='RUNNING',started_at=COALESCE(started_at,?),updated_at=? WHERE run_id=? AND state IN ('QUEUED','RUNNING')", (now, now, run_id))
         try:
-            for index, action in enumerate(rule.actions):
-                existing = await self.storage.fetchone("SELECT state FROM automation_action_runs WHERE run_id=? AND action_index=?", (run_id, index))
-                action_type = str(action.get("type", "")).upper()
-                key = hashlib.sha256(f"{run_id}:{index}:{rule.version}".encode()).hexdigest()
-                if existing and existing[0] == "COMPLETED":
-                    continue
-                if not existing:
-                    await self.storage.execute("INSERT INTO automation_action_runs(run_id,action_index,action_type,state,idempotency_key,started_at) VALUES(?,?,?,?,?,?)", (run_id, index, action_type, "STARTED", key, time.time()))
-                else:
-                    await self.storage.execute("UPDATE automation_action_runs SET state='STARTED',started_at=? WHERE run_id=? AND action_index=?", (time.time(), run_id, index))
-                await self.storage.execute("UPDATE automation_runs SET action_index=?,updated_at=? WHERE run_id=?", (index, time.time(), run_id))
-                await self._audit("ACTION_STARTED", run_id, {"index": index, "type": action_type})
-                try:
-                    reconciled, result = await self._reconcile_started_action(action, event, rule, key, bool(existing))
-                    if not reconciled:
-                        result = await self._execute_action(action, event, rule, key)
-                except asyncio.CancelledError:
-                    raise
-                except Exception as exc:
-                    await self.storage.execute("UPDATE automation_action_runs SET state='FAILED',error_code=?,error_message=? WHERE run_id=? AND action_index=?", (type(exc).__name__, str(exc)[:500], run_id, index))
-                    await self.storage.execute("UPDATE automation_runs SET state='RECOVERY_REQUIRED',error_code=?,error_message=?,updated_at=? WHERE run_id=?", (type(exc).__name__, str(exc)[:500], time.time(), run_id))
-                    await self._audit("STEP_FAILED", run_id, {"index": index, "type": action_type, "error": type(exc).__name__})
-                    raise JobError(str(exc)[:500], code="AUTOMATION_STEP_FAILED", retryable=False) from exc
-                await self.storage.execute("UPDATE automation_action_runs SET state='COMPLETED',completed_at=?,result_json=? WHERE run_id=? AND action_index=?", (time.time(), self._dump(result), run_id, index))
-                await self._audit("STEP_COMPLETED", run_id, {"index": index, "type": action_type, "reconciled": reconciled})
+            actions = rule.actions
+            for index, action in enumerate(actions):
+                await self._execute_action(run_id, index, action, event)
+                await self.storage.execute("UPDATE automation_runs SET action_index=?,updated_at=? WHERE run_id=?", (index + 1, time.time(), run_id))
             await self.storage.execute("UPDATE automation_runs SET state='COMPLETED',completed_at=?,updated_at=? WHERE run_id=?", (time.time(), time.time(), run_id))
-            return {"run_id": run_id, "state": "COMPLETED", "actions": len(rule.actions)}
+            return {"run_id": run_id, "state": "COMPLETED", "actions": len(actions)}
         except asyncio.CancelledError:
-            await self.storage.execute("UPDATE automation_runs SET state='RECOVERY_REQUIRED',error_code='WORKER_CANCELLED',updated_at=? WHERE run_id=?", (time.time(), run_id))
+            await self._mark_recovery(run_id, "WORKER_CANCELLED", "Automation worker cancelled during action execution")
             raise
+        except JobError:
+            raise
+        except Exception as exc:
+            await self._mark_recovery(run_id, "ACTION_FAILED", str(exc))
+            raise JobError(f"Automation action failed: {exc}", code="AUTOMATION_ACTION_FAILED", retryable=False) from exc
 
-    async def _reconcile_started_action(self, action: dict[str, Any], event: dict[str, Any], rule: AutomationRule, key: str, was_started: bool) -> tuple[bool, Any]:
-        if not was_started:
-            return False, None
+    async def _execute_action(self, run_id: str, index: int, action: dict[str, Any], event: dict[str, Any]) -> Any:
         kind = str(action.get("type", "")).upper()
-        if kind not in {"REPLY", "NOTIFY_OWNER"}:
-            return False, None
-        peer = self._telegram_target(event.get("source_peer")) if kind == "REPLY" else int(self.owner_id)
-        text = str(action.get("text", ""))[:4000]
-        if not text:
-            return False, None
+        idem = hashlib.sha256(f"{run_id}:{index}:{self._dump(action)}".encode()).hexdigest()
+        row = await self.storage.fetchone("SELECT state,result_json FROM automation_action_runs WHERE run_id=? AND action_index=?", (run_id, index))
+        if row and row[0] == "COMPLETED":
+            return self._load(row[1])
+        now = time.time()
+        await self.storage.execute("INSERT INTO automation_action_runs(run_id,action_index,action_type,state,idempotency_key,started_at) VALUES(?,?,?,?,?,?) ON CONFLICT(run_id,action_index) DO UPDATE SET state='RUNNING',started_at=excluded.started_at,error_code=NULL,error_message=NULL", (run_id, index, kind, "STARTED", idem, now))
         try:
-            messages = await self.telegram.get_messages(peer, limit=20)
-        except Exception:
-            return False, None
-        reply_to = event.get("message_id") if kind == "REPLY" else None
-        for message in messages:
-            if not getattr(message, "out", False):
-                continue
-            if str(getattr(message, "raw_text", "") or "") != text:
-                continue
-            if reply_to is not None and getattr(getattr(message, "reply_to", None), "reply_to_msg_id", None) != reply_to:
-                continue
-            return True, {"reconciled": True, "message_id": getattr(message, "id", None), "idempotency_key": key}
-        return False, None
+            result = await self._dispatch_action(kind, action, event)
+        except asyncio.CancelledError:
+            await self.storage.execute("UPDATE automation_action_runs SET state='RECOVERY_REQUIRED',error_code='WORKER_CANCELLED',error_message=?,WHERE run_id=? AND action_index=?", ("Worker cancelled during action", run_id, index))
+            raise
+        except Exception as exc:
+            await self.storage.execute("UPDATE automation_action_runs SET state='FAILED',error_code='ACTION_FAILED',error_message=? WHERE run_id=? AND action_index=?", (str(exc)[:500], run_id, index))
+            raise
+        await self.storage.execute("UPDATE automation_action_runs SET state='COMPLETED',completed_at=?,result_json=? WHERE run_id=? AND action_index=?", (time.time(), self._dump(result), run_id, index))
+        return result
 
-    async def _execute_action(self, action: dict[str, Any], event: dict[str, Any], rule: AutomationRule, key: str) -> Any:
-        action_type = str(action.get("type", "")).upper()
-        self._validate_action(action)
-        target = action.get("target")
-        if target is not None and rule.scope.get("chat_id") is not None and str(target) != str(rule.scope["chat_id"]):
-            raise AutomationError("Action target broadens rule scope")
-        if action_type == "REPLY":
+    async def _dispatch_action(self, kind: str, action: dict[str, Any], event: dict[str, Any]) -> Any:
+        if kind == "REPLY":
             peer = event.get("source_peer")
-            text = str(action.get("text", ""))
-            if peer is None or not text:
-                raise AutomationError("REPLY requires event peer and bounded text")
-            return await self.telegram.send_message(self._telegram_target(peer), text[:4000], reply_to=event.get("message_id"))
-        if action_type == "FORWARD":
-            peer, destination, message_id = event.get("source_peer"), action.get("destination"), event.get("message_id")
-            if peer is None or destination is None or message_id is None:
-                raise AutomationError("FORWARD requires source, destination and message")
-            if rule.scope.get("chat_id") is not None and str(destination) != str(rule.scope["chat_id"]):
-                raise AutomationError("FORWARD destination is outside rule scope")
-            return await self.telegram._call("forward_messages", self._telegram_target(destination), self._telegram_target(peer), int(message_id), operation_class="WRITE", priority=2)
-        if action_type in {"TAG", "INDEX"}:
-            tag = self._token(str(action.get("tag", action.get("value", "automation"))), 64)
-            await self._audit(f"AUTOMATION_{action_type}", event.get("event_id") or key, {"tag": tag, "peer": event.get("source_peer"), "message_id": event.get("message_id")})
-            return {"tag": tag}
-        if action_type == "ARCHIVE":
-            if "TELEGRAM_ARCHIVE" not in self.jobs.handlers:
-                raise AutomationError("Archive job handler is unavailable")
-            peer = str(action.get("peer") or event.get("source_peer") or "")
-            if not peer or (rule.scope.get("chat_id") is not None and peer != str(rule.scope["chat_id"])):
-                raise AutomationError("ARCHIVE peer is outside rule scope")
-            return await self.jobs.enqueue("TELEGRAM_ARCHIVE", {"peer": peer, "limit": max(1, min(int(action.get("limit", 100)), 100)), "min_message_id": max(0, int(action.get("min_message_id", 0))), "include_media": bool(action.get("include_media", False))}, owner=self.owner_id, parent_id=None, idempotency_key=f"{key}:archive", priority=3, resource_class="telegram")
-        if action_type == "NOTIFY_OWNER":
-            return await self.telegram.send_message(int(self.owner_id), str(action.get("text", "Automation notification"))[:4000])
-        if action_type == "START_JOB":
-            job_type = self._token(str(action.get("job_type", "")), 128)
-            if job_type not in self.jobs.handlers or job_type == AUTOMATION_JOB_TYPE:
-                raise AutomationError("START_JOB target is not an approved registered job")
-            payload = action.get("payload") or {}
-            if not isinstance(payload, dict) or len(self._dump(payload).encode()) > MAX_ACTION_PAYLOAD:
-                raise AutomationError("START_JOB payload is invalid or too large")
-            return await self.jobs.enqueue(job_type, payload, owner=self.owner_id, parent_id=None, idempotency_key=f"{key}:job", priority=2, resource_class=str(action.get("resource_class", "automation"))[:64])
-        entry = self._action_handlers.get(action_type)
-        if entry is None:
-            raise AutomationError(f"No approved handler registered for action: {action_type}")
-        return await entry[0](dict(action), dict(event))
+            if peer is None:
+                raise AutomationError("REPLY requires source peer")
+            return await self.telegram.send_message(self._telegram_target(peer), str(action["text"]))
+        if kind == "FORWARD":
+            source = event.get("source_peer")
+            message_id = event.get("message_id")
+            if source is None or message_id is None:
+                raise AutomationError("FORWARD requires source peer and message id")
+            return await self.telegram.forward_messages(self._telegram_target(action["destination"]), self._telegram_target(source), message_id)
+        if kind in {"TAG", "INDEX"}:
+            return {"state": "AUDIT_ONLY", "action": kind}
+        if kind == "ARCHIVE":
+            handler = self._action_handlers.get(kind)
+            if handler is None:
+                raise AutomationError("ARCHIVE action is not integrated")
+            return await handler(action, event)
+        if kind == "NOTIFY_OWNER":
+            text = str(action.get("text") or "")
+            if not text:
+                raise AutomationError("NOTIFY_OWNER requires text")
+            return await self.telegram.send_message(self._telegram_target(self.owner_id), text)
+        if kind == "PLUGIN_ACTION":
+            handler = self._action_handlers.get(kind)
+            if handler is None:
+                raise AutomationError("PLUGIN_ACTION is not registered")
+            return await handler(action, event)
+        if kind == "START_JOB":
+            handler = self._action_handlers.get(kind)
+            if handler is None:
+                raise AutomationError("START_JOB is not registered")
+            return await handler(action, event)
+        raise AutomationError(f"Unsupported automation action: {kind}")
+
+    async def _mark_recovery(self, run_id: str, code: str, message: str) -> None:
+        await self.storage.execute("UPDATE automation_runs SET state='RECOVERY_REQUIRED',error_code=?,error_message=?,updated_at=? WHERE run_id=?", (code, message[:500], time.time(), run_id))
+        await self._audit("RECOVERY_REQUIRED", run_id, {"code": code})
 
     async def _schedule_loop(self) -> None:
         while True:
             try:
                 now = time.time()
-                for rule in await self.list_rules(include_disabled=False, limit=MAX_RULES):
+                for rule in await self.list_rules(include_disabled=False, limit=MAX_TRIGGER_BURST):
                     if rule.trigger.get("type") != "SCHEDULED":
                         continue
                     due = float(rule.trigger.get("at", 0))
-                    interval = max(0.0, float(rule.trigger.get("interval_seconds", 0)))
-                    if due <= 0 or due > now:
+                    interval = float(rule.trigger.get("interval_seconds", 0))
+                    if now < due:
                         continue
                     if interval <= 0:
                         row = await self.storage.fetchone("SELECT COUNT(*) FROM automation_runs WHERE rule_id=? AND trigger_type='SCHEDULED'", (rule.id,))
@@ -469,31 +429,24 @@ class AutomationEngine:
         value = str(peer)
         return int(value) if value.lstrip("-").isdigit() else value
 
-    def _row_to_rule(self, row: Any) -> AutomationRule:
-        return AutomationRule(str(row["id"]), int(row["version"]), bool(row["enabled"]), str(row["owner"]), self._load(row["trigger_json"]), self._load(row["scope_json"]), self._load(row["match_json"]), tuple(self._load(row["actions_json"])), float(row["cooldown_seconds"]), int(row["max_runs"]), float(row["created_at"]), float(row["updated_at"]))
-
-    async def _audit(self, kind: str, subject: str, payload: dict[str, Any]) -> None:
-        await self.storage.execute("INSERT INTO audit_events(kind,subject_id,payload_json,created_at) VALUES(?,?,?,?)", (kind, subject, self._dump(payload), time.time()))
+    @staticmethod
+    def _row_to_rule(row: Any) -> AutomationRule:
+        return AutomationRule(id=str(row["id"]), version=int(row["version"]), enabled=bool(row["enabled"]), owner=str(row["owner"]), trigger=json.loads(row["trigger_json"]), scope=json.loads(row["scope_json"]), match=json.loads(row["match_json"]), actions=tuple(json.loads(row["actions_json"])), cooldown_seconds=float(row["cooldown_seconds"]), max_runs=int(row["max_runs"]), created_at=float(row["created_at"]), updated_at=float(row["updated_at"]))
 
     @staticmethod
     def _dump(value: Any) -> str:
         return json.dumps(value, separators=(",", ":"), sort_keys=True, ensure_ascii=False, default=str)
 
     @staticmethod
-    def _load(value: str) -> Any:
-        return json.loads(value)
+    def _load(value: str | None) -> Any:
+        return json.loads(value) if value else None
 
     @staticmethod
-    def _bound(value: dict[str, Any]) -> dict[str, Any]:
-        raw = {"event_id": value.get("event_id"), "event_type": value.get("event_type"), "observed_at": value.get("observed_at"), "source_peer": value.get("source_peer"), "message_id": value.get("message_id"), "entity_id": value.get("entity_id"), "payload": value.get("payload", {})}
-        if len(AutomationEngine._dump(raw).encode()) <= MAX_ACTION_PAYLOAD:
-            return raw
-        raw["payload"] = str(raw["payload"])[:4000]
-        return raw
+    def _bound(value: Any) -> Any:
+        encoded = AutomationEngine._dump(value)
+        if len(encoded.encode()) <= MAX_ACTION_PAYLOAD:
+            return value
+        return {"truncated": True, "sha256": hashlib.sha256(encoded.encode()).hexdigest()}
 
-    @staticmethod
-    def _token(value: str, limit: int) -> str:
-        value = value.strip()
-        if not value or len(value) > limit or any(ord(ch) < 32 for ch in value):
-            raise AutomationError(f"Value must be 1-{limit} printable characters")
-        return value
+    async def _audit(self, kind: str, subject: str, payload: dict[str, Any]) -> None:
+        await self.storage.execute("INSERT INTO audit_events(kind,subject_id,payload_json,created_at) VALUES(?,?,?,?)", (kind, subject, self._dump(payload), time.time()))
