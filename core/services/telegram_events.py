@@ -14,7 +14,7 @@ from telethon import events, types
 
 logger = logging.getLogger("astra.telegram_events")
 
-EventSink = Callable([["TelegramEvent"]], Awaitable[None] | None)
+EventSink = Callable[["TelegramEvent"], Awaitable[None] | None]
 
 
 @dataclass(frozen=True, slots=True)
