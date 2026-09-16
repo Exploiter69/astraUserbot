@@ -73,6 +73,7 @@ class ApplicationContext:
         self.register("jobs", JobEngine(self.get("storage")))
         self.register("automation", AutomationEngine(self.get("storage"), self.get("jobs"), self.get("telegram"), owner_id=config.OWNER_ID))
         self.get("telegram_events").add_sink(self.get("automation").trigger)
+        self.get("intelgraph").add_observation_sink(self.get("automation").trigger)
         self.register("secrets", SecretStore())
         self.register("ai", AIService(self.get("http")))
         self.register("search", SearchService(self.get("storage"), self.project_root))
