@@ -92,6 +92,7 @@ class AutomationEngine:
         await self._ensure_schema()
         if AUTOMATION_JOB_TYPE not in self.jobs.handlers:
             self.jobs.register_handler(AUTOMATION_JOB_TYPE, self._handle_job)
+        await self._reconcile_enqueue_pending()
         self._supervisor.create_task(self._schedule_loop(), name="automation.scheduler", owner="automation")
         self._started = True
         logger.info("Automation Engine started")
@@ -160,7 +161,7 @@ class AutomationEngine:
 
     async def delete_rule(self, rule_id: str) -> None:
         rule = await self.get_rule(rule_id)
-        row = await self.storage.fetchone("SELECT COUNT(*) FROM automation_runs WHERE rule_id=? AND state IN ('QUEUED','RUNNING','RECOVERY_REQUIRED')", (rule.id,))
+        row = await self.storage.fetchone("SELECT COUNT(*) FROM automation_runs WHERE rule_id=? AND state IN ('ENQUEUE_PENDING','QUEUED','RUNNING','RECOVERY_REQUIRED')", (rule.id,))
         if int(row[0]):
             raise AutomationError("Cannot delete a rule with active runs; disable it instead")
         await self.storage.execute("DELETE FROM automation_rules WHERE id=?", (rule.id,))
@@ -199,14 +200,52 @@ class AutomationEngine:
                 continue
             idem = hashlib.sha256(f"{rule.id}:{rule.version}:{event_id}".encode()).hexdigest()
             run_id = uuid.uuid4().hex
-            job = await self.jobs.enqueue(AUTOMATION_JOB_TYPE, {"run_id": run_id, "rule_id": rule.id, "rule_version": rule.version, "event": self._bound(data)}, owner=self.owner_id, idempotency_key=f"automation:{idem}", max_attempts=3, priority=2, resource_class="automation")
+            bounded_event = self._bound(data)
             now = time.time()
-            await self.storage.execute("INSERT INTO automation_runs(run_id,rule_id,rule_version,trigger_event_id,trigger_type,state,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)", (run_id, rule.id, rule.version, event_id, kind, "QUEUED", now, now))
-            await self.storage.execute("INSERT INTO automation_cooldowns(rule_id,cooldown_key,last_run_at) VALUES(?,?,?) ON CONFLICT(rule_id,cooldown_key) DO UPDATE SET last_run_at=excluded.last_run_at", (rule.id, key, now))
+            await self.storage.transaction([
+                ("INSERT INTO automation_runs(run_id,rule_id,rule_version,trigger_event_id,trigger_type,state,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)", (run_id, rule.id, rule.version, event_id, kind, "ENQUEUE_PENDING", now, now)),
+                ("INSERT INTO audit_events(kind,subject_id,payload_json,created_at) VALUES(?,?,?,?)", ("AUTOMATION_ENQUEUE_INTENT", run_id, self._dump({"rule_id": rule.id, "rule_version": rule.version, "trigger_type": kind, "event": bounded_event, "idempotency_key": f"automation:{idem}"}), now)),
+            ])
+            try:
+                job = await self.jobs.enqueue(AUTOMATION_JOB_TYPE, {"run_id": run_id, "rule_id": rule.id, "rule_version": rule.version, "event": bounded_event}, owner=self.owner_id, idempotency_key=f"automation:{idem}", max_attempts=3, priority=2, resource_class="automation")
+            except Exception:
+                await self._audit("AUTOMATION_ENQUEUE_DEFERRED", run_id, {"rule_id": rule.id})
+                raise
+            now = time.time()
+            await self.storage.transaction([
+                ("UPDATE automation_runs SET state='QUEUED',updated_at=? WHERE run_id=? AND state='ENQUEUE_PENDING'", (now, run_id)),
+                ("INSERT INTO automation_cooldowns(rule_id,cooldown_key,last_run_at) VALUES(?,?,?) ON CONFLICT(rule_id,cooldown_key) DO UPDATE SET last_run_at=excluded.last_run_at", (rule.id, key, now)),
+                ("INSERT INTO audit_events(kind,subject_id,payload_json,created_at) VALUES(?,?,?,?)", ("AUTOMATION_RUN_ENQUEUED", run_id, self._dump({"job_id": job.id, "rule_id": rule.id, "trigger": kind}), now)),
+            ])
             self._last_trigger[(rule.id, key)] = now
-            await self._audit("AUTOMATION_RUN_ENQUEUED", run_id, {"job_id": job.id, "rule_id": rule.id, "trigger": kind})
             accepted += 1
         return accepted
+
+    async def _reconcile_enqueue_pending(self) -> None:
+        rows = await self.storage.fetchall("SELECT run_id,rule_id,rule_version,trigger_event_id,trigger_type,state FROM automation_runs WHERE state='ENQUEUE_PENDING' ORDER BY created_at LIMIT ?", (MAX_TRIGGER_BURST,))
+        for row in rows:
+            run_id = str(row["run_id"])
+            intent = await self.storage.fetchone("SELECT payload_json FROM audit_events WHERE kind='AUTOMATION_ENQUEUE_INTENT' AND subject_id=? ORDER BY id DESC LIMIT 1", (run_id,))
+            if intent is None:
+                await self.storage.execute("UPDATE automation_runs SET state='RECOVERY_REQUIRED',error_code='AUTOMATION_ENQUEUE_INTENT_MISSING',error_message='Durable enqueue intent is missing',updated_at=? WHERE run_id=?", (time.time(), run_id))
+                await self._audit("RECOVERY_REQUIRED", run_id, {"reason": "AUTOMATION_ENQUEUE_INTENT_MISSING"})
+                continue
+            payload = self._load(intent[0])
+            rule = await self.get_rule(str(row["rule_id"]))
+            if rule.version != int(row["rule_version"]):
+                await self.storage.execute("UPDATE automation_runs SET state='RECOVERY_REQUIRED',error_code='AUTOMATION_RULE_VERSION_STALE',error_message='Rule changed before durable enqueue completed',updated_at=? WHERE run_id=?", (time.time(), run_id))
+                await self._audit("RECOVERY_REQUIRED", run_id, {"reason": "AUTOMATION_RULE_VERSION_STALE"})
+                continue
+            try:
+                job = await self.jobs.enqueue(AUTOMATION_JOB_TYPE, {"run_id": run_id, "rule_id": rule.id, "rule_version": rule.version, "event": self._bound(dict(payload["event"]))}, owner=self.owner_id, idempotency_key=str(payload["idempotency_key"]), max_attempts=3, priority=2, resource_class="automation")
+                now = time.time()
+                await self.storage.transaction([
+                    ("UPDATE automation_runs SET state='QUEUED',updated_at=? WHERE run_id=? AND state='ENQUEUE_PENDING'", (now, run_id)),
+                    ("INSERT INTO audit_events(kind,subject_id,payload_json,created_at) VALUES(?,?,?,?)", ("AUTOMATION_RUN_ENQUEUED", run_id, self._dump({"job_id": job.id, "rule_id": rule.id, "trigger": row["trigger_type"], "reconciled": True}), now)),
+                ])
+            except Exception as exc:
+                logger.exception("Automation durable enqueue reconciliation failed run_id=%s", run_id)
+                await self._audit("AUTOMATION_ENQUEUE_DEFERRED", run_id, {"error": type(exc).__name__})
 
     async def run_owner_command(self, rule_id: str, event: dict[str, Any] | None = None) -> int:
         rule = await self.get_rule(rule_id)
@@ -353,11 +392,14 @@ class AutomationEngine:
                         row = await self.storage.fetchone("SELECT COUNT(*) FROM automation_runs WHERE rule_id=? AND trigger_type='SCHEDULED'", (rule.id,))
                         if int(row[0]) > 0:
                             continue
-                    last = self._last_trigger.get((rule.id, "schedule"), 0.0)
-                    if interval > 0 and last and now - last < interval:
-                        continue
-                    await self.trigger({"event_id": f"schedule:{rule.id}:{int(now)}", "event_type": "SCHEDULED", "observed_at": now, "source_peer": rule.scope.get("chat_id"), "payload": {"scheduled_at": due}}, trigger_type="SCHEDULED")
-                    self._last_trigger[(rule.id, "schedule")] = now
+                    if interval > 0:
+                        row = await self.storage.fetchone("SELECT last_run_at FROM automation_cooldowns WHERE rule_id=? AND cooldown_key='schedule'", (rule.id,))
+                        last = float(row[0]) if row else 0.0
+                        if last and now - last < interval:
+                            continue
+                    accepted = await self.trigger({"event_id": f"schedule:{rule.id}:{int(now)}", "event_type": "SCHEDULED", "observed_at": now, "source_peer": rule.scope.get("chat_id"), "payload": {"scheduled_at": due}}, trigger_type="SCHEDULED")
+                    if accepted:
+                        self._last_trigger[(rule.id, "schedule")] = now
             except asyncio.CancelledError:
                 raise
             except Exception:
