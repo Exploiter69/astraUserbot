@@ -238,6 +238,6 @@ async def handle_diag(event):
     service = context.get("ai")
     if service is None:
         raise CommandError("AI service is unavailable.")
-    diagnostics = service.diagnostics
+    diagnostics = service.diagnostics()
     rows = [f"Default provider: {diagnostics['provider']}", f"Remote enabled: {diagnostics['remote_enabled']}", f"Providers: {', '.join(diagnostics['providers'])}", f"Modes: {', '.join(f'{k}={v}' for k, v in diagnostics['modes'].items())}", f"Remote budget: {diagnostics['remote_requests_used']}/{diagnostics['remote_requests_limit']}", f"Budget remaining: {diagnostics['remote_requests_remaining']}", f"Window: {int(diagnostics['remote_window_seconds'])}s", f"Input cap: {diagnostics['max_input_chars']:,} chars", f"Output cap: {diagnostics['max_output_chars']:,} chars", f"Message cap: {diagnostics['max_message_count']} x {diagnostics['max_message_chars']:,} chars"][:_MAX_DIAGNOSTIC_ROWS]
     await event.edit(render(title="AI DIAGNOSTICS", rows=rows, footer="ai | diagnostics | no secrets"))
