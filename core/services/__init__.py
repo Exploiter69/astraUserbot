@@ -1,5 +1,6 @@
 """Shared runtime services used by AstraUserbot."""
 
+from core.services.automation import AutomationEngine, AutomationError, AutomationRule
 from core.services.cache import Artifact, CacheEntry, CacheService, CacheStats
 from core.services.flags import FeatureFlagService
 from core.services.http import HttpService
@@ -34,5 +35,5 @@ __all__ = [
     "DialogState", "EntityState", "TelegramStateCache", "SyncCursor", "SyncResult", "TelegramIncrementalSync",
     "TelegramEvent", "TelegramEventCollector", "TelegramEventJournal", "TelegramEventProjections", "TelegramEventReplay",
     "TelegramArchiveJobModel", "TelegramArchiveRequest", "TelegramArchiveService", "TelegramFacade", "TelegramTrafficController", "Workspace", "WorkspaceService", "IntelGraph",
-    "IOC", "extract_iocs", "normalize_ioc",
+    "IOC", "extract_iocs", "normalize_ioc", "AutomationEngine", "AutomationError", "AutomationRule",
 ]
