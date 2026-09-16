@@ -239,15 +239,20 @@ class AutomationEngine:
         try:
             for index, action in enumerate(rule.actions):
                 existing = await self.storage.fetchone("SELECT state FROM automation_action_runs WHERE run_id=? AND action_index=?", (run_id, index))
-                if existing and existing[0] == "COMPLETED":
-                    continue
                 action_type = str(action.get("type", "")).upper()
                 key = hashlib.sha256(f"{run_id}:{index}:{rule.version}".encode()).hexdigest()
-                await self.storage.execute("INSERT INTO automation_action_runs(run_id,action_index,action_type,state,idempotency_key,started_at) VALUES(?,?,?,?,?,?) ON CONFLICT(run_id,action_index) DO UPDATE SET state='STARTED',started_at=excluded.started_at", (run_id, index, action_type, "STARTED", key, time.time()))
+                if existing and existing[0] == "COMPLETED":
+                    continue
+                if not existing:
+                    await self.storage.execute("INSERT INTO automation_action_runs(run_id,action_index,action_type,state,idempotency_key,started_at) VALUES(?,?,?,?,?,?)", (run_id, index, action_type, "STARTED", key, time.time()))
+                else:
+                    await self.storage.execute("UPDATE automation_action_runs SET state='STARTED',started_at=? WHERE run_id=? AND action_index=?", (time.time(), run_id, index))
                 await self.storage.execute("UPDATE automation_runs SET action_index=?,updated_at=? WHERE run_id=?", (index, time.time(), run_id))
                 await self._audit("ACTION_STARTED", run_id, {"index": index, "type": action_type})
                 try:
-                    result = await self._execute_action(action, event, rule, key)
+                    reconciled, result = await self._reconcile_started_action(action, event, rule, key, bool(existing))
+                    if not reconciled:
+                        result = await self._execute_action(action, event, rule, key)
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:
@@ -256,12 +261,37 @@ class AutomationEngine:
                     await self._audit("STEP_FAILED", run_id, {"index": index, "type": action_type, "error": type(exc).__name__})
                     raise JobError(str(exc)[:500], code="AUTOMATION_STEP_FAILED", retryable=False) from exc
                 await self.storage.execute("UPDATE automation_action_runs SET state='COMPLETED',completed_at=?,result_json=? WHERE run_id=? AND action_index=?", (time.time(), self._dump(result), run_id, index))
-                await self._audit("STEP_COMPLETED", run_id, {"index": index, "type": action_type})
+                await self._audit("STEP_COMPLETED", run_id, {"index": index, "type": action_type, "reconciled": reconciled})
             await self.storage.execute("UPDATE automation_runs SET state='COMPLETED',completed_at=?,updated_at=? WHERE run_id=?", (time.time(), time.time(), run_id))
             return {"run_id": run_id, "state": "COMPLETED", "actions": len(rule.actions)}
         except asyncio.CancelledError:
             await self.storage.execute("UPDATE automation_runs SET state='RECOVERY_REQUIRED',error_code='WORKER_CANCELLED',updated_at=? WHERE run_id=?", (time.time(), run_id))
             raise
+
+    async def _reconcile_started_action(self, action: dict[str, Any], event: dict[str, Any], rule: AutomationRule, key: str, was_started: bool) -> tuple[bool, Any]:
+        if not was_started:
+            return False, None
+        kind = str(action.get("type", "")).upper()
+        if kind not in {"REPLY", "NOTIFY_OWNER"}:
+            return False, None
+        peer = self._telegram_target(event.get("source_peer")) if kind == "REPLY" else int(self.owner_id)
+        text = str(action.get("text", ""))[:4000]
+        if not text:
+            return False, None
+        try:
+            messages = await self.telegram.get_messages(peer, limit=20)
+        except Exception:
+            return False, None
+        reply_to = event.get("message_id") if kind == "REPLY" else None
+        for message in messages:
+            if not getattr(message, "out", False):
+                continue
+            if str(getattr(message, "raw_text", "") or "") != text:
+                continue
+            if reply_to is not None and getattr(getattr(message, "reply_to", None), "reply_to_msg_id", None) != reply_to:
+                continue
+            return True, {"reconciled": True, "message_id": getattr(message, "id", None), "idempotency_key": key}
+        return False, None
 
     async def _execute_action(self, action: dict[str, Any], event: dict[str, Any], rule: AutomationRule, key: str) -> Any:
         action_type = str(action.get("type", "")).upper()
@@ -414,8 +444,7 @@ class AutomationEngine:
     @staticmethod
     def _bound(value: dict[str, Any]) -> dict[str, Any]:
         raw = {"event_id": value.get("event_id"), "event_type": value.get("event_type"), "observed_at": value.get("observed_at"), "source_peer": value.get("source_peer"), "message_id": value.get("message_id"), "entity_id": value.get("entity_id"), "payload": value.get("payload", {})}
-        encoded = AutomationEngine._dump(raw)
-        if len(encoded.encode()) <= MAX_ACTION_PAYLOAD:
+        if len(AutomationEngine._dump(raw).encode()) <= MAX_ACTION_PAYLOAD:
             return raw
         raw["payload"] = str(raw["payload"])[:4000]
         return raw
