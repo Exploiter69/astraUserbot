@@ -55,6 +55,31 @@ async def test_history_context_is_bounded_and_facade_owned(monkeypatch):
     assert rows[0]["content"].startswith("sender 5:")
 
 
+def test_telegram_media_kind_handles_telethon_photo_without_mime():
+    class PhotoMedia:
+        photo = object()
+        mime_type = None
+
+    class AudioDocument:
+        document = type("Document", (), {"mime_type": "audio/ogg"})()
+        mime_type = None
+
+    assert unified._media_kind(PhotoMedia()) == "image"
+    assert unified._media_kind(AudioDocument()) == "audio"
+
+
+def test_telegram_media_kind_prefers_explicit_mime():
+    class ImageDocument:
+        document = type("Document", (), {"mime_type": "image/jpeg"})()
+        mime_type = None
+
+    class AudioMedia:
+        mime_type = "audio/mpeg"
+
+    assert unified._media_kind(ImageDocument()) == "image"
+    assert unified._media_kind(AudioMedia()) == "audio"
+
+
 def test_unified_surface_has_required_commands():
     source = Path(unified.__file__).read_text(encoding="utf-8")
     for name in (".ai", ".explain", ".rewrite", ".translate", ".extract", ".code", ".aidiag"):
