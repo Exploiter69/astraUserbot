@@ -45,3 +45,21 @@ class IntelGraphTests(unittest.IsolatedAsyncioTestCase):
         await self.graph.add_source(source_id="src1", source_family="f", provider="p", source_type="test")
         with self.assertRaises(Exception):
             await self.graph.add_observation(entity_id="missing", source_id="src1", source_family="f")
+
+    async def test_observation_sink_receives_bounded_intelligence_event(self):
+        events = []
+        self.graph.add_observation_sink(events.append)
+        await self.graph.add_source(source_id="src1", source_family="family1", provider="local", source_type="test")
+        entity = await self.graph.add_entity(entity_type="DOMAIN", canonical_value="example.com")
+        observation_id = await self.graph.add_observation(
+            entity_id=entity,
+            source_id="src1",
+            source_family="family1",
+            matched_field="domain",
+            match_type="exact",
+            confidence=0.8,
+        )
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["event_type"], "INTELLIGENCE_OBSERVED")
+        self.assertEqual(events[0]["event_id"], f"intel:{observation_id}")
+        self.assertEqual(events[0]["payload"]["intel_entity_id"], entity)
