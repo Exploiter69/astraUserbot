@@ -5,7 +5,8 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from core.services.automation import AUTOMATION_JOB_TYPE, AutomationEngine, AutomationError
+from core.services.automation import AutomationEngine, AutomationError, AUTOMATION_JOB_TYPE
+from core.services.jobs import Job, JobError, JobState
 from core.services.storage import StorageService
 
 
