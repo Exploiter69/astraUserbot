@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Protocol, TypeVar
 
 from core.services import (
-    CacheService, HttpService, IntelGraph, JobEngine, MediaService, SecretStore, StorageService,
+    AutomationEngine, CacheService, HttpService, IntelGraph, JobEngine, MediaService, SecretStore, StorageService,
     SubprocessService, TelegramArchiveService, TelegramEventCollector, TelegramEventJournal,
     TelegramEventProjections, TelegramEventReplay, TelegramFacade, TelegramStateCache, WorkspaceService,
 )
@@ -56,6 +56,8 @@ class ApplicationContext:
         self.register("isolation", IsolationService())
         self.register("media", MediaService(self.get("workspace"), self.get("subprocess"), self.get("isolation")))
         self.register("jobs", JobEngine(self.get("storage")))
+        self.register("automation", AutomationEngine(self.get("storage"), self.get("jobs"), self.get("telegram"), owner_id=getattr(__import__("config", fromlist=["config"]), "config").OWNER_ID))
+        self.get("telegram_events").add_sink(self.get("automation").trigger)
         self.register("secrets", SecretStore())
         self.register("ai", AIService(self.get("http")))
         self.register("search", SearchService(self.get("storage"), self.project_root))
