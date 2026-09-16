@@ -118,7 +118,10 @@ class MediaServiceTests(unittest.IsolatedAsyncioTestCase):
             async def fake_run(argv, *, workspace, timeout=None, max_output_bytes=1_048_576):
                 self.assertIsNotNone(workspace)
                 if argv[0] == "ffmpeg":
-                    self.assertEqual(argv[:5], ["ffmpeg", "-hide_banner", "-y", "-i", "/workspace/input.mp4"])
+                    self.assertEqual(
+                        argv[:7],
+                        ["ffmpeg", "-hide_banner", "-y", "-threads", "2", "-i", "/workspace/input.mp4"],
+                    )
                     self.assertIn("-c:v", argv)
                     job.resolve("output.mp4").write_bytes(b"result")
                     return SubprocessResult(0, "", "")
