@@ -1,6 +1,6 @@
 # Phase 6 — Automation Engine Acceptance
 
-**Status:** GREEN / COMPLETE — implementation landed; local production validation required
+**Status:** IMPLEMENTATION COMPLETE — automated regression green; local production acceptance remains required
 
 ## Roadmap coverage
 
@@ -114,19 +114,49 @@ Interrupted runs enter `RECOVERY_REQUIRED`; recovery never expands the original 
 
 Program E productivity commands `.remind` and `.filter` remain intact. They are not duplicated or silently migrated in Phase 6. Convergence can be performed later as an explicit compatibility change.
 
+## Automated verification evidence
+
+The owner-host full regression suite is green:
+
+- `303 passed in 80.29s`
+- 0 failures
+
+The focused automation suite was previously green at `9 passed` after the test harness was aligned with the JobEngine handler contract. The repository now also contains real JobEngine integration coverage for:
+
+- real durable automation execution through JobEngine;
+- rule-version fencing on queued work;
+- worker cancellation producing `RECOVERY_REQUIRED`;
+- invalid action-handler registration rejection.
+
+These new integration tests still require one local execution after the latest commit.
+
 ## Required local verification
 
 Run locally from the repository checkout:
 
 ```bash
-./venv/bin/python -m pytest -q tests/test_automation_engine.py tests/test_automation_triggers.py
-./venv/bin/python -m compileall -q core plugins tests tools
-./venv/bin/python -m pytest -q
-./venv/bin/python tools/production_acceptance_gate.py
+.venv/bin/python -m pytest -q tests/test_automation_engine.py tests/test_automation_triggers.py tests/test_automation_jobengine_integration.py
+.venv/bin/python -m compileall -q core plugins tests tools
+.venv/bin/python -m pytest -q
+.venv/bin/python tools/production_acceptance_gate.py
 ```
 
 Then restart the production service and perform the automation smoke checks from the operator runbook. The repository change itself does not claim that these commands were executed by the assistant.
 
+### Production restart/smoke acceptance
+
+The remaining owner-host evidence must prove the real daemon lifecycle, not merely unit-test behavior:
+
+1. restart `astra.service` successfully;
+2. confirm the service returns to `active (running)` with a new process;
+3. confirm Automation Engine startup is present in the service log;
+4. create an owner-controlled bounded automation rule;
+5. trigger it through the real Telegram/plugin surface;
+6. confirm the resulting `AUTOMATION_RUN` exists in JobEngine and reaches its terminal state;
+7. confirm the automation run/step audit records are durable;
+8. exercise a bounded cancellation/recovery path and confirm `RECOVERY_REQUIRED` is preserved;
+9. after restart, confirm previously durable automation state remains present and no completed action is duplicated.
+
 ## Exit condition
 
-Phase 6 is complete when the dedicated automation tests, full regression suite, production acceptance gate and production restart/smoke all pass locally, with no regression in the previous production acceptance baseline.
+Phase 6 is complete when the dedicated automation tests, real JobEngine integration tests, full regression suite, production acceptance gate and production restart/smoke all pass locally, with no regression in the previous production acceptance baseline.
