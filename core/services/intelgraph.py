@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import time
 import uuid
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from core.services.storage import StorageService
 
 
 EVIDENCE_STATES = {"OBSERVED", "DERIVED", "CORRELATED", "INFERRED", "UNKNOWN", "CONTRADICTED"}
+ObservationSink = Callable[[dict[str, Any]], Awaitable[Any] | Any]
 
 
 class IntelGraph:
@@ -22,6 +24,13 @@ class IntelGraph:
     def __init__(self, storage: StorageService) -> None:
         self.storage = storage
         self._started = False
+        self._observation_sinks: list[ObservationSink] = []
+
+    def add_observation_sink(self, sink: ObservationSink) -> None:
+        if not callable(sink):
+            raise TypeError("observation sink must be callable")
+        if sink not in self._observation_sinks:
+            self._observation_sinks.append(sink)
 
     async def start(self) -> None:
         if self._started:
@@ -31,6 +40,7 @@ class IntelGraph:
 
     async def close(self) -> None:
         self._started = False
+        self._observation_sinks.clear()
 
     async def add_source(self, *, source_id: str, source_family: str, provider: str, source_type: str,
                          dataset_id: str | None = None, dataset_version: str | None = None,
@@ -81,6 +91,34 @@ class IntelGraph:
              time.time(), observed_at, query_context, matched_field, match_type, evidence_state,
              max(0.0, min(1.0, float(confidence))), json.dumps(provenance or {}, sort_keys=True)),
         )
+        observation = {
+            "event_id": f"intel:{observation_id}",
+            "event_type": "INTELLIGENCE_OBSERVED",
+            "observed_at": observed_at if observed_at is not None else time.time(),
+            "source_peer": source_id,
+            "message_id": None,
+            "entity_id": None,
+            "payload": {
+                "observation_id": observation_id,
+                "intel_entity_id": entity_id,
+                "source_id": source_id,
+                "source_family": source_family,
+                "source_dataset": source_dataset,
+                "source_version": source_version,
+                "matched_field": matched_field,
+                "match_type": match_type,
+                "evidence_state": evidence_state,
+                "confidence": max(0.0, min(1.0, float(confidence))),
+            },
+        }
+        for sink in tuple(self._observation_sinks):
+            try:
+                result = sink(observation)
+                if inspect.isawaitable(result):
+                    await result
+            except Exception:
+                # Intelligence persistence must not depend on automation availability.
+                continue
         return observation_id
 
     async def add_relationship(self, *, from_entity_id: str, relationship_type: str, to_entity_id: str,
