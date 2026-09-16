@@ -4,8 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-
-from telethon import events
+import re
 
 from config import config
 from core.context import get_application_context
@@ -26,7 +25,7 @@ def _engine():
 
 async def setup(client):
     global _job_task
-    p = config.PREFIX
+    p = re.escape(config.PREFIX)
     register_cmd(client, rf"^{p}autorule\s+list$", handle_list, "automation", "List automation rules.")
     register_cmd(client, rf"^{p}autorule\s+show\s+(\S+)$", handle_show, "automation", "Show one automation rule.")
     register_cmd(client, rf"^{p}autorule\s+create\s+(\S+)\s+(.+)$", handle_create, "automation", "Create/update a declarative automation rule from JSON.")
@@ -111,17 +110,18 @@ async def handle_status(event):
 
 
 async def _job_completion_worker(context):
+    storage = context.get("storage")
     jobs = context.get("jobs")
     engine = context.get("automation")
-    cursor = 0
+    row = await storage.fetchone("SELECT COALESCE(MAX(id), 0) FROM job_events")
+    cursor = int(row[0]) if row else 0
     while True:
         try:
-            rows = await context.get("storage").fetchall("SELECT id, job_id, event_type, payload_json FROM job_events WHERE id>? AND event_type IN ('COMPLETED','FAILED') ORDER BY id LIMIT 100", (cursor,))
+            rows = await storage.fetchall("SELECT id, job_id FROM job_events WHERE id>? AND event_type IN ('COMPLETED','FAILED') ORDER BY id LIMIT 100", (cursor,))
             for row in rows:
                 cursor = max(cursor, int(row[0]))
-                job_id = str(row[1])
                 try:
-                    job = await jobs.get(job_id)
+                    job = await jobs.get(str(row[1]))
                 except KeyError:
                     continue
                 await engine.handle_job_completion(job)
