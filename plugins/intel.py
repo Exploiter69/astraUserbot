@@ -1,7 +1,6 @@
 """Operator surface for the local IntelGraph foundation."""
 from __future__ import annotations
 
-import json
 import re
 
 from config import config
