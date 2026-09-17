@@ -1,4 +1,5 @@
 import asyncio
+import re
 import unittest
 
 from core.registry import COMMANDS, clear_registrations
@@ -29,14 +30,12 @@ class AutomationPluginRegistrationTests(unittest.TestCase):
 
         self.assertEqual(len(self.client.handlers), 2)
         patterns = set(COMMANDS)
-        self.assertIn(r"^\\.autorule\s+(list|show|create|enable|disable|delete|run)(?:\s+(\S+))?(?:\s+(.+))?$", patterns)
-        self.assertIn(r"^\\.autostatus$", patterns)
+        self.assertIn(r"^\.autorule\s+(list|show|create|enable|disable|delete|run)(?:\s+(\S+))?(?:\s+(.+))?$", patterns)
+        self.assertIn(r"^\.autostatus$", patterns)
 
     def test_autorule_pattern_preserves_all_subcommands(self):
         asyncio.run(automation.setup(self.client))
         autorule_pattern = next(pattern for pattern in COMMANDS if "autorule" in pattern)
-
-        import re
 
         matcher = re.compile(autorule_pattern)
         cases = {
