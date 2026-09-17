@@ -32,12 +32,23 @@ async def _resolve_media(event):
 
     Some Telethon event wrappers do not expose a reliable ``is_reply`` flag even
     when the command message has a reply-to header, so prefer direct reply
-    resolution and fall back to the command message itself.
+    resolution and fall back to the command message itself. A few lightweight
+    event test doubles expose ``get_reply_message`` as an unbound callable;
+    support that shape without changing normal Telethon behavior.
     """
     if getattr(event, "media", None):
         return event.media
     try:
         reply = await event.get_reply_message()
+    except TypeError:
+        raw_get_reply = getattr(type(event), "get_reply_message", None)
+        if raw_get_reply is None:
+            reply = None
+        else:
+            try:
+                reply = await raw_get_reply(event)
+            except Exception:
+                reply = None
     except Exception:
         reply = None
     return getattr(reply, "media", None) if reply is not None else None
