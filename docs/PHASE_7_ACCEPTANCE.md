@@ -2,7 +2,7 @@
 
 **Roadmap phase:** 7  
 **Programs:** H IntelGraph foundation; INTEL-1 through INTEL-5  
-**Status:** implementation complete; owner-host validation pending
+**Status:** implementation complete; owner-host production acceptance pending
 
 ## Scope
 
@@ -86,7 +86,19 @@ Phase 7 must leave Astra with a trustworthy local intelligence substrate before 
 - [x] unknown evidence does not become an identity claim
 - [x] no automatic identity assertion is generated
 
-## Focused validation
+## Validation evidence
+
+### Owner-host code validation — PASS
+
+Validated on the owner host after pulling the latest `main`:
+
+- Focused IntelGraph/IOC suite: **16 passed** in **4.16s**.
+- Python compilation: **PASS** via `python -m compileall -q core plugins tests tools`.
+- Full regression suite: **323 passed** in **45.45s**.
+
+These results establish that the Phase 7 implementation is regression-clean. They do **not** by themselves close the production acceptance gate.
+
+## Focused validation command
 
 Run from the local checkout after pulling `main`:
 
@@ -97,16 +109,20 @@ git pull --ff-only origin main && \
 .venv/bin/python -m compileall -q core plugins tests tools
 ```
 
-Then run the full regression and production acceptance gate:
+## Remaining owner-host acceptance
+
+The final phase decision requires the focused tests, full suite, compile check and production acceptance gate to remain green on the owner host. After that, runtime smoke must confirm that the `intel` plugin loads without command collisions and that existing automation/Telegram startup remains healthy.
+
+Run the remaining production gate with:
 
 ```bash
-.venv/bin/python -m pytest -q && \
+cd ~/AstraUserbot && \
 .venv/bin/python tools/production_acceptance_gate.py
 ```
 
-## Owner-host acceptance
+Then perform the runtime smoke/operational checks required by the production acceptance process, including confirmation of the `.intel` command surface alongside the existing automation and Telegram startup health.
 
-The final phase decision requires the focused tests, full suite, compile check and production acceptance gate to remain green on the owner host. After that, the runtime smoke should confirm that the new `intel` plugin loads without command collisions and that existing automation/Telegram startup remains healthy.
+**Phase 7 remains open until that production acceptance evidence is recorded.**
 
 ## Explicit non-goals
 
