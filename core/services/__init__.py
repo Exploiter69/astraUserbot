@@ -9,6 +9,7 @@ from core.services.bounded_jobs import JobEngine
 from core.services.jobs import Job, JobError, JobState
 from core.services.media import MediaArtifact, MediaService
 from core.services.metrics import MetricSnapshot, MetricsService
+from core.services.public_intel import PublicIntelService
 from core.services.search import SearchResult, SearchService
 from core.services.secrets import SecretStore, SecretStoreError
 from core.services.storage import StorageError, StorageService
@@ -31,7 +32,7 @@ from core.services.ioc import IOC, extract as extract_iocs, normalize as normali
 __all__ = [
     "Artifact", "CacheEntry", "CacheService", "CacheStats", "FeatureFlagService", "HttpService",
     "IsolationAssessment", "IsolationService", "IsolationUnavailable", "Job", "JobEngine", "JobError", "JobState",
-    "MediaArtifact", "MediaService", "MetricSnapshot", "MetricsService", "SearchResult", "SearchService",
+    "MediaArtifact", "MediaService", "MetricSnapshot", "MetricsService", "PublicIntelService", "SearchResult", "SearchService",
     "SecretStore", "SecretStoreError", "StorageError", "StorageService", "SubprocessResult", "SubprocessService",
     "DialogState", "EntityState", "TelegramStateCache", "SyncCursor", "SyncResult", "TelegramIncrementalSync",
     "TelegramEvent", "TelegramEventCollector", "TelegramEventJournal", "TelegramEventProjections", "TelegramEventReplay",
