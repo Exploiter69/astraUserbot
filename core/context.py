@@ -14,7 +14,9 @@ from core.services import (
     IntelGraph,
     JobEngine,
     MediaService,
+    PublicIntelService,
     SecretStore,
+    SearchService,
     StorageService,
     SubprocessService,
     TelegramArchiveService,
@@ -30,7 +32,6 @@ from core.services.ai import AIService
 from core.services.flags import FeatureFlagService
 from core.services.isolation import IsolationService
 from core.services.metrics import MetricsService
-from core.services.search import SearchService
 from core.services.telegram_recorder import TelegramOperationRecorder
 from core.tasks import TaskSupervisor
 
@@ -67,6 +68,7 @@ class ApplicationContext:
         self.get("telegram_events").add_sink(self.get("telegram_event_journal").append)
         self.get("telegram_events").add_sink(self._project_event)
         self.register("intelgraph", IntelGraph(self.get("storage")))
+        self.register("public_intel", PublicIntelService(self.get("intelgraph"), self.get("http"), self.get("telegram")))
         self.register("workspace", WorkspaceService(self.project_root))
         self.register("isolation", IsolationService())
         self.register("media", MediaService(self.get("workspace"), self.get("subprocess"), self.get("isolation")))
