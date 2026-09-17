@@ -34,4 +34,23 @@ The graph response showed `Edges: 0`, correctly reflecting that no relationship 
 
 Phase 7 is closed. Later source-specific intelligence programs may proceed only through their own roadmap gates and must preserve the established provenance, evidence, authorization, bounded-resource, safety and ₹0/$0 constraints.
 
-The next implementation gate in the roadmap remains **TG-1: TelegramTrafficController**, unless the active project sequencing is intentionally changed and documented.
+## Phase 8 — Intelligence Sources
+
+**Status:** IMPLEMENTATION COMPLETE / ACCEPTANCE PENDING  
+**Gates:** `TGINTEL-1`, `USER-1`, `DOMAIN-1`, `DOMAIN-2`, `LINK-1`, `GIT-1`  
+**Architecture record:** `docs/PHASE_8_INTELLIGENCE_SOURCES.md`  
+**Acceptance record:** `docs/PHASE_8_ACCEPTANCE.md`
+
+Implementation currently present:
+
+- bounded public Telegram intelligence;
+- public username pivots;
+- domain DNS/RDAP/HTTP/TLS observations;
+- Certificate Transparency collection;
+- bounded redirect/link graph;
+- public GitHub/GitLab code-profile observations;
+- shared HttpService + IntelGraph integration;
+- provenance/evidence/confidence boundaries;
+- focused Phase 8 tests.
+
+Phase 8 remains open until owner-host focused tests, full regression, production acceptance and live smoke are recorded in the acceptance document.
