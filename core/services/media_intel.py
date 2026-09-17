@@ -12,7 +12,7 @@ from core.errors import ResourceError
 
 
 class MediaIntelService:
-    """Turn authorized local media into content-addressed, evidence-backed observations."""
+    """Turn authorized local media into durable, bounded, evidence-backed observations."""
 
     MAX_TEXT = 64 * 1024
     MAX_FRAME_BYTES = 2 * 1024 * 1024
@@ -62,29 +62,6 @@ class MediaIntelService:
         except ValueError:
             return 64
 
-    async def _entity_observation(
-        self,
-        entity_type: str,
-        value: str,
-        *,
-        matched_field: str,
-        match_type: str,
-        provenance: dict[str, Any],
-        confidence: float = 1.0,
-    ) -> str:
-        entity_id = await self.intelgraph.add_entity(entity_type=entity_type, canonical_value=value, display_value=value)
-        await self.intelgraph.add_observation(
-            entity_id=entity_id,
-            source_id="media-intel-local",
-            source_family="MEDIA",
-            matched_field=matched_field,
-            match_type=match_type,
-            evidence_state="OBSERVED",
-            confidence=confidence,
-            provenance=provenance,
-        )
-        return entity_id
-
     @staticmethod
     def _median(values: list[float]) -> float:
         ordered = sorted(values)
@@ -97,7 +74,7 @@ class MediaIntelService:
 
     @staticmethod
     def _dct_phash(pixels: bytes) -> str:
-        """Compute a dependency-free 8x8 DCT perceptual hash from 32x32 grayscale pixels."""
+        """Compute a deterministic 64-bit DCT pHash from a 32x32 grayscale frame."""
         size = 32
         values = [float(value) for value in pixels[: size * size]]
         coeffs: list[float] = []
@@ -122,11 +99,12 @@ class MediaIntelService:
 
     @staticmethod
     def _dhash(pixels: bytes) -> str:
-        values = pixels[:72]
+        if len(pixels) < 72:
+            return "0" * 16
         bits = []
         for row in range(8):
             start = row * 9
-            bits.extend("1" if values[start + col] > values[start + col + 1] else "0" for col in range(8))
+            bits.extend("1" if pixels[start + col] > pixels[start + col + 1] else "0" for col in range(8))
         return f"{int(''.join(bits), 2):016x}"
 
     async def _frame_hashes(self, source: Path, workspace) -> dict[str, str | None]:
@@ -142,10 +120,8 @@ class MediaIntelService:
         )
         if result.returncode != 0 or not raw.is_file() or raw.stat().st_size < 1024:
             return {"phash": None, "ahash": None, "dhash": None}
-        pixels = raw.read_bytes()[: 1024]
-        ahash_pixels = bytes(pixels[(row * 32 + col) for row in range(0, 32, 4) for col in range(0, 32, 4)])
-        dhash_pixels = bytes(pixels[(row * 32 + col) for row in range(0, 32, 4) for col in range(0, 36, 4) if col < 32])
-        # Build the 8x9 dHash grid from a bounded 32x32 source by sampling adjacent columns.
+        pixels = raw.read_bytes()[:1024]
+        ahash_pixels = bytes(pixels[row * 32 + col] for row in range(0, 32, 4) for col in range(0, 32, 4))
         dhash_grid = bytearray()
         for row in range(8):
             y = row * 4
@@ -154,33 +130,27 @@ class MediaIntelService:
                 dhash_grid.append(pixels[y * 32 + x])
         return {"phash": self._dct_phash(pixels), "ahash": self._ahash(ahash_pixels), "dhash": self._dhash(bytes(dhash_grid))}
 
+    async def _entity_observation(self, entity_type: str, value: str, *, matched_field: str, match_type: str, provenance: dict[str, Any], confidence: float = 1.0) -> str:
+        entity_id = await self.intelgraph.add_entity(entity_type=entity_type, canonical_value=value, display_value=value)
+        await self.intelgraph.add_observation(entity_id=entity_id, source_id="media-intel-local", source_family="MEDIA", matched_field=matched_field, match_type=match_type, evidence_state="OBSERVED", confidence=confidence, provenance=provenance)
+        return entity_id
+
     async def _ingest_text(self, media_entity: str, text: str, *, sha: str, matched_field: str, match_type: str, confidence: float) -> int:
         indicators = await self.intelgraph.ingest_text(source_id="media-intel-local", source_family="MEDIA", text=text[: self.MAX_TEXT], query_context=f"media:{sha}")
         for indicator in indicators[: self.MAX_ROWS]:
-            await self.intelgraph.add_relationship(
-                from_entity_id=media_entity,
-                relationship_type="MENTIONS",
-                to_entity_id=indicator["entity_id"],
-                evidence_state="DERIVED",
-                confidence=confidence,
-                observation_id=indicator.get("observation_id"),
-            )
+            await self.intelgraph.add_relationship(from_entity_id=media_entity, relationship_type="MENTIONS", to_entity_id=indicator["entity_id"], evidence_state="DERIVED", confidence=confidence, observation_id=indicator.get("observation_id"))
         return len(indicators)
 
     async def _ocr(self, source: Path, workspace) -> str | None:
         if not shutil.which("tesseract"):
             return None
-        result = await self.media.run_isolated(
-            ["tesseract", "/workspace/" + source.relative_to(workspace.path).as_posix(), "stdout", "-l", "eng"],
-            workspace=workspace, timeout=60, max_output_bytes=512 * 1024,
-        )
+        result = await self.media.run_isolated(["tesseract", "/workspace/" + source.relative_to(workspace.path).as_posix(), "stdout", "-l", "eng"], workspace=workspace, timeout=60, max_output_bytes=512 * 1024)
         if result.returncode != 0:
             return None
         text = result.stdout.strip()
         return text[: self.MAX_TEXT] if text else None
 
     async def analyze_file(self, path: str | Path) -> dict[str, Any]:
-        """Analyze an already-authorized local media file inside a bounded workspace."""
         if not self._started:
             await self.start()
         source = self.media.validate_input(path)
@@ -195,38 +165,16 @@ class MediaIntelService:
                 raise ResourceError("Media input exceeds configured limit.")
             sha = self._sha256(source)
             media_type = mimetypes.guess_type(source.name)[0] or "application/octet-stream"
-            media_entity = await self._entity_observation(
-                "MEDIA", sha, matched_field="sha256", match_type="CONTENT_HASH",
-                provenance={"size_bytes": size, "media_type": media_type, "filename": source.name},
-            )
+            media_entity = await self._entity_observation("MEDIA", sha, matched_field="sha256", match_type="CONTENT_HASH", provenance={"size_bytes": size, "media_type": media_type, "filename": source.name})
             hash_entity = await self.intelgraph.add_entity(entity_type="HASH", canonical_value=sha, display_value=sha)
-            await self.intelgraph.add_relationship(
-                from_entity_id=media_entity, relationship_type="SHARES_HASH", to_entity_id=hash_entity,
-                evidence_state="OBSERVED", confidence=1.0,
-            )
+            await self.intelgraph.add_relationship(from_entity_id=media_entity, relationship_type="SHARES_HASH", to_entity_id=hash_entity, evidence_state="OBSERVED", confidence=1.0)
             result: dict[str, Any] = {"sha256": sha, "size_bytes": size, "media_type": media_type}
-
             hashes = await self._frame_hashes(source, workspace)
-            if hashes["phash"]:
-                phash = str(hashes["phash"])
-                phash_entity = await self._entity_observation(
-                    "PHASH", phash, matched_field="phash", match_type="PERCEPTUAL_HASH",
-                    provenance={"algorithm": "dct-32x32-8x8", "source_sha256": sha}, confidence=0.95,
-                )
-                await self.intelgraph.add_relationship(
-                    from_entity_id=media_entity, relationship_type="MENTIONS", to_entity_id=phash_entity,
-                    evidence_state="DERIVED", confidence=0.95,
-                )
-                result["phash"] = phash
-            if hashes["ahash"]:
-                ahash = str(hashes["ahash"])
-                await self._entity_observation("AHASH", ahash, matched_field="ahash", match_type="PERCEPTUAL_HASH", provenance={"source_sha256": sha, "algorithm": "average-8x8"}, confidence=0.9)
-                result["ahash"] = ahash
-            if hashes["dhash"]:
-                dhash = str(hashes["dhash"])
-                await self._entity_observation("DHASH", dhash, matched_field="dhash", match_type="PERCEPTUAL_HASH", provenance={"source_sha256": sha, "algorithm": "difference-8x8"}, confidence=0.9)
-                result["dhash"] = dhash
-
+            for kind, match_type, confidence in (("phash", "PERCEPTUAL_HASH", 0.95), ("ahash", "PERCEPTUAL_HASH", 0.9), ("dhash", "PERCEPTUAL_HASH", 0.9)):
+                value = hashes.get(kind)
+                if value:
+                    await self._entity_observation(kind.upper(), str(value), matched_field=kind, match_type=match_type, provenance={"source_sha256": sha, "algorithm": kind}, confidence=confidence)
+                    result[kind] = value
             image_like = media_type.startswith("image/")
             video_like = media_type.startswith("video/")
             audio_like = media_type.startswith("audio/")
@@ -234,44 +182,31 @@ class MediaIntelService:
             if video_like and shutil.which("ffmpeg"):
                 for index, seconds in enumerate(self.FRAME_INTERVAL_SECONDS):
                     frame = workspace.resolve(f"frame-{index}.png")
-                    probe = await self.media.run_isolated(
-                        ["ffmpeg", "-v", "error", "-ss", str(seconds), "-i", "/workspace/" + source.relative_to(workspace.path).as_posix(), "-frames:v", "1", "-vf", "scale=1280:-2", "-y", f"/workspace/frame-{index}.png"],
-                        workspace=workspace, timeout=30, max_output_bytes=16 * 1024,
-                    )
+                    probe = await self.media.run_isolated(["ffmpeg", "-v", "error", "-ss", str(seconds), "-i", "/workspace/" + source.relative_to(workspace.path).as_posix(), "-frames:v", "1", "-vf", "scale=1280:-2", "-y", f"/workspace/frame-{index}.png"], workspace=workspace, timeout=30, max_output_bytes=16 * 1024)
                     if probe.returncode == 0 and frame.is_file() and frame.stat().st_size <= self.MAX_FRAME_BYTES:
-                        frames.append(self.media.validate_input(frame))
+                        frames.append(frame)
             if image_like:
                 frames = [source]
             result["frames_sampled"] = min(len(frames), self.MAX_FRAMES)
-
             ocr_texts: list[str] = []
             for frame in frames[: self.MAX_FRAMES]:
                 text = await self._ocr(frame, workspace)
                 if text:
                     ocr_texts.append(text)
+            result["ioc_count"] = 0
             if ocr_texts:
                 text = "\n".join(dict.fromkeys(ocr_texts))[: self.MAX_TEXT]
                 text_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
-                text_entity = await self._entity_observation(
-                    "TEXT", text_hash, matched_field="ocr_text", match_type="OCR",
-                    provenance={"source_sha256": sha, "text_bytes": len(text.encode("utf-8")), "frames": len(ocr_texts), "bounded": True}, confidence=0.9,
-                )
+                text_entity = await self._entity_observation("TEXT", text_hash, matched_field="ocr_text", match_type="OCR", provenance={"source_sha256": sha, "text_bytes": len(text.encode("utf-8")), "frames": len(ocr_texts), "bounded": True}, confidence=0.9)
                 await self.intelgraph.add_relationship(from_entity_id=media_entity, relationship_type="MENTIONS", to_entity_id=text_entity, evidence_state="DERIVED", confidence=0.9)
                 result["ocr_text"] = text
                 result["ioc_count"] = await self._ingest_text(media_entity, text, sha=sha, matched_field="ocr_text", match_type="OCR", confidence=0.9)
-            else:
-                result["ioc_count"] = 0
-
             if video_like and shutil.which("ffmpeg"):
                 audio = workspace.resolve("audio.wav")
-                extracted = await self.media.run_isolated(
-                    ["ffmpeg", "-v", "error", "-i", "/workspace/" + source.relative_to(workspace.path).as_posix(), "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", "-y", "/workspace/audio.wav"],
-                    workspace=workspace, timeout=90, max_output_bytes=16 * 1024,
-                )
-                transcript_source = self.media.validate_input(audio) if extracted.returncode == 0 and audio.is_file() and audio.stat().st_size <= self.media.max_output_bytes else None
+                extracted = await self.media.run_isolated(["ffmpeg", "-v", "error", "-i", "/workspace/" + source.relative_to(workspace.path).as_posix(), "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", "-y", "/workspace/audio.wav"], workspace=workspace, timeout=90, max_output_bytes=16 * 1024)
+                transcript_source = audio if extracted.returncode == 0 and audio.is_file() and audio.stat().st_size <= self.media.max_output_bytes else None
             else:
                 transcript_source = source if audio_like else None
-
             if transcript_source and self.ai is not None:
                 try:
                     transcript_result = await self.ai.transcribe(transcript_source)
@@ -280,10 +215,7 @@ class MediaIntelService:
                     text = None
                 if text:
                     text_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
-                    text_entity = await self._entity_observation(
-                        "TEXT", text_hash, matched_field="transcript", match_type="SPEECH_TO_TEXT",
-                        provenance={"source_sha256": sha, "text_bytes": len(text.encode("utf-8")), "bounded": True}, confidence=0.85,
-                    )
+                    text_entity = await self._entity_observation("TEXT", text_hash, matched_field="transcript", match_type="SPEECH_TO_TEXT", provenance={"source_sha256": sha, "text_bytes": len(text.encode("utf-8")), "bounded": True}, confidence=0.85)
                     await self.intelgraph.add_relationship(from_entity_id=media_entity, relationship_type="MENTIONS", to_entity_id=text_entity, evidence_state="DERIVED", confidence=0.85)
                     result["transcript"] = text
                     result["ioc_count"] = result.get("ioc_count", 0) + await self._ingest_text(media_entity, text, sha=sha, matched_field="transcript", match_type="SPEECH_TO_TEXT", confidence=0.85)
@@ -296,12 +228,8 @@ class MediaIntelService:
             await self.media.cleanup(workspace)
 
     async def similar(self, phash: str, *, limit: int = 25) -> list[dict[str, Any]]:
-        """Return bounded perceptual-hash candidates using deterministic Hamming distance."""
         bounded = max(1, min(int(limit), self.MAX_ROWS))
-        rows = await self.intelgraph.storage.fetchall(
-            "SELECT entity_id,canonical_value,display_value FROM intel_entities WHERE entity_type='PHASH' ORDER BY updated_at DESC LIMIT ?",
-            (self.MAX_ROWS,),
-        )
+        rows = await self.intelgraph.storage.fetchall("SELECT entity_id,canonical_value,display_value FROM intel_entities WHERE entity_type='PHASH' ORDER BY updated_at DESC LIMIT ?", (self.MAX_ROWS,))
         matches = []
         for row in rows:
             distance = self._hamming(phash, str(row[1]))
