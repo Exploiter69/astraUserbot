@@ -108,15 +108,43 @@ class MediaIntelService:
         return f"{int(''.join(bits), 2):016x}"
 
     async def _frame_hashes(self, source: Path, workspace) -> dict[str, str | None]:
+        """Decode one bounded grayscale frame through the reviewed isolation boundary."""
         if not shutil.which("ffmpeg"):
             return {"phash": None, "ahash": None, "dhash": None}
         raw = workspace.resolve("hash.raw")
+        relative = source.relative_to(workspace.path).as_posix()
         result = await self.media.run_isolated(
             [
-                "ffmpeg", "-v", "error", "-i", "/workspace/" + source.relative_to(workspace.path).as_posix(),
-                "-frames:v", "1", "-vf", "scale=32:32,format=gray", "-f", "rawvideo", "-y", "/workspace/hash.raw",
+                "ffmpeg",
+                "-hide_banner",
+                "-nostdin",
+                "-v",
+                "error",
+                "-threads",
+                "1",
+                "-filter_threads",
+                "1",
+                "-filter_complex_threads",
+                "1",
+                "-i",
+                f"/workspace/{relative}",
+                "-an",
+                "-sn",
+                "-dn",
+                "-frames:v",
+                "1",
+                "-vf",
+                "scale=32:32:flags=bilinear",
+                "-pix_fmt",
+                "gray",
+                "-f",
+                "rawvideo",
+                "-y",
+                "/workspace/hash.raw",
             ],
-            workspace=workspace, timeout=30, max_output_bytes=1024,
+            workspace=workspace,
+            timeout=30,
+            max_output_bytes=16 * 1024,
         )
         if result.returncode != 0 or not raw.is_file() or raw.stat().st_size < 1024:
             return {"phash": None, "ahash": None, "dhash": None}
@@ -128,7 +156,11 @@ class MediaIntelService:
             for col in range(9):
                 x = min(col * 4, 31)
                 dhash_grid.append(pixels[y * 32 + x])
-        return {"phash": self._dct_phash(pixels), "ahash": self._ahash(ahash_pixels), "dhash": self._dhash(bytes(dhash_grid))}
+        return {
+            "phash": self._dct_phash(pixels),
+            "ahash": self._ahash(ahash_pixels),
+            "dhash": self._dhash(bytes(dhash_grid)),
+        }
 
     async def _entity_observation(self, entity_type: str, value: str, *, matched_field: str, match_type: str, provenance: dict[str, Any], confidence: float = 1.0) -> str:
         entity_id = await self.intelgraph.add_entity(entity_type=entity_type, canonical_value=value, display_value=value)
@@ -180,10 +212,41 @@ class MediaIntelService:
             audio_like = media_type.startswith("audio/")
             frames: list[Path] = []
             if video_like and shutil.which("ffmpeg"):
+                relative = source.relative_to(workspace.path).as_posix()
                 for index, seconds in enumerate(self.FRAME_INTERVAL_SECONDS):
                     frame = workspace.resolve(f"frame-{index}.png")
-                    probe = await self.media.run_isolated(["ffmpeg", "-v", "error", "-ss", str(seconds), "-i", "/workspace/" + source.relative_to(workspace.path).as_posix(), "-frames:v", "1", "-vf", "scale=1280:-2", "-y", f"/workspace/frame-{index}.png"], workspace=workspace, timeout=30, max_output_bytes=16 * 1024)
-                    if probe.returncode == 0 and frame.is_file() and frame.stat().st_size <= self.MAX_FRAME_BYTES:
+                    probe = await self.media.run_isolated(
+                        [
+                            "ffmpeg",
+                            "-hide_banner",
+                            "-nostdin",
+                            "-v",
+                            "error",
+                            "-threads",
+                            "1",
+                            "-filter_threads",
+                            "1",
+                            "-filter_complex_threads",
+                            "1",
+                            "-ss",
+                            str(seconds),
+                            "-i",
+                            f"/workspace/{relative}",
+                            "-an",
+                            "-sn",
+                            "-dn",
+                            "-frames:v",
+                            "1",
+                            "-vf",
+                            "scale=640:-2:flags=bilinear",
+                            "-y",
+                            f"/workspace/frame-{index}.png",
+                        ],
+                        workspace=workspace,
+                        timeout=30,
+                        max_output_bytes=16 * 1024,
+                    )
+                    if probe.returncode == 0 and frame.is_file() and 0 < frame.stat().st_size <= self.MAX_FRAME_BYTES:
                         frames.append(frame)
             if image_like:
                 frames = [source]
@@ -203,7 +266,34 @@ class MediaIntelService:
                 result["ioc_count"] = await self._ingest_text(media_entity, text, sha=sha, matched_field="ocr_text", match_type="OCR", confidence=0.9)
             if video_like and shutil.which("ffmpeg"):
                 audio = workspace.resolve("audio.wav")
-                extracted = await self.media.run_isolated(["ffmpeg", "-v", "error", "-i", "/workspace/" + source.relative_to(workspace.path).as_posix(), "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", "-y", "/workspace/audio.wav"], workspace=workspace, timeout=90, max_output_bytes=16 * 1024)
+                relative = source.relative_to(workspace.path).as_posix()
+                extracted = await self.media.run_isolated(
+                    [
+                        "ffmpeg",
+                        "-hide_banner",
+                        "-nostdin",
+                        "-v",
+                        "error",
+                        "-threads",
+                        "1",
+                        "-i",
+                        f"/workspace/{relative}",
+                        "-vn",
+                        "-sn",
+                        "-dn",
+                        "-ac",
+                        "1",
+                        "-ar",
+                        "16000",
+                        "-c:a",
+                        "pcm_s16le",
+                        "-y",
+                        "/workspace/audio.wav",
+                    ],
+                    workspace=workspace,
+                    timeout=90,
+                    max_output_bytes=16 * 1024,
+                )
                 transcript_source = audio if extracted.returncode == 0 and audio.is_file() and audio.stat().st_size <= self.media.max_output_bytes else None
             else:
                 transcript_source = source if audio_like else None
