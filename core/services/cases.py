@@ -21,27 +21,15 @@ class CaseService:
         if self._started:
             return
         await self.intelgraph.start()
-        await self.storage.execute("""
-            CREATE TABLE IF NOT EXISTS cases (
-                case_id TEXT PRIMARY KEY, title TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'OPEN', summary TEXT NOT NULL DEFAULT '',
-                created_at REAL NOT NULL, updated_at REAL NOT NULL, closed_at REAL
-            );
-            CREATE TABLE IF NOT EXISTS case_entities (
-                case_id TEXT NOT NULL, entity_id TEXT NOT NULL,
-                role TEXT NOT NULL DEFAULT 'SUBJECT', note TEXT NOT NULL DEFAULT '',
-                created_at REAL NOT NULL, PRIMARY KEY(case_id, entity_id),
-                FOREIGN KEY(case_id) REFERENCES cases(case_id)
-            );
-            CREATE TABLE IF NOT EXISTS case_timeline (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, case_id TEXT NOT NULL,
-                event_at REAL NOT NULL, kind TEXT NOT NULL, description TEXT NOT NULL,
-                entity_id TEXT, observation_id TEXT, created_at REAL NOT NULL,
-                FOREIGN KEY(case_id) REFERENCES cases(case_id)
-            );
-            CREATE INDEX IF NOT EXISTS idx_case_timeline ON case_timeline(case_id,event_at,id);
-            CREATE INDEX IF NOT EXISTS idx_case_entities ON case_entities(case_id,created_at);
-        """)
+        statements = (
+            "CREATE TABLE IF NOT EXISTS cases (case_id TEXT PRIMARY KEY, title TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'OPEN', summary TEXT NOT NULL DEFAULT '', created_at REAL NOT NULL, updated_at REAL NOT NULL, closed_at REAL)",
+            "CREATE TABLE IF NOT EXISTS case_entities (case_id TEXT NOT NULL, entity_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'SUBJECT', note TEXT NOT NULL DEFAULT '', created_at REAL NOT NULL, PRIMARY KEY(case_id, entity_id), FOREIGN KEY(case_id) REFERENCES cases(case_id))",
+            "CREATE TABLE IF NOT EXISTS case_timeline (id INTEGER PRIMARY KEY AUTOINCREMENT, case_id TEXT NOT NULL, event_at REAL NOT NULL, kind TEXT NOT NULL, description TEXT NOT NULL, entity_id TEXT, observation_id TEXT, created_at REAL NOT NULL, FOREIGN KEY(case_id) REFERENCES cases(case_id))",
+            "CREATE INDEX IF NOT EXISTS idx_case_timeline ON case_timeline(case_id,event_at,id)",
+            "CREATE INDEX IF NOT EXISTS idx_case_entities ON case_entities(case_id,created_at)",
+        )
+        for statement in statements:
+            await self.storage.execute(statement)
         self._started = True
 
     async def close(self) -> None:
