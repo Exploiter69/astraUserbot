@@ -181,7 +181,7 @@ class AutomationEngine:
                 continue
             if not self._scope_matches(rule.scope, data) or not self._match_matches(rule.match, data):
                 continue
-            key = self._cooldown_key(rule, data)
+            key = "schedule" if kind == "SCHEDULED" else self._cooldown_key(rule, data)
             now = time.time()
             if rule.cooldown_seconds:
                 memory_last = self._last_trigger.get((rule.id, key), 0.0)
