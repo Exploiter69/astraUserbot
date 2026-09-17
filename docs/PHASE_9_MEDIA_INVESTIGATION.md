@@ -51,7 +51,7 @@ The durable case model contains:
 
 ## CASE-2 — case graph/timeline
 
-Case entities are exact IntelGraph references. Case timeline entries preserve event ordering and may point to IntelGraph entities and observations. Timeline reads are bounded and deterministic. Case storage does not duplicate the intelligence graph.
+Case entities are exact IntelGraph references. Case timeline entries preserve event ordering and may point to IntelGraph entities and observations. Timeline reads are bounded and deterministic. `.case graph <case-id>` performs bounded one-hop reads through IntelGraph rather than duplicating graph storage.
 
 ## CASE-3 — report generation
 
@@ -64,6 +64,7 @@ Reports are deterministic local renderings of the durable case record, attached 
 - Extracted video frame is capped at 2 MiB.
 - Perceptual candidate reads are capped at 100 stored pHash rows and 25 returned matches.
 - Case reads are capped at 200 rows.
+- Case graph output is capped at 25 attached entities and 8 neighbors per entity.
 - Reports are capped at 16,000 characters.
 - FFmpeg/Tesseract execution is isolated.
 - No shell interpretation is introduced.
@@ -77,6 +78,7 @@ Reports are deterministic local renderings of the durable case record, attached 
 - `.case new <title>`
 - `.case list`
 - `.case show <case-id>`
+- `.case graph <case-id>`
 - `.case add <case-id> <intel-target>`
 - `.case event <case-id> <kind> <description>`
 - `.case timeline <case-id>`
