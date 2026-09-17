@@ -10,9 +10,11 @@ from config import config
 from core.services import (
     AutomationEngine,
     CacheService,
+    CaseService,
     HttpService,
     IntelGraph,
     JobEngine,
+    MediaIntelService,
     MediaService,
     PublicIntelService,
     SecretStore,
@@ -90,6 +92,8 @@ class ApplicationContext:
                 self.project_root,
             ),
         )
+        self.register("media_intel", MediaIntelService(self.get("media"), self.get("intelgraph"), self.get("ai")))
+        self.register("cases", CaseService(self.get("intelgraph")))
         self.register("metrics", MetricsService(self.project_root))
         self.register("flags", FeatureFlagService(self.get("storage")))
 
