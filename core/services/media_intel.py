@@ -4,11 +4,10 @@ from __future__ import annotations
 import hashlib
 import mimetypes
 import shutil
-import time
 from pathlib import Path
 from typing import Any
 
-from core.errors import CommandError, ResourceError
+from core.errors import ResourceError
 
 
 class MediaIntelService:
@@ -77,18 +76,19 @@ class MediaIntelService:
     async def _phash(self, source: Path, workspace) -> str | None:
         if not shutil.which("ffmpeg"):
             return None
+        raw = workspace.resolve("phash.raw")
         result = await self.media.run_isolated(
             [
                 "ffmpeg", "-v", "error", "-i", "/workspace/" + source.relative_to(workspace.path).as_posix(),
-                "-frames:v", "1", "-vf", "scale=8:8,format=gray", "-f", "rawvideo", "pipe:1",
+                "-frames:v", "1", "-vf", "scale=8:8,format=gray", "-f", "rawvideo", "-y", "/workspace/phash.raw",
             ],
             workspace=workspace,
             timeout=30,
             max_output_bytes=1024,
         )
-        if result.returncode != 0 or len(result.stdout_bytes) < 64:
+        if result.returncode != 0 or not raw.is_file() or raw.stat().st_size < 64:
             return None
-        pixels = result.stdout_bytes[:64]
+        pixels = raw.read_bytes()[:64]
         average = sum(pixels) / len(pixels)
         bits = "".join("1" if value >= average else "0" for value in pixels)
         return f"{int(bits, 2):016x}"
@@ -97,10 +97,7 @@ class MediaIntelService:
         if not shutil.which("tesseract"):
             return None
         result = await self.media.run_isolated(
-            [
-                "tesseract", "/workspace/" + source.relative_to(workspace.path).as_posix(),
-                "stdout", "-l", "eng",
-            ],
+            ["tesseract", "/workspace/" + source.relative_to(workspace.path).as_posix(), "stdout", "-l", "eng"],
             workspace=workspace,
             timeout=60,
             max_output_bytes=512 * 1024,
@@ -117,7 +114,6 @@ class MediaIntelService:
         source = self.media.validate_input(path)
         workspace = await self.media.create_workspace("media_intel")
         try:
-            # Copying into the managed workspace prevents analysis tools from escaping the media boundary.
             managed = workspace.resolve(source.name)
             if managed != source:
                 shutil.copy2(source, managed)
@@ -137,8 +133,8 @@ class MediaIntelService:
                 from_entity_id=media_entity, relationship_type="SHARES_HASH", to_entity_id=hash_entity,
                 evidence_state="OBSERVED", confidence=1.0,
             )
+            result: dict[str, Any] = {"sha256": sha, "size_bytes": size, "media_type": media_type}
 
-            result: dict[str, Any] = {"sha256": sha, "size_bytes": size, "media_type": media_type, "observations": 1}
             phash = await self._phash(source, workspace)
             if phash:
                 phash_entity = await self._entity_observation(
@@ -187,9 +183,7 @@ class MediaIntelService:
                     workspace=workspace, timeout=90, max_output_bytes=16 * 1024,
                 )
                 if extracted.returncode == 0 and audio.is_file() and audio.stat().st_size <= self.media.max_output_bytes:
-                    audio = self.media.validate_input(audio)
-                    audio_like = True
-                    transcript_source = audio
+                    transcript_source = self.media.validate_input(audio)
                 else:
                     transcript_source = None
             else:
@@ -216,7 +210,6 @@ class MediaIntelService:
                     result["transcript"] = "unavailable"
             elif transcript_source:
                 result["transcript"] = "unavailable"
-
             return result
         finally:
             await self.media.cleanup(workspace)
