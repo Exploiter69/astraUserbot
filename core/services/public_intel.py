@@ -16,9 +16,9 @@ import time
 from collections.abc import Iterable
 from urllib.parse import urljoin, urlsplit, urlunsplit
 
+from core.services.http import HttpService
 from core.services.intelgraph import IntelGraph
 from core.services.telegram import TelegramFacade
-from core.services.http import HttpService
 
 _USERNAME_RE = re.compile(r"^[A-Za-z0-9_]{3,32}$")
 _DOMAIN_RE = re.compile(r"^(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$")
@@ -207,6 +207,7 @@ class PublicIntelService:
         root_id = await self.graph.add_entity(entity_type="URL", canonical_value=url)
         rows = [f"URL: {url}"]
         current = url
+        current_id = root_id
         seen = {current}
         hops = []
         for _ in range(_MAX_REDIRECTS):
@@ -226,15 +227,16 @@ class PublicIntelService:
             hops.append(nxt)
             child_id = await self.graph.add_entity(entity_type="URL", canonical_value=nxt)
             obs = await self.graph.add_observation(entity_id=child_id, source_id=source_id, source_family="link_public", matched_field="location", match_type="exact", confidence=1.0, provenance={"from": current, "status": response.status})
-            await self.graph.add_relationship(from_entity_id=root_id, relationship_type="LINKS_TO", to_entity_id=child_id, evidence_state="OBSERVED", confidence=1.0, observation_id=obs)
+            await self.graph.add_relationship(from_entity_id=current_id, relationship_type="LINKS_TO", to_entity_id=child_id, evidence_state="OBSERVED", confidence=1.0, observation_id=obs)
             current = nxt
+            current_id = child_id
         rows.append(f"Redirect hops: {len(hops)}")
         rows.extend(f"  {index + 1}. {value}" for index, value in enumerate(hops[:_MAX_RESULTS]))
         final = urlsplit(current).hostname
         if final:
             domain_id = await self.graph.add_entity(entity_type="DOMAIN", canonical_value=final)
             obs = await self.graph.add_observation(entity_id=domain_id, source_id=source_id, source_family="link_public", matched_field="final_host", match_type="exact", confidence=1.0, provenance={"final_url": current})
-            await self.graph.add_relationship(from_entity_id=root_id, relationship_type="LINKS_TO", to_entity_id=domain_id, evidence_state="OBSERVED", confidence=1.0, observation_id=obs)
+            await self.graph.add_relationship(from_entity_id=current_id, relationship_type="LINKS_TO", to_entity_id=domain_id, evidence_state="OBSERVED", confidence=1.0, observation_id=obs)
         return {"target": url, "rows": rows}
 
     async def git_intel(self, target: str) -> dict:
@@ -302,10 +304,13 @@ class PublicIntelService:
                     cert = sock.getpeercert()
                     subject = cert.get("subject", ())
                     issuer = cert.get("issuer", ())
+
                     def flatten(parts: Iterable[tuple[tuple[str, str], ...]]) -> str | None:
                         values = [value for group in parts for key, value in group if key in {"commonName", "organizationName"}]
                         return values[0] if values else None
+
                     return flatten(subject), flatten(issuer)
+
         try:
             subject, issuer = await asyncio.to_thread(probe)
             return [f"TLS subject: {subject or '—'}", f"TLS issuer: {issuer or '—'}"]
