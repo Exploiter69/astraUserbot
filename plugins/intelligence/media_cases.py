@@ -8,7 +8,6 @@ from core.context import get_application_context
 from core.errors import CommandError
 from core.registry import register_cmd
 from helpers.hud import render
-from helpers.reply import get_text_and_media
 
 CASE_PATTERN = rf"^{re.escape(config.PREFIX)}case\s+(new|list|show|graph|add|event|timeline|report|close)(?:\s+(.*))?$"
 MEDIA_PATTERN = rf"^{re.escape(config.PREFIX)}mediaintel$"
@@ -23,13 +22,29 @@ def _context():
 
 
 async def setup(client):
-    register_cmd(client, MEDIA_PATTERN, handle_media, "intelligence", "Analyze replied media with bounded hashing, OCR, frames and speech evidence.")
+    register_cmd(client, MEDIA_PATTERN, handle_media, "intelligence", "Analyze replied or attached media with bounded hashing, OCR, frames and speech evidence.")
     register_cmd(client, SIMILAR_PATTERN, handle_similar, "intelligence", "Find bounded perceptual-media candidates by pHash.")
     register_cmd(client, CASE_PATTERN, handle_case, "intelligence", "Manage durable investigation cases, graphs and timelines.")
 
 
+async def _resolve_media(event):
+    """Resolve media from the command message first, then its replied message.
+
+    Some Telethon event wrappers do not expose a reliable ``is_reply`` flag even
+    when the command message has a reply-to header, so prefer direct reply
+    resolution and fall back to the command message itself.
+    """
+    if getattr(event, "media", None):
+        return event.media
+    try:
+        reply = await event.get_reply_message()
+    except Exception:
+        reply = None
+    return getattr(reply, "media", None) if reply is not None else None
+
+
 async def handle_media(event):
-    _, media = await get_text_and_media(event)
+    media = await _resolve_media(event)
     if not media:
         raise CommandError("Reply to an image, audio, video, or document to analyze it.")
     context = _context()
@@ -46,6 +61,14 @@ async def handle_media(event):
     rows = [f"SHA-256: `{result['sha256']}`", f"Size: {result['size_bytes']:,} bytes", f"Type: `{result['media_type']}`"]
     if result.get("phash"):
         rows.append(f"pHash: `{result['phash']}`")
+    if result.get("dhash"):
+        rows.append(f"dHash: `{result['dhash']}`")
+    if result.get("ahash"):
+        rows.append(f"aHash: `{result['ahash']}`")
+    if result.get("frames_sampled"):
+        rows.append(f"Frames sampled: {result['frames_sampled']}")
+    if result.get("ioc_count"):
+        rows.append(f"IOCs extracted: {result['ioc_count']}")
     if result.get("ocr_text"):
         rows.append("OCR: " + str(result["ocr_text"])[:1500])
     if result.get("transcript"):
@@ -101,7 +124,7 @@ async def handle_case(event):
     elif action == "add":
         if len(parts) < 2:
             raise CommandError("Usage: `.case add <case-id> <intel-target>`")
-        matches = await intel.resolve_target(parts[1])
+        matches = await context.get("intelgraph").resolve_target(parts[1])
         if len(matches) != 1:
             raise CommandError("Target must resolve to exactly one IntelGraph entity.")
         await cases.add_entity(case_id, matches[0]["entity_id"])
