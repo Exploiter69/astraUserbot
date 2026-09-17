@@ -24,33 +24,48 @@ This file records formal gate closures without deleting or rewriting the detaile
 - Live `.intel graph phase7-smoke-example.invalid`: **PASS**.
 - Live `.intel timeline phase7-smoke-example.invalid`: **PASS**.
 
-### Live smoke target
-
-The owner-host smoke used the reserved `.invalid` domain `phase7-smoke-example.invalid` because the production IntelGraph store had no pre-existing entities at the beginning of acceptance. The target is synthetic test data and does not represent a real external domain.
-
-The graph response showed `Edges: 0`, correctly reflecting that no relationship was seeded. The timeline returned an `OBSERVED` observation with confidence `1.00`, confirming persisted evidence was reachable through Telegram.
-
 ### Downstream unlock
 
 Phase 7 is closed. Later source-specific intelligence programs may proceed only through their own roadmap gates and must preserve the established provenance, evidence, authorization, bounded-resource, safety and ₹0/$0 constraints.
 
 ## Phase 8 — Intelligence Sources
 
-**Status:** IMPLEMENTATION COMPLETE / ACCEPTANCE PENDING  
+**Status:** COMPLETE  
+**Closed:** 2026-09-17  
 **Gates:** `TGINTEL-1`, `USER-1`, `DOMAIN-1`, `DOMAIN-2`, `LINK-1`, `GIT-1`  
 **Architecture record:** `docs/PHASE_8_INTELLIGENCE_SOURCES.md`  
 **Acceptance record:** `docs/PHASE_8_ACCEPTANCE.md`
 
-Implementation currently present:
+### Completion evidence
 
-- bounded public Telegram intelligence;
-- public username pivots;
-- domain DNS/RDAP/HTTP/TLS observations;
-- Certificate Transparency collection;
-- bounded redirect/link graph;
-- public GitHub/GitLab code-profile observations;
-- shared HttpService + IntelGraph integration;
-- provenance/evidence/confidence boundaries;
-- focused Phase 8 tests.
+- TGINTEL-1 bounded public Telegram intelligence implemented and live-smoked through the real Telegram session.
+- USER-1 bounded GitHub/GitLab/Reddit username pivots implemented and live-smoked.
+- DOMAIN-1 bounded DNS/RDAP/HTTP/TLS intelligence implemented and live-smoked.
+- DOMAIN-2 bounded Certificate Transparency collection implemented; live provider unavailability was correctly represented as `unavailable`.
+- LINK-1 bounded redirect/link intelligence implemented, including corrected hop-to-hop redirect-chain representation, and live-smoked.
+- GIT-1 bounded public GitHub/GitLab project intelligence implemented and live-smoked.
+- Full regression: **328 passed**.
+- `compileall`: **PASS**.
+- Production acceptance: **10/10 automated gates PASS**.
+- Plugin behavior and ecosystem audits: **PASS**.
+- Media, isolation/security, storage/database, durable-job and Phase 18 hardening gates: **PASS**.
+- Owner-host `astra.service` restart: **PASS**; systemd active/running.
+- Live runtime: Telegram connected/authorized, Database PASS, Services 23/23, Plugins 53 RUNNING, Commands 144, Jobs READY, Isolation BUBBLEWRAP-AVAILABLE, AI Gateway GROQ READY.
+- Live Phase 8 command smoke: **6/6 PASS**.
 
-Phase 8 remains open until owner-host focused tests, full regression, production acceptance and live smoke are recorded in the acceptance document.
+### Live smoke record
+
+- `.tgintel @vayuh`: public Telegram entity metadata observed successfully.
+- `.userintel @papi_6t9`: GitLab public profile observation returned.
+- `.domainintel alokthakur.me`: DNS, HTTP and TLS metadata returned successfully.
+- `.ct alokthakur.me`: provider returned `unavailable`; correctly handled as availability state rather than a false negative.
+- `.linkintel https://alokthakur.me/`: one bounded redirect hop to `https://www.alokthakur.me/` observed.
+- `.gitintel @exploiter69`: public GitHub projects observed; GitLab public project count returned as zero.
+
+### Safety boundary
+
+Phase 8 remains strictly public-source and evidence-backed. Username reuse is not identity proof; infrastructure observations are not ownership proof; CT availability is not treated as a negative observation; redirects remain bounded; no unrestricted crawling, credential access, repository cloning or secret extraction was introduced.
+
+### Downstream unlock
+
+Phase 8 is closed. Phase 9 may now begin through its own prerequisite → discovery/design → implementation → test/failure validation → production acceptance → documentation/state-update gate sequence. No Phase 9 implementation is implied by this status update.
