@@ -159,7 +159,7 @@ class TaskSupervisor:
         await asyncio.gather(record.task, return_exceptions=True)
         return True
 
-    async def shutdown(self, *, timeout: float = 8.0) -> None:
+    async def shutdown(self, *, timeout: float = 1.0) -> None:
         """Stop active tasks without allowing shutdown to hang indefinitely.
 
         The timeout bounds the graceful wait.  Tasks that remain active after
