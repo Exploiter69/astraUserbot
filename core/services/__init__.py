@@ -24,6 +24,7 @@ from core.services.telegram_state import DialogState, EntityState, TelegramState
 from core.services.telegram_sync import SyncCursor, SyncResult, TelegramIncrementalSync
 from core.services.telegram_traffic import TelegramTrafficController
 from core.services.workspace import Workspace, WorkspaceService
+from core.services.intel_correlation import CorrelationAssessment, IntelCorrelationEngine
 from core.services.intelgraph import IntelGraph
 from core.services.ioc import IOC, extract as extract_iocs, normalize as normalize_ioc
 
@@ -34,6 +35,7 @@ __all__ = [
     "SecretStore", "SecretStoreError", "StorageError", "StorageService", "SubprocessResult", "SubprocessService",
     "DialogState", "EntityState", "TelegramStateCache", "SyncCursor", "SyncResult", "TelegramIncrementalSync",
     "TelegramEvent", "TelegramEventCollector", "TelegramEventJournal", "TelegramEventProjections", "TelegramEventReplay",
-    "TelegramArchiveJobModel", "TelegramArchiveRequest", "TelegramArchiveService", "TelegramFacade", "TelegramTrafficController", "Workspace", "WorkspaceService", "IntelGraph",
-    "IOC", "extract_iocs", "normalize_ioc", "AutomationEngine", "AutomationError", "AutomationRule",
+    "TelegramArchiveJobModel", "TelegramArchiveRequest", "TelegramArchiveService", "TelegramFacade", "TelegramTrafficController", "Workspace", "WorkspaceService",
+    "CorrelationAssessment", "IntelCorrelationEngine", "IntelGraph", "IOC", "extract_iocs", "normalize_ioc",
+    "AutomationEngine", "AutomationError", "AutomationRule",
 ]
