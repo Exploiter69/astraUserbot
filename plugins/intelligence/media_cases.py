@@ -10,8 +10,7 @@ from core.registry import register_cmd
 from helpers.hud import render
 from helpers.reply import get_text_and_media
 
-
-CASE_PATTERN = rf"^{re.escape(config.PREFIX)}case\s+(new|list|show|add|event|timeline|report|close)(?:\s+(.*))?$"
+CASE_PATTERN = rf"^{re.escape(config.PREFIX)}case\s+(new|list|show|graph|add|event|timeline|report|close)(?:\s+(.*))?$"
 MEDIA_PATTERN = rf"^{re.escape(config.PREFIX)}mediaintel$"
 SIMILAR_PATTERN = rf"^{re.escape(config.PREFIX)}mediasim\s+([0-9a-fA-F]{{16}})$"
 
@@ -26,7 +25,7 @@ def _context():
 async def setup(client):
     register_cmd(client, MEDIA_PATTERN, handle_media, "intelligence", "Analyze replied media with bounded hashing, OCR, frames and speech evidence.")
     register_cmd(client, SIMILAR_PATTERN, handle_similar, "intelligence", "Find bounded perceptual-media candidates by pHash.")
-    register_cmd(client, CASE_PATTERN, handle_case, "intelligence", "Manage durable investigation cases and timelines.")
+    register_cmd(client, CASE_PATTERN, handle_case, "intelligence", "Manage durable investigation cases, graphs and timelines.")
 
 
 async def handle_media(event):
@@ -64,7 +63,8 @@ async def handle_similar(event):
 async def handle_case(event):
     action = event.pattern_match.group(1).lower()
     arg = (event.pattern_match.group(2) or "").strip()
-    cases = _context().get("cases")
+    context = _context()
+    cases = context.get("cases")
     if action == "new":
         if not arg:
             raise CommandError("Usage: `.case new <title>`")
@@ -88,10 +88,20 @@ async def handle_case(event):
         timeline = await cases.timeline(case_id, limit=25)
         lines = [f"ID: `{case_id}`", f"Title: {case['title']}", f"Status: {case['status']}", f"Entities: {len(entities)}", f"Timeline entries: {len(timeline)}"]
         await event.edit(render("CASE", lines, footer="intelligence | case | durable"))
+    elif action == "graph":
+        entities = await cases.entities(case_id, limit=25)
+        intel = context.get("intelgraph")
+        lines = []
+        for item in entities:
+            neighbors = await intel.neighbors(item["entity_id"], limit=8)
+            label = item["display_value"] or item["canonical_value"]
+            lines.append(f"{item['entity_type']} {label[:100]}")
+            lines.extend(f"  · {edge['direction']} {edge['relationship_type']} → {edge['related_entity_id'][:12]}" for edge in neighbors[:8])
+        await event.edit(render("CASE GRAPH", lines[:50] or ["No entities attached."], footer="intelligence | case | graph | bounded"))
     elif action == "add":
         if len(parts) < 2:
             raise CommandError("Usage: `.case add <case-id> <intel-target>`")
-        matches = await _context().get("intelgraph").resolve_target(parts[1])
+        matches = await intel.resolve_target(parts[1])
         if len(matches) != 1:
             raise CommandError("Target must resolve to exactly one IntelGraph entity.")
         await cases.add_entity(case_id, matches[0]["entity_id"])
