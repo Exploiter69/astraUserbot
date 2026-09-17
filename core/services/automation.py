@@ -22,7 +22,7 @@ from core.tasks import TaskSupervisor
 
 logger = logging.getLogger("astra.automation")
 
-RULE_SCHEMA_VERSION = 1
+RULE_SCHEMA_VERSION = 2
 AUTOMATION_JOB_TYPE = "AUTOMATION_RUN"
 MAX_RULES = 1000
 MAX_ACTIONS = 16
@@ -105,19 +105,28 @@ class AutomationEngine:
         await self.storage.execute("CREATE TABLE IF NOT EXISTS automation_schema (version INTEGER PRIMARY KEY, applied_at REAL NOT NULL)")
         row = await self.storage.fetchone("SELECT version FROM automation_schema ORDER BY version DESC LIMIT 1")
         if row is not None:
-            if int(row[0]) != RULE_SCHEMA_VERSION:
-                raise AutomationError(f"Unsupported automation schema version: {row[0]}")
+            version = int(row[0])
+            if version == 1:
+                await self.storage.transaction([
+                    ("ALTER TABLE automation_rules ADD COLUMN deleted_at REAL", ()),
+                    ("CREATE INDEX IF NOT EXISTS idx_automation_rules_live ON automation_rules(enabled, deleted_at, updated_at DESC)", ()),
+                    ("INSERT INTO automation_schema(version, applied_at) VALUES(2, ?)", (time.time(),)),
+                ])
+                return
+            if version != RULE_SCHEMA_VERSION:
+                raise AutomationError(f"Unsupported automation schema version: {version}")
             return
         await self.storage.transaction([
-            ("CREATE TABLE IF NOT EXISTS automation_rules (id TEXT PRIMARY KEY, version INTEGER NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, owner TEXT NOT NULL, trigger_json TEXT NOT NULL, scope_json TEXT NOT NULL, match_json TEXT NOT NULL, actions_json TEXT NOT NULL, cooldown_seconds REAL NOT NULL DEFAULT 0, max_runs INTEGER NOT NULL DEFAULT 0, created_at REAL NOT NULL, updated_at REAL NOT NULL)", ()),
+            ("CREATE TABLE IF NOT EXISTS automation_rules (id TEXT PRIMARY KEY, version INTEGER NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, owner TEXT NOT NULL, trigger_json TEXT NOT NULL, scope_json TEXT NOT NULL, match_json TEXT NOT NULL, actions_json TEXT NOT NULL, cooldown_seconds REAL NOT NULL DEFAULT 0, max_runs INTEGER NOT NULL DEFAULT 0, created_at REAL NOT NULL, updated_at REAL NOT NULL, deleted_at REAL)", ()),
             ("CREATE INDEX IF NOT EXISTS idx_automation_rules_enabled ON automation_rules(enabled, updated_at DESC)", ()),
             ("CREATE INDEX IF NOT EXISTS idx_automation_rules_trigger ON automation_rules(trigger_json)", ()),
+            ("CREATE INDEX IF NOT EXISTS idx_automation_rules_live ON automation_rules(enabled, deleted_at, updated_at DESC)", ()),
             ("CREATE TABLE IF NOT EXISTS automation_runs (run_id TEXT PRIMARY KEY, rule_id TEXT NOT NULL, rule_version INTEGER NOT NULL, trigger_event_id TEXT NOT NULL, trigger_type TEXT NOT NULL, state TEXT NOT NULL, action_index INTEGER NOT NULL DEFAULT 0, started_at REAL, completed_at REAL, error_code TEXT, error_message TEXT, created_at REAL NOT NULL, updated_at REAL NOT NULL, FOREIGN KEY(rule_id) REFERENCES automation_rules(id) ON DELETE RESTRICT)", ()),
             ("CREATE INDEX IF NOT EXISTS idx_automation_runs_rule ON automation_runs(rule_id, created_at DESC)", ()),
             ("CREATE INDEX IF NOT EXISTS idx_automation_runs_state ON automation_runs(state, updated_at)", ()),
             ("CREATE TABLE IF NOT EXISTS automation_action_runs (run_id TEXT NOT NULL, action_index INTEGER NOT NULL, action_type TEXT NOT NULL, state TEXT NOT NULL, idempotency_key TEXT NOT NULL, started_at REAL, completed_at REAL, result_json TEXT, error_code TEXT, error_message TEXT, PRIMARY KEY(run_id, action_index), UNIQUE(idempotency_key), FOREIGN KEY(run_id) REFERENCES automation_runs(run_id) ON DELETE CASCADE)", ()),
             ("CREATE TABLE IF NOT EXISTS automation_cooldowns (rule_id TEXT NOT NULL, cooldown_key TEXT NOT NULL, last_run_at REAL NOT NULL, PRIMARY KEY(rule_id, cooldown_key), FOREIGN KEY(rule_id) REFERENCES automation_rules(id) ON DELETE CASCADE)", ()),
-            ("INSERT INTO automation_schema(version, applied_at) VALUES(1, ?)", (time.time(),)),
+            ("INSERT INTO automation_schema(version, applied_at) VALUES(2, ?)", (time.time(),)),
         ])
 
     def register_action_handler(self, name: str, handler: ActionHandler, *, side_effect: str = "WRITE") -> None:
@@ -131,32 +140,32 @@ class AutomationEngine:
         if owner is not None and str(owner) != self.owner_id:
             raise AutomationError("Automation rules can only be owned by the configured owner")
         self._validate_rule(trigger, scope, match, actions, cooldown_seconds, max_runs)
-        row = await self.storage.fetchone("SELECT COUNT(*) FROM automation_rules")
+        row = await self.storage.fetchone("SELECT COUNT(*) FROM automation_rules WHERE deleted_at IS NULL")
         if int(row[0]) >= MAX_RULES and not await self._rule_exists(rid):
             raise AutomationError("Automation rule limit reached")
         now = time.time()
         params = (rid, RULE_SCHEMA_VERSION, 1, self.owner_id, self._dump(trigger), self._dump(scope), self._dump(match), self._dump(actions), float(cooldown_seconds), int(max_runs), now, now)
-        await self.storage.execute("INSERT INTO automation_rules(id,version,enabled,owner,trigger_json,scope_json,match_json,actions_json,cooldown_seconds,max_runs,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET version=automation_rules.version+1,enabled=1,owner=excluded.owner,trigger_json=excluded.trigger_json,scope_json=excluded.scope_json,match_json=excluded.match_json,actions_json=excluded.actions_json,cooldown_seconds=excluded.cooldown_seconds,max_runs=excluded.max_runs,updated_at=excluded.updated_at", params)
+        await self.storage.execute("INSERT INTO automation_rules(id,version,enabled,owner,trigger_json,scope_json,match_json,actions_json,cooldown_seconds,max_runs,created_at,updated_at,deleted_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,NULL) ON CONFLICT(id) DO UPDATE SET version=automation_rules.version+1,enabled=1,owner=excluded.owner,trigger_json=excluded.trigger_json,scope_json=excluded.scope_json,match_json=excluded.match_json,actions_json=excluded.actions_json,cooldown_seconds=excluded.cooldown_seconds,max_runs=excluded.max_runs,updated_at=excluded.updated_at,deleted_at=NULL", params)
         await self._audit("AUTOMATION_RULE_UPSERT", rid, {"schema": RULE_SCHEMA_VERSION})
         return await self.get_rule(rid)
 
     async def _rule_exists(self, rule_id: str) -> bool:
-        return await self.storage.fetchone("SELECT 1 FROM automation_rules WHERE id=?", (rule_id,)) is not None
+        return await self.storage.fetchone("SELECT 1 FROM automation_rules WHERE id=? AND deleted_at IS NULL", (rule_id,)) is not None
 
     async def get_rule(self, rule_id: str) -> AutomationRule:
-        row = await self.storage.fetchone("SELECT * FROM automation_rules WHERE id=?", (rule_id,))
+        row = await self.storage.fetchone("SELECT * FROM automation_rules WHERE id=? AND deleted_at IS NULL", (rule_id,))
         if row is None:
             raise KeyError(rule_id)
         return self._row_to_rule(row)
 
     async def list_rules(self, *, include_disabled: bool = True, limit: int = 100) -> list[AutomationRule]:
         limit = max(1, min(int(limit), 100))
-        sql = "SELECT * FROM automation_rules ORDER BY created_at DESC LIMIT ?" if include_disabled else "SELECT * FROM automation_rules WHERE enabled=1 ORDER BY created_at DESC LIMIT ?"
+        sql = "SELECT * FROM automation_rules WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT ?" if include_disabled else "SELECT * FROM automation_rules WHERE deleted_at IS NULL AND enabled=1 ORDER BY created_at DESC LIMIT ?"
         return [self._row_to_rule(row) for row in await self.storage.fetchall(sql, (limit,))]
 
     async def set_enabled(self, rule_id: str, enabled: bool) -> None:
         rule = await self.get_rule(rule_id)
-        await self.storage.execute("UPDATE automation_rules SET enabled=?,updated_at=? WHERE id=?", (int(enabled), time.time(), rule.id))
+        await self.storage.execute("UPDATE automation_rules SET enabled=?,updated_at=? WHERE id=? AND deleted_at IS NULL", (int(enabled), time.time(), rule.id))
         await self._audit("AUTOMATION_RULE_STATE", rule.id, {"enabled": bool(enabled)})
 
     async def delete_rule(self, rule_id: str) -> None:
@@ -164,8 +173,9 @@ class AutomationEngine:
         row = await self.storage.fetchone("SELECT COUNT(*) FROM automation_runs WHERE rule_id=? AND state IN ('ENQUEUE_PENDING','QUEUED','RUNNING','RECOVERY_REQUIRED')", (rule.id,))
         if int(row[0]):
             raise AutomationError("Cannot delete a rule with active runs; disable it instead")
-        await self.storage.execute("DELETE FROM automation_rules WHERE id=?", (rule.id,))
-        await self._audit("AUTOMATION_RULE_DELETE", rule.id, {})
+        now = time.time()
+        await self.storage.execute("UPDATE automation_rules SET enabled=0,deleted_at=?,updated_at=? WHERE id=? AND deleted_at IS NULL", (now, now, rule.id))
+        await self._audit("AUTOMATION_RULE_DELETE", rule.id, {"deleted_at": now})
 
     async def trigger(self, event: TelegramEvent | dict[str, Any], *, trigger_type: str | None = None) -> int:
         data = event.as_dict() if isinstance(event, TelegramEvent) else dict(event)
