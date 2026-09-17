@@ -1,18 +1,18 @@
 # Phase 7 — Intelligence Foundation Acceptance
 
 **Roadmap phase:** 7  
-**Programs:** H IntelGraph foundation; INTEL-1 through INTEL-5  
-**Status:** implementation complete; owner-host production acceptance pending
+**Programs:** H IntelGraph foundation; I IOC Engine foundation; INTEL-1 through INTEL-5  
+**Status:** **COMPLETE — owner-host production acceptance closed 2026-09-17**
 
 ## Scope
 
-Phase 7 must leave Astra with a trustworthy local intelligence substrate before later source-specific intelligence programs are allowed to depend on it.
+Phase 7 leaves Astra with a trustworthy local intelligence substrate before later source-specific intelligence programs are allowed to depend on it.
 
 ### Prerequisites satisfied
 
 - Phase 6 Automation Engine is closed and uses the durable JobEngine.
 - SQLite/WAL remains the canonical durable store.
-- `INTELLIGENCE_OBSERVED` already has a real producer path from `IntelGraph.add_observation()`.
+- `INTELLIGENCE_OBSERVED` has a real producer path from `IntelGraph.add_observation()`.
 - Source lineage is represented in the existing IntelGraph source model.
 - Telegram event/timeline projections remain separate from the intelligence graph and are not replaced.
 
@@ -90,13 +90,94 @@ Phase 7 must leave Astra with a trustworthy local intelligence substrate before 
 
 ### Owner-host code validation — PASS
 
-Validated on the owner host after pulling the latest `main`:
+Validated on the owner host after pulling `main`:
 
 - Focused IntelGraph/IOC suite: **16 passed** in **4.16s**.
-- Python compilation: **PASS** via `python -m compileall -q core plugins tests tools`.
+- Python compilation: **PASS** via `python -m compileall -q core plugins tests`.
 - Full regression suite: **323 passed** in **45.45s**.
 
-These results establish that the Phase 7 implementation is regression-clean. They do **not** by themselves close the production acceptance gate.
+### Production acceptance — PASS
+
+The complete non-destructive production acceptance gate passed all automated gates:
+
+1. Full pytest: **323 passed** in **45.26s**.
+2. Compileall: **PASS**.
+3. Plugin behavior audit: **PASS**.
+4. Plugin ecosystem audit: **PASS** — 52 active plugins, 4 quarantined legacy plugins, 79 declared command registrations, 10 direct event-handler sites; `plugins.intel` setup/shutdown/command registration verified.
+5. Media pipeline hardening: **PASS**.
+6. Isolation/security hardening: **PASS**, including malicious-media containment, archive safety, filesystem/network boundaries, environment allowlist, timeout handling and actual isolated execution.
+7. Storage/database hardening: **PASS** — phase 4 storage checks, 11 plugin databases, retention and transaction checks.
+8. Durable job hardening: **PASS**.
+9. Phase 18 production hardening: **PASS**.
+10. Shutdown probe: **PASS** — context returned in 2.516s with the documented cancellation-resistant-task diagnostic.
+
+Final automated result: **`PRODUCTION_ACCEPTANCE_PASS`**.
+
+### Production runtime acceptance — PASS
+
+The owner-host production service was restarted through the actual system-level `astra.service` and remained healthy:
+
+- systemd service: **active/running**;
+- Telegram client: **connected and authorized**;
+- Telegram event collector: **started, handlers=6**;
+- Automation Engine: **started**;
+- Plugins: **52 RUNNING**;
+- Commands: **138**;
+- Database: **PASS**;
+- Services: **22/22**;
+- Jobs: **READY**;
+- Isolation: **BUBBLEWRAP-AVAILABLE**;
+- AI Gateway: **GROQ READY**;
+- overall startup: **SYSTEM READY** / **Startup complete**.
+
+### Live Telegram smoke — PASS
+
+A synthetic reserved-domain target was used because the production IntelGraph store had no pre-existing entities at the start of the live smoke. The target uses `.invalid` and therefore does not represent a real external domain.
+
+Seeded target:
+
+- `DOMAIN` · `phase7-smoke-example.invalid`
+
+Live command 1:
+
+```text
+.intel graph phase7-smoke-example.invalid
+```
+
+Observed Telegram response:
+
+```text
+╭─╴⚡ ASTRA  //  INTELGRAPH
+│  ROOT `DOMAIN` · `phase7-smoke-example.invalid`
+│  Edges: `0` · Page: `1`
+╰─╴intel | graph | evidence-backed
+```
+
+This confirms exact target resolution, bounded graph output, and no fabricated relationship when none is present.
+
+Live command 2:
+
+```text
+.intel timeline phase7-smoke-example.invalid
+```
+
+Observed Telegram response:
+
+```text
+╭─╴⚡ ASTRA  //  INTEL TIMELINE
+│  OBSERVATION · OBSERVED 1.00 · 1789649887
+╰─╴intel | timeline | bounded
+```
+
+This confirms that persisted observed evidence is reachable through the Telegram timeline surface with evidence state and confidence visible.
+
+## Acceptance decision
+
+**PHASE 7 — COMPLETE.**
+
+The implementation, regression suite, production hardening gates, systemd runtime restart, Telegram authorization/startup, and live `.intel graph` / `.intel timeline` smoke checks are all green. Phase 7 is formally closed as of **2026-09-17**.
+
+This closure does not imply that downstream intelligence programs are implemented. Later source-specific intelligence work remains gated by the roadmap's prerequisite, provenance, evidence and zero-cost constraints.
 
 ## Focused validation command
 
@@ -109,20 +190,12 @@ git pull --ff-only origin main && \
 .venv/bin/python -m compileall -q core plugins tests tools
 ```
 
-## Remaining owner-host acceptance
-
-The final phase decision requires the focused tests, full suite, compile check and production acceptance gate to remain green on the owner host. After that, runtime smoke must confirm that the `intel` plugin loads without command collisions and that existing automation/Telegram startup remains healthy.
-
-Run the remaining production gate with:
+## Production acceptance command
 
 ```bash
 cd ~/AstraUserbot && \
 .venv/bin/python tools/production_acceptance_gate.py
 ```
-
-Then perform the runtime smoke/operational checks required by the production acceptance process, including confirmation of the `.intel` command surface alongside the existing automation and Telegram startup health.
-
-**Phase 7 remains open until that production acceptance evidence is recorded.**
 
 ## Explicit non-goals
 
