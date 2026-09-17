@@ -24,6 +24,12 @@ This file records formal gate closures without deleting or rewriting the detaile
 - Live `.intel graph phase7-smoke-example.invalid`: **PASS**.
 - Live `.intel timeline phase7-smoke-example.invalid`: **PASS**.
 
+### Live smoke target
+
+The owner-host smoke used the reserved `.invalid` domain `phase7-smoke-example.invalid` because the production IntelGraph store had no pre-existing entities at the beginning of acceptance. The target is synthetic test data and does not represent a real external domain.
+
+The graph response showed `Edges: 0`, correctly reflecting that no relationship was seeded. The timeline returned an `OBSERVED` observation with confidence `1.00`, confirming persisted evidence was reachable through Telegram.
+
 ### Downstream unlock
 
 Phase 7 is closed. Later source-specific intelligence programs may proceed only through their own roadmap gates and must preserve the established provenance, evidence, authorization, bounded-resource, safety and ₹0/$0 constraints.
@@ -38,34 +44,42 @@ Phase 7 is closed. Later source-specific intelligence programs may proceed only 
 
 ### Completion evidence
 
-- TGINTEL-1 bounded public Telegram intelligence implemented and live-smoked through the real Telegram session.
-- USER-1 bounded GitHub/GitLab/Reddit username pivots implemented and live-smoked.
-- DOMAIN-1 bounded DNS/RDAP/HTTP/TLS intelligence implemented and live-smoked.
-- DOMAIN-2 bounded Certificate Transparency collection implemented; live provider unavailability was correctly represented as `unavailable`.
-- LINK-1 bounded redirect/link intelligence implemented, including corrected hop-to-hop redirect-chain representation, and live-smoked.
-- GIT-1 bounded public GitHub/GitLab project intelligence implemented and live-smoked.
-- Full regression: **328 passed**.
-- `compileall`: **PASS**.
-- Production acceptance: **10/10 automated gates PASS**.
-- Plugin behavior and ecosystem audits: **PASS**.
-- Media, isolation/security, storage/database, durable-job and Phase 18 hardening gates: **PASS**.
-- Owner-host `astra.service` restart: **PASS**; systemd active/running.
-- Live runtime: Telegram connected/authorized, Database PASS, Services 23/23, Plugins 53 RUNNING, Commands 144, Jobs READY, Isolation BUBBLEWRAP-AVAILABLE, AI Gateway GROQ READY.
-- Live Phase 8 command smoke: **6/6 PASS**.
+- bounded public Telegram intelligence;
+- public username pivots;
+- domain DNS/RDAP/HTTP/TLS observations;
+- Certificate Transparency collection;
+- bounded redirect/link graph;
+- public GitHub/GitLab code-profile observations;
+- shared HttpService + IntelGraph integration;
+- provenance/evidence/confidence boundaries;
+- full regression: **328 passed**;
+- compileall: **PASS**;
+- production acceptance: **10/10 automated gates PASS**;
+- owner-host system restart: **PASS**;
+- all six live Phase 8 commands: **PASS**.
 
-### Live smoke record
+## Phase 9 — Media + Investigation
 
-- `.tgintel @vayuh`: public Telegram entity metadata observed successfully.
-- `.userintel @papi_6t9`: GitLab public profile observation returned.
-- `.domainintel alokthakur.me`: DNS, HTTP and TLS metadata returned successfully.
-- `.ct alokthakur.me`: provider returned `unavailable`; correctly handled as availability state rather than a false negative.
-- `.linkintel https://alokthakur.me/`: one bounded redirect hop to `https://www.alokthakur.me/` observed.
-- `.gitintel @exploiter69`: public GitHub projects observed; GitLab public project count returned as zero.
+**Status:** IMPLEMENTATION COMPLETE / ACCEPTANCE PENDING  
+**Gates:** `MEDIAINTEL-1`, `MEDIAINTEL-2`, `MEDIAINTEL-3`, `MEDIAINTEL-4`, `CASE-1`, `CASE-2`, `CASE-3`  
+**Architecture record:** `docs/PHASE_9_MEDIA_INVESTIGATION.md`  
+**Acceptance record:** `docs/PHASE_9_ACCEPTANCE.md`
 
-### Safety boundary
+### Implementation currently present
 
-Phase 8 remains strictly public-source and evidence-backed. Username reuse is not identity proof; infrastructure observations are not ownership proof; CT availability is not treated as a negative observation; redirects remain bounded; no unrestricted crawling, credential access, repository cloning or secret extraction was introduced.
+- SHA-256 content-addressed media observations;
+- deterministic bounded perceptual-hash candidate matching;
+- isolated video frame extraction;
+- isolated Tesseract screenshot/image OCR where installed;
+- bounded audio extraction and optional AIService transcription;
+- durable SQLite investigation cases;
+- exact IntelGraph entity attachments;
+- durable case timelines and observation references;
+- deterministic bounded case reports;
+- `.mediaintel`, `.mediasim` and `.case` command surfaces;
+- shared MediaService/IsolationService/AIService/IntelGraph integration;
+- Phase 9 unit and static gate coverage.
 
-### Downstream unlock
+### Acceptance status
 
-Phase 8 is closed. Phase 9 may now begin through its own prerequisite → discovery/design → implementation → test/failure validation → production acceptance → documentation/state-update gate sequence. No Phase 9 implementation is implied by this status update.
+Implementation is complete, but Phase 9 remains open until owner-host focused tests, full regression, production acceptance, system restart and live media/case smoke are recorded in `docs/PHASE_9_ACCEPTANCE.md`.
