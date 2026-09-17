@@ -59,29 +59,11 @@ class RuntimeServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(
                 set(context.services),
                 {
-                    "storage",
-                    "cache",
-                    "http",
-                    "subprocess",
-                    "telegram_state",
-                    "telegram",
-                    "telegram_event_journal",
-                    "telegram_events",
-                    "telegram_event_projections",
-                    "telegram_event_replay",
-                    "intelgraph",
-                    "public_intel",
-                    "workspace",
-                    "media",
-                    "jobs",
-                    "automation",
-                    "secrets",
-                    "ai",
-                    "search",
-                    "telegram_archive",
-                    "metrics",
-                    "flags",
-                    "isolation",
+                    "storage", "cache", "http", "subprocess", "telegram_state", "telegram",
+                    "telegram_event_journal", "telegram_events", "telegram_event_projections",
+                    "telegram_event_replay", "intelgraph", "public_intel", "workspace", "media",
+                    "jobs", "automation", "secrets", "ai", "search", "telegram_archive", "media_intel",
+                    "cases", "metrics", "flags", "isolation",
                 },
             )
             self.assertIsNotNone(context.get("http").session)
@@ -101,6 +83,8 @@ class RuntimeServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(context.get("telegram_event_replay")._started)
             self.assertTrue(context.get("intelgraph")._started)
             self.assertTrue(context.get("telegram_archive")._started)
+            self.assertTrue(context.get("media_intel")._started)
+            self.assertTrue(context.get("cases")._started)
             await context.close()
             self.assertEqual(context.snapshot()["state"], "CLOSED")
             self.assertIsNone(context.get("http").session)
