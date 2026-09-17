@@ -26,11 +26,13 @@ def _engine():
 async def setup(client):
     global _job_task
     p = re.escape(config.PREFIX)
-    register_cmd(client, rf"^{p}autorule\s+list$", handle_list, "automation", "List automation rules.")
-    register_cmd(client, rf"^{p}autorule\s+show\s+(\S+)$", handle_show, "automation", "Show one automation rule.")
-    register_cmd(client, rf"^{p}autorule\s+create\s+(\S+)\s+(.+)$", handle_create, "automation", "Create/update a declarative automation rule from JSON.")
-    register_cmd(client, rf"^{p}autorule\s+(enable|disable|delete)\s+(\S+)$", handle_state, "automation", "Enable, disable or delete an automation rule.")
-    register_cmd(client, rf"^{p}autorule\s+run\s+(\S+)$", handle_run, "automation", "Run an OWNER_COMMAND automation rule.")
+    register_cmd(
+        client,
+        rf"^{p}autorule\s+(list|show|create|enable|disable|delete|run)(?:\s+(\S+))?(?:\s+(.+))?$",
+        handle_autorule,
+        "automation",
+        "List, inspect, create, enable, disable, delete or run an automation rule.",
+    )
     register_cmd(client, rf"^{p}autostatus$", handle_status, "automation", "Show Automation Engine status.")
     context = get_application_context()
     if context is not None:
@@ -45,6 +47,20 @@ async def shutdown(_client):
         _job_task = None
 
 
+async def handle_autorule(event):
+    action = event.pattern_match.group(1).lower()
+    if action == "list":
+        await handle_list(event)
+    elif action == "show":
+        await handle_show(event)
+    elif action == "create":
+        await handle_create(event)
+    elif action in {"enable", "disable", "delete"}:
+        await handle_state(event)
+    elif action == "run":
+        await handle_run(event)
+
+
 async def handle_list(event):
     engine, _ = _engine()
     rules = await engine.list_rules(limit=100)
@@ -54,16 +70,23 @@ async def handle_list(event):
 
 async def handle_show(event):
     engine, _ = _engine()
-    rule = await engine.get_rule(event.pattern_match.group(1).lower())
+    rule_id = event.pattern_match.group(2)
+    if not rule_id:
+        raise CommandError("Usage: .autorule show <id>")
+    rule = await engine.get_rule(rule_id.lower())
     text = json.dumps(rule.snapshot(), indent=2, ensure_ascii=False)
     await event.edit(f"<pre>{_escape(text[:12000])}</pre>")
 
 
 async def handle_create(event):
     engine, _ = _engine()
-    rule_id = event.pattern_match.group(1).lower()
+    rule_id = event.pattern_match.group(2)
+    payload = event.pattern_match.group(3)
+    if not rule_id or payload is None:
+        raise CommandError("Usage: .autorule create <id> <json>")
+    rule_id = rule_id.lower()
     try:
-        spec = json.loads(event.pattern_match.group(2))
+        spec = json.loads(payload)
     except json.JSONDecodeError as exc:
         raise CommandError(f"Invalid rule JSON: {exc.msg}") from exc
     if not isinstance(spec, dict):
@@ -83,7 +106,10 @@ async def handle_create(event):
 async def handle_state(event):
     engine, _ = _engine()
     action = event.pattern_match.group(1).lower()
-    rule_id = event.pattern_match.group(2).lower()
+    rule_id = event.pattern_match.group(2)
+    if not rule_id:
+        raise CommandError(f"Usage: .autorule {action} <id>")
+    rule_id = rule_id.lower()
     if action == "delete":
         await engine.delete_rule(rule_id)
         await event.edit(render("AUTOMATION RULE", [f"Deleted `{rule_id}`."], footer="automation | rule delete"))
@@ -94,7 +120,10 @@ async def handle_state(event):
 
 async def handle_run(event):
     engine, _ = _engine()
-    rule_id = event.pattern_match.group(1).lower()
+    rule_id = event.pattern_match.group(2)
+    if not rule_id:
+        raise CommandError("Usage: .autorule run <id>")
+    rule_id = rule_id.lower()
     accepted = await engine.run_owner_command(rule_id, {"source_peer": str(event.chat_id) if event.chat_id is not None else None, "command": "autorule run"})
     await event.edit(render("AUTOMATION RUN", [f"Rule: `{rule_id}`", f"Accepted: `{accepted}`", "Execution: `DURABLE JOB`"], footer="automation | autorule run"))
 
