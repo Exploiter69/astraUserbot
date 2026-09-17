@@ -14,9 +14,9 @@
 - [x] Existing AIService is reused for optional speech transcription.
 - [x] Existing SQLite/WAL store remains the sole durable case store.
 - [x] No second job/workflow system is introduced.
-- [ ] Owner-host focused Phase 9 tests pass.
-- [ ] Owner-host full regression passes.
-- [ ] Owner-host production acceptance passes.
+- [ ] Owner-host focused Phase 9 tests pass after the final implementation correction pass.
+- [ ] Owner-host full regression passes after the final implementation correction pass.
+- [ ] Owner-host production acceptance passes after the final implementation correction pass.
 - [ ] Owner-host system restart remains healthy.
 - [ ] Owner-host live media/case smoke passes.
 
@@ -24,13 +24,16 @@
 
 - [x] SHA-256 content addressing.
 - [x] Durable `MEDIA` and `HASH` entities.
-- [x] Evidence-backed hash relationship.
+- [x] Evidence-backed byte-identity relationship.
+- [x] Perceptual hashes are stored as separate derived similarity signals.
 - [x] Bounded metadata/provenance.
 - [x] No raw media payload persistence in IntelGraph.
 
 ## 3. MEDIAINTEL-2
 
+- [x] Dependency-free DCT pHash representation.
 - [x] Deterministic 8x8 average-hash representation.
+- [x] dHash representation.
 - [x] Isolated FFmpeg generation.
 - [x] Bounded Hamming-distance candidate comparison.
 - [x] Explicit threshold.
@@ -38,10 +41,11 @@
 
 ## 4. MEDIAINTEL-3
 
-- [x] Bounded first-frame extraction for video.
+- [x] Bounded three-frame early video sampling.
 - [x] Isolated Tesseract OCR where installed.
 - [x] OCR output bounded to 64 KiB.
 - [x] OCR represented as content-addressed text evidence.
+- [x] OCR text passes through the existing deterministic IntelGraph IOC extraction/normalization pipeline.
 - [x] No screenshot intelligence requires a paid service.
 
 ## 5. MEDIAINTEL-4
@@ -50,22 +54,28 @@
 - [x] Mono 16 kHz bounded transcription input.
 - [x] Existing AIService used when transcription is available.
 - [x] Transcript represented as bounded text evidence.
+- [x] Transcript passes through the existing deterministic IntelGraph IOC extraction/normalization pipeline.
 - [x] Provider failure is represented as unavailable rather than a false observation.
 - [x] No AI mutation authority.
 
 ## 6. CASE-1
 
-- [x] Durable case schema.
+- [x] Durable `cases` schema.
+- [x] Durable `case_entities` association.
+- [x] Durable `case_observations` references.
+- [x] Durable `case_notes` records.
+- [x] Durable `case_sources` references.
+- [x] Durable `case_events` records.
+- [x] Compatibility/read-model `case_timeline`.
 - [x] Open/closed lifecycle.
-- [x] Bounded summary.
-- [x] Durable case/entity association.
-- [x] Durable case timeline.
+- [x] Bounded summary and note text.
 - [x] Timestamps preserved.
 
 ## 7. CASE-2
 
 - [x] Exact IntelGraph entity references.
 - [x] Bounded entity reads.
+- [x] Bounded observation/source capture for attached entities.
 - [x] Deterministic timeline ordering.
 - [x] Observation references supported.
 - [x] `.case graph <case-id>` provides bounded one-hop graph reads through IntelGraph.
@@ -75,12 +85,14 @@
 
 - [x] Deterministic local report generation.
 - [x] Report contains case metadata, attached entities and timeline.
+- [x] Report exposes evidence state/confidence and source/time information when available.
+- [x] Report separates observations, entities, sources and notes.
 - [x] Report bounded to 16,000 characters.
 - [x] No LLM dependency for evidence/report generation.
 
 ## 9. Command contract
 
-- [x] `.mediaintel`
+- [x] `.mediaintel` — command-attached or replied media.
 - [x] `.mediasim <16-hex-pHash>`
 - [x] `.case new <title>`
 - [x] `.case list`
@@ -94,7 +106,7 @@
 
 ## 10. Required owner-host validation
 
-Run after pulling the Phase 9 implementation:
+Run after pulling the final Phase 9 implementation:
 
 ```bash
 cd ~/AstraUserbot && \
@@ -107,9 +119,9 @@ git pull --ff-only origin main && \
 
 Then perform live smoke with authorized non-sensitive media:
 
-1. Reply to a small test image with `.mediaintel`; verify SHA-256 and, when available, pHash/OCR evidence.
+1. Reply to a small test image with `.mediaintel`; verify SHA-256, pHash/aHash/dHash and OCR when Tesseract is available.
 2. Reply to a small test audio file with `.mediaintel`; verify transcription is returned or explicitly reported unavailable without a false observation.
-3. Reply to a small test video with `.mediaintel`; verify bounded frame/OCR and audio/transcription paths where local capabilities are available.
+3. Reply to a small test video with `.mediaintel`; verify bounded frame sampling, OCR and audio/transcription paths where local capabilities are available.
 4. If a pHash is returned, run `.mediasim <returned-pHash>` and verify bounded candidate output.
 5. Create a case with `.case new Phase 9 smoke`.
 6. Attach an exact IntelGraph target with `.case add <case-id> <intel-target>`.
