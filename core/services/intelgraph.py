@@ -366,7 +366,13 @@ class IntelGraph:
                 bounded_offset,
             ),
         )
-        return [dict(row) for row in rows]
+        return [
+            {
+                **dict(row),
+                "related_entity_id": row["entity_id"],
+            }
+            for row in rows
+        ]
 
     async def evidence(self, entity_id: str, *, limit: int = 100) -> list[dict[str, Any]]:
         self._require_started()
