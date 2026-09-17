@@ -12,7 +12,7 @@
 - [x] Shared `HttpService` is used for public HTTP collection.
 - [x] Existing IntelGraph remains the sole durable intelligence graph.
 - [x] Public-source safety boundaries are documented.
-- [ ] Owner-host focused tests pass.
+- [x] Owner-host focused tests pass: 21 passed in 1.25s.
 - [ ] Owner-host full regression passes.
 - [ ] Owner-host production acceptance passes.
 
@@ -25,7 +25,7 @@
 - [x] Extracts bounded public URLs from public bio/about text.
 - [x] Writes provenance/evidence to IntelGraph.
 - [x] Does not infer external identity ownership.
-- [ ] Focused tests pass on owner host.
+- [x] Focused tests pass on owner host.
 - [ ] Live Telegram smoke passes with a deliberately public/safe target.
 
 ## 3. USER-1 — username pivot engine
@@ -38,7 +38,7 @@
 - [x] Provider failures are represented as unavailable, not false negatives.
 - [x] Positive provider observations carry provider provenance and confidence.
 - [x] No username reuse is presented as identity proof.
-- [ ] Focused tests pass on owner host.
+- [x] Focused tests pass on owner host.
 
 ## 4. DOMAIN-1 — domain intelligence
 
@@ -50,7 +50,7 @@
 - [x] TLS subject/issuer metadata is collected where available.
 - [x] DNS relationships are represented as observed `RESOLVES_TO` edges.
 - [x] Failures do not become false observations.
-- [ ] Focused tests pass on owner host.
+- [x] Focused tests pass on owner host.
 
 ## 5. DOMAIN-2 — Certificate Transparency
 
@@ -60,7 +60,7 @@
 - [x] Only names under the requested domain are retained.
 - [x] CT-derived names are represented as observations.
 - [x] No certificate observation is treated as proof of domain ownership.
-- [ ] Focused tests pass on owner host.
+- [x] Focused tests pass on owner host.
 
 ## 6. LINK-1 — redirect/link graph
 
@@ -70,8 +70,9 @@
 - [x] Maximum redirect depth is five.
 - [x] Redirect loops terminate deterministically.
 - [x] URL/domain graph edges carry source observations.
+- [x] Redirect edges preserve the actual hop chain.
 - [x] No unrestricted crawling is introduced.
-- [ ] Focused tests pass on owner host.
+- [x] Focused tests pass on owner host before the latest hop-chain correction; rerun is required after that correction.
 
 ## 7. GIT-1 — public-code intelligence
 
@@ -81,7 +82,7 @@
 - [x] Repository observations retain public URLs and provider provenance.
 - [x] No repository cloning or secret extraction is performed.
 - [x] Public-code results are evidence-backed graph observations.
-- [ ] Focused tests pass on owner host.
+- [x] Focused tests pass on owner host.
 
 ## 8. Common gate requirements
 
@@ -94,7 +95,8 @@
 - [x] Existing IntelGraph evidence/confidence semantics are preserved.
 - [x] Existing Telegram authorization and transport boundaries are preserved.
 - [ ] Ruff format/check passes.
-- [ ] Focused Phase 8 tests pass.
+- [x] Focused Phase 8 tests passed: 21 passed in 1.25s before the latest link-chain correction.
+- [ ] Focused Phase 8 tests rerun after latest implementation correction.
 - [ ] Full test suite passes with no regression.
 - [ ] `compileall` passes.
 - [ ] Production acceptance gate passes.
@@ -103,17 +105,17 @@
 
 ## 9. Required owner-host validation
 
-Run after pulling the Phase 8 implementation:
+Run after pulling the latest Phase 8 implementation:
 
 ```bash
 cd ~/AstraUserbot && \
 git pull --ff-only origin main && \
-python -m pytest -q tests/test_public_intel.py tests/test_intelgraph.py tests/test_intelgraph_phase7.py tests/test_ioc.py && \
-python -m compileall -q . && \
-python tools/production_acceptance_gate.py
+.venv/bin/python -m pytest -q tests/test_public_intel.py tests/test_intelgraph.py tests/test_intelgraph_phase7.py tests/test_ioc.py && \
+.venv/bin/python -m compileall -q . && \
+.venv/bin/python tools/production_acceptance_gate.py
 ```
 
-Then perform a live smoke using a safe public target and record the exact command/output in this document before marking Phase 8 COMPLETE.
+The focused suite has already passed once on the owner host. Because the redirect graph implementation was subsequently corrected to preserve hop-to-hop edges, rerun the focused suite before relying on that earlier result. Then continue with the full regression and production acceptance gates.
 
 ## 10. Completion rule
 
