@@ -46,7 +46,7 @@ async def _resolve_media(event):
             reply = None
         else:
             try:
-                reply = await raw_get_reply(event)
+                reply = await raw_get_reply()
             except Exception:
                 reply = None
     except Exception:
