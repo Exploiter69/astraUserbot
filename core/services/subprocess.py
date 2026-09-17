@@ -96,7 +96,7 @@ class SubprocessService:
                 if not wait_task.done():
                     await wait_task
                 return SubprocessResult(
-                    process.returncode or 0,
+                    process.returncode if process.returncode is not None else 0,
                     stdout[0],
                     stderr[0],
                     stdout[1],
