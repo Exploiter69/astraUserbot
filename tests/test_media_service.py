@@ -119,8 +119,20 @@ class MediaServiceTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIsNotNone(workspace)
                 if argv[0] == "ffmpeg":
                     self.assertEqual(
-                        argv[:7],
-                        ["ffmpeg", "-hide_banner", "-y", "-threads", "2", "-i", "/workspace/input.mp4"],
+                        argv[:11],
+                        [
+                            "ffmpeg",
+                            "-hide_banner",
+                            "-y",
+                            "-threads",
+                            "2",
+                            "-filter_threads",
+                            "1",
+                            "-filter_complex_threads",
+                            "1",
+                            "-i",
+                            "/workspace/input.mp4",
+                        ],
                     )
                     self.assertIn("-c:v", argv)
                     job.resolve("output.mp4").write_bytes(b"result")
