@@ -38,8 +38,8 @@ class CaseServiceTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.db = type("DB", (), {})()
         self.db.init_schema = AsyncMock()
-        self.db.execute = AsyncMock(side_effect=[type("Cursor", (), {"lastrowid": 1})(), None, None, None, None])
-        self.db.fetchone = AsyncMock(return_value=None)
+        self.db.execute = AsyncMock(side_effect=[type("Cursor", (), {"lastrowid": 1})(), None, None])
+        self.db.fetchone = AsyncMock(return_value={"case_id": "case"})
         self.db.fetchall = AsyncMock(return_value=[])
         graph = type("Graph", (), {"storage": self.db, "start": AsyncMock()})()
         self.service = CaseService(graph)
@@ -49,7 +49,7 @@ class CaseServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_create_persists_case_and_timeline(self):
         case_id = await self.service.create("Phase 9 case")
         self.assertTrue(case_id)
-        self.assertGreaterEqual(self.db.execute.await_count, 2)
+        self.assertGreaterEqual(self.db.execute.await_count, 3)
 
     async def test_report_is_deterministic_and_bounded(self):
         self.service.get = AsyncMock(return_value={"case_id": "abc", "title": "Test", "status": "OPEN", "summary": "summary"})
@@ -60,6 +60,7 @@ class CaseServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertLessEqual(len(report), 16000)
 
     async def test_missing_case_is_rejected(self):
+        self.service.get = AsyncMock(return_value=None)
         with self.assertRaises(ValueError):
             await self.service.add_timeline("missing", "NOTE", "x")
 
