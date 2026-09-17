@@ -336,6 +336,38 @@ class IntelGraph:
             "has_more": bounded_offset + len(edges) < total,
         }
 
+    async def neighbors(self, entity_id: str, *, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+        """Return bounded adjacent entities and explainable edge metadata in both directions."""
+        self._require_started()
+        bounded_limit = max(1, min(int(limit), self.MAX_QUERY_ROWS))
+        bounded_offset = max(0, int(offset))
+        rows = await self.storage.fetchall(
+            """SELECT r.relationship_id,r.relationship_type,r.evidence_state,r.confidence,r.observation_id,r.created_at,r.updated_at,
+                      CASE WHEN r.from_entity_id=? THEN t.entity_id ELSE f.entity_id END AS entity_id,
+                      CASE WHEN r.from_entity_id=? THEN t.entity_type ELSE f.entity_type END AS entity_type,
+                      CASE WHEN r.from_entity_id=? THEN t.canonical_value ELSE f.canonical_value END AS canonical_value,
+                      CASE WHEN r.from_entity_id=? THEN t.display_value ELSE f.display_value END AS display_value,
+                      CASE WHEN r.from_entity_id=? THEN 'OUTGOING' ELSE 'INCOMING' END AS direction
+               FROM intel_relationships r
+               JOIN intel_entities f ON f.entity_id=r.from_entity_id
+               JOIN intel_entities t ON t.entity_id=r.to_entity_id
+               WHERE r.from_entity_id=? OR r.to_entity_id=?
+               ORDER BY r.relationship_id
+               LIMIT ? OFFSET ?""",
+            (
+                entity_id,
+                entity_id,
+                entity_id,
+                entity_id,
+                entity_id,
+                entity_id,
+                entity_id,
+                bounded_limit,
+                bounded_offset,
+            ),
+        )
+        return [dict(row) for row in rows]
+
     async def evidence(self, entity_id: str, *, limit: int = 100) -> list[dict[str, Any]]:
         self._require_started()
         bounded = max(1, min(int(limit), self.MAX_QUERY_ROWS))
