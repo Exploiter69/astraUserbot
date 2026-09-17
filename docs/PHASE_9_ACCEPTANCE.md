@@ -97,20 +97,23 @@ Run after pulling the Phase 9 implementation:
 ```bash
 cd ~/AstraUserbot && \
 git pull --ff-only origin main && \
-.venv/bin/python -m pytest -q tests/test_media_intel_phase9.py tests/test_phase9_media_cases_gate.py tests/test_media_service.py tests/test_intelgraph.py tests/test_intelgraph_phase7.py tests/test_ioc.py && \
+.venv/bin/python tools/phase9_media_investigation_audit.py && \
+.venv/bin/python -m pytest -q tests/test_media_intel_phase9.py tests/test_phase9_media_cases_gate.py tests/test_runtime_services.py tests/test_media_service.py tests/test_intelgraph.py tests/test_intelgraph_phase7.py tests/test_ioc.py && \
 .venv/bin/python -m compileall -q . && \
 .venv/bin/python tools/production_acceptance_gate.py
 ```
 
 Then perform live smoke with authorized non-sensitive media:
 
-1. Reply to a small test image/video/audio with `.mediaintel`.
-2. If a pHash is returned, run `.mediasim <returned-pHash>`.
-3. Create a case with `.case new Phase 9 smoke`.
-4. Attach the exact media/entity target where applicable with `.case add`.
-5. Add a timeline event with `.case event`.
-6. Verify `.case show`, `.case timeline`, `.case report`.
-7. Close it with `.case close` and verify the closed status.
+1. Reply to a small test image with `.mediaintel`; verify SHA-256 and, when available, pHash/OCR evidence.
+2. Reply to a small test audio file with `.mediaintel`; verify transcription is returned or explicitly reported unavailable without a false observation.
+3. Reply to a small test video with `.mediaintel`; verify bounded frame/OCR and audio/transcription paths where local capabilities are available.
+4. If a pHash is returned, run `.mediasim <returned-pHash>` and verify bounded candidate output.
+5. Create a case with `.case new Phase 9 smoke`.
+6. Attach an exact IntelGraph target with `.case add <case-id> <intel-target>`.
+7. Add a timeline event with `.case event <case-id> NOTE <description>`.
+8. Verify `.case show`, `.case timeline`, and `.case report`.
+9. Close it with `.case close <case-id>` and verify the closed status.
 
 Do not use private third-party data as test material.
 
