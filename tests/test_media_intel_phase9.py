@@ -47,7 +47,11 @@ class CaseServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_create_persists_case_and_timeline(self):
         case_id = await self.service.create("Phase 9 case")
         self.assertTrue(case_id)
-        self.assertGreaterEqual(self.storage.execute.await_count, 4)
+        self.assertEqual(self.storage.execute.await_count, 3)
+        calls = self.storage.execute.await_args_list
+        self.assertIn("INSERT INTO cases", calls[0].args[0])
+        self.assertIn("INSERT INTO case_timeline", calls[1].args[0])
+        self.assertIn("UPDATE cases SET updated_at", calls[2].args[0])
 
     async def test_report_is_deterministic_and_bounded(self):
         self.service.get = AsyncMock(return_value={"case_id": "abc", "title": "Test", "status": "OPEN", "summary": "summary"})
