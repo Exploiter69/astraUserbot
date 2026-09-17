@@ -2,12 +2,14 @@
 
 from core.services.automation import AutomationEngine, AutomationError, AutomationRule
 from core.services.cache import Artifact, CacheEntry, CacheService, CacheStats
+from core.services.cases import CaseService
 from core.services.flags import FeatureFlagService
 from core.services.http import HttpService
 from core.services.isolation import IsolationAssessment, IsolationService, IsolationUnavailable
 from core.services.bounded_jobs import JobEngine
 from core.services.jobs import Job, JobError, JobState
 from core.services.media import MediaArtifact, MediaService
+from core.services.media_intel import MediaIntelService
 from core.services.metrics import MetricSnapshot, MetricsService
 from core.services.public_intel import PublicIntelService
 from core.services.search import SearchResult, SearchService
@@ -30,9 +32,9 @@ from core.services.intelgraph import IntelGraph
 from core.services.ioc import IOC, extract as extract_iocs, normalize as normalize_ioc
 
 __all__ = [
-    "Artifact", "CacheEntry", "CacheService", "CacheStats", "FeatureFlagService", "HttpService",
+    "Artifact", "CacheEntry", "CacheService", "CacheStats", "CaseService", "FeatureFlagService", "HttpService",
     "IsolationAssessment", "IsolationService", "IsolationUnavailable", "Job", "JobEngine", "JobError", "JobState",
-    "MediaArtifact", "MediaService", "MetricSnapshot", "MetricsService", "PublicIntelService", "SearchResult", "SearchService",
+    "MediaArtifact", "MediaService", "MediaIntelService", "MetricSnapshot", "MetricsService", "PublicIntelService", "SearchResult", "SearchService",
     "SecretStore", "SecretStoreError", "StorageError", "StorageService", "SubprocessResult", "SubprocessService",
     "DialogState", "EntityState", "TelegramStateCache", "SyncCursor", "SyncResult", "TelegramIncrementalSync",
     "TelegramEvent", "TelegramEventCollector", "TelegramEventJournal", "TelegramEventProjections", "TelegramEventReplay",
