@@ -28,7 +28,7 @@ class Phase9MediaInvestigationGateTests(unittest.TestCase):
 
     def test_case_service_is_durable_and_bounded(self):
         source = (ROOT / "core/services/cases.py").read_text(encoding="utf-8")
-        self.assertIn("Database.get(\"cases\")", source)
+        self.assertIn("self.storage = intelgraph.storage", source)
         self.assertIn("MAX_ROWS", source)
         self.assertIn("case_timeline", source)
         self.assertIn("case_entities", source)
