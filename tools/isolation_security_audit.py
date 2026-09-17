@@ -18,7 +18,16 @@ from core.services.isolation import IsolationService
 from helpers.archive import ArchiveSafetyError, extract_archive
 
 
-_EXCLUDED_DIRS = {".git", ".venv", "venv", "env", "__pycache__", ".pytest_cache"}
+_EXCLUDED_DIRS = {
+    ".git",
+    ".venv",
+    "venv",
+    "env",
+    "__pycache__",
+    ".pytest_cache",
+    "tests",
+    "tools",
+}
 
 
 def source_text(path: str) -> str:
