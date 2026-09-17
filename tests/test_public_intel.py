@@ -72,32 +72,15 @@ class FakeTelegram:
         return Entity()
 
 
-class FakeContext:
-    def __init__(self, service):
-        self.service = service
+class FakeClient:
+    def __init__(self):
+        self.handlers = []
 
-    def get(self, name):
-        if name == "public_intel":
-            return self.service
-        raise KeyError(name)
+    def add_event_handler(self, handler, event_builder):
+        self.handlers.append((handler, event_builder))
 
-
-class FakeMatch:
-    def __init__(self, command, argument):
-        self.command = command
-        self.argument = argument
-
-    def group(self, index):
-        return self.command if index == 1 else self.argument
-
-
-class FakeEvent:
-    def __init__(self, command, argument):
-        self.pattern_match = FakeMatch(command, argument)
-        self.output = None
-
-    async def edit(self, value):
-        self.output = value
+    def remove_event_handler(self, handler, event_builder):
+        self.handlers = [item for item in self.handlers if item != (handler, event_builder)]
 
 
 class PublicIntelTests(unittest.IsolatedAsyncioTestCase):
@@ -107,11 +90,7 @@ class PublicIntelTests(unittest.IsolatedAsyncioTestCase):
         self.service = PublicIntelService(self.graph, self.http, FakeTelegram())
 
     def setUp(self):
-        clear_registrations(type("Client", (), {})())
-        self.old_context = public_sources.get_application_context
-
-    def tearDown(self):
-        public_sources.get_application_context = self.old_context
+        clear_registrations(FakeClient())
 
     async def test_username_pivot_is_bounded_and_evidence_backed(self):
         result = await self.service.username_pivot("@Example")
@@ -133,13 +112,14 @@ class PublicIntelTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(item[1]["entity_type"] == "DOMAIN" for item in self.graph.entities))
 
     async def test_command_registration_contains_all_phase_8_surfaces(self):
-        client = type("Client", (), {})()
+        client = FakeClient()
         await public_sources.setup(client)
         self.assertEqual(len(list_registrations()), 1)
         pattern = list_registrations()[0].pattern
         for name in ("tgintel", "userintel", "domainintel", "ct", "linkintel", "gitintel"):
             self.assertIn(name, pattern)
         clear_registrations(client)
+        self.assertEqual(client.handlers, [])
 
     async def test_invalid_targets_are_rejected(self):
         with self.assertRaises(ValueError):
