@@ -36,20 +36,18 @@ class MediaIntelUnitTests(unittest.IsolatedAsyncioTestCase):
 
 class CaseServiceTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        self.db = type("DB", (), {})()
-        self.db.init_schema = AsyncMock()
-        self.db.execute = AsyncMock(side_effect=[type("Cursor", (), {"lastrowid": 1})(), None, None])
-        self.db.fetchone = AsyncMock(return_value={"case_id": "case"})
-        self.db.fetchall = AsyncMock(return_value=[])
-        graph = type("Graph", (), {"storage": self.db, "start": AsyncMock()})()
+        self.storage = type("Storage", (), {})()
+        self.storage.execute = AsyncMock(side_effect=[type("Cursor", (), {"lastrowid": 1})(), None, None])
+        self.storage.fetchone = AsyncMock(return_value={"case_id": "case"})
+        self.storage.fetchall = AsyncMock(return_value=[])
+        graph = type("Graph", (), {"storage": self.storage, "start": AsyncMock()})()
         self.service = CaseService(graph)
-        self.service.db = self.db
         self.service._started = True
 
     async def test_create_persists_case_and_timeline(self):
         case_id = await self.service.create("Phase 9 case")
         self.assertTrue(case_id)
-        self.assertGreaterEqual(self.db.execute.await_count, 3)
+        self.assertGreaterEqual(self.storage.execute.await_count, 3)
 
     async def test_report_is_deterministic_and_bounded(self):
         self.service.get = AsyncMock(return_value={"case_id": "abc", "title": "Test", "status": "OPEN", "summary": "summary"})
