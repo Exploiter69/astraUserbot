@@ -68,6 +68,7 @@
 - [x] Bounded entity reads.
 - [x] Deterministic timeline ordering.
 - [x] Observation references supported.
+- [x] `.case graph <case-id>` provides bounded one-hop graph reads through IntelGraph.
 - [x] Case layer does not duplicate the intelligence graph.
 
 ## 8. CASE-3
@@ -84,6 +85,7 @@
 - [x] `.case new <title>`
 - [x] `.case list`
 - [x] `.case show <case-id>`
+- [x] `.case graph <case-id>`
 - [x] `.case add <case-id> <intel-target>`
 - [x] `.case event <case-id> <kind> <description>`
 - [x] `.case timeline <case-id>`
@@ -112,7 +114,7 @@ Then perform live smoke with authorized non-sensitive media:
 5. Create a case with `.case new Phase 9 smoke`.
 6. Attach an exact IntelGraph target with `.case add <case-id> <intel-target>`.
 7. Add a timeline event with `.case event <case-id> NOTE <description>`.
-8. Verify `.case show`, `.case timeline`, and `.case report`.
+8. Verify `.case show`, `.case graph`, `.case timeline`, and `.case report`.
 9. Close it with `.case close <case-id>` and verify the closed status.
 
 Do not use private third-party data as test material.
