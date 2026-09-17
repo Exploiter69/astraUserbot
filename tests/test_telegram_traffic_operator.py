@@ -1,6 +1,6 @@
-import asyncio
 import unittest
 
+from core.errors import CommandError
 from core.registry import clear_registrations, list_registrations
 from plugins.system_ops import telegram_traffic
 
@@ -68,7 +68,8 @@ class FakeEvent:
 
 class TelegramTrafficOperatorTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
-        clear_registrations(type("Client", (), {})())
+        client = type("Client", (), {})()
+        clear_registrations(client)
         self.old_ctx = telegram_traffic.get_application_context
         telegram_traffic.get_application_context = lambda: FakeContext()
 
@@ -78,10 +79,11 @@ class TelegramTrafficOperatorTests(unittest.IsolatedAsyncioTestCase):
     async def test_setup_registers_all_phase_commands(self):
         client = type("Client", (), {})()
         await telegram_traffic.setup(client)
-        names = set()
-        for registration in list_registrations():
-            names.update(telegram_traffic._command_names(registration))
-        self.assertTrue({"tghealth", "tgtraffic", "tgfloods", "tgpeer", "tgmethod", "tgdiag"} <= names)
+        registrations = list_registrations()
+        self.assertEqual(len(registrations), 1)
+        pattern = registrations[0].pattern
+        for name in ("tghealth", "tgtraffic", "tgfloods", "tgpeer", "tgmethod", "tgdiag"):
+            self.assertIn(name, pattern)
         clear_registrations(client)
 
     async def test_health_and_traffic_are_bounded_snapshots(self):
@@ -105,7 +107,7 @@ class TelegramTrafficOperatorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Method: send_message", event.output)
 
     async def test_missing_peer_is_rejected(self):
-        with self.assertRaises(Exception):
+        with self.assertRaises(CommandError):
             await telegram_traffic.handle(FakeEvent("tgpeer"))
 
 
