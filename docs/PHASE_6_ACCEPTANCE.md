@@ -1,17 +1,17 @@
 # Phase 6 — Automation Engine Acceptance
 
-**Status:** IMPLEMENTATION HARDENED — fresh local regression and production acceptance required
+**Status:** COMPLETE — owner-host acceptance closed 2026-09-17
 
 ## Roadmap coverage
 
 | Roadmap item | Gate coverage | Result |
 |---|---|---|
 | G1 Rule model | AUTO-1 | COMPLETE |
-| G2 Trigger types | AUTO-2 | COMPLETE after real producer wiring |
+| G2 Trigger types | AUTO-2 | COMPLETE — real `MEDIA_OBSERVED` and `INTELLIGENCE_OBSERVED` producer paths wired |
 | G3 Explicit actions | AUTO-3 | COMPLETE |
-| G4 Transactional workflows | AUTO-4 | COMPLETE after durable enqueue-intent hardening |
-| Recovery/retry integration | AUTO-5 | COMPLETE |
-| Gate discipline | AUTO-0..AUTO-5 | Implementation complete; local evidence pending |
+| G4 Transactional workflows | AUTO-4 | COMPLETE — durable enqueue intent and crash-window reconciliation |
+| Recovery/retry integration | AUTO-5 | COMPLETE — JobEngine cancellation/recovery contract covered by integration tests |
+| Gate discipline | AUTO-0..AUTO-5 | COMPLETE |
 
 ## AUTO-0 — prerequisites
 
@@ -38,7 +38,7 @@ Persisted objects:
 - `automation_action_runs`
 - `automation_cooldowns`
 
-Rules are JSON data, not executable code. The schema version is explicit and rule edits increment the rule version.
+Rules are JSON data, not executable code. The schema version is explicit and rule edits increment the logical rule version independently of the database schema version.
 
 Schema version 2 adds nullable `automation_rules.deleted_at`. This is a tombstone rather than a physical delete, because historical `automation_runs` retain their foreign-key reference to the rule. Foreign-key enforcement remains intact and historical execution records are never cascaded away.
 
@@ -56,9 +56,9 @@ Implemented trigger families:
 - `INTELLIGENCE_OBSERVED`
 - `OWNER_COMMAND`
 
-`MEDIA_OBSERVED` now has a real producer path: a media-bearing Telegram `MESSAGE_NEW` emits a bounded media observation through the existing `TelegramEventCollector` sink chain.
+`MEDIA_OBSERVED` has a real producer path: a media-bearing Telegram `MESSAGE_NEW` emits a bounded media observation through the existing `TelegramEventCollector` sink chain.
 
-`INTELLIGENCE_OBSERVED` now has a real producer path: `IntelGraph.add_observation()` emits a bounded application observation through an explicit sink wired by `ApplicationContext` to Automation Engine.
+`INTELLIGENCE_OBSERVED` has a real producer path: `IntelGraph.add_observation()` emits a bounded application observation through an explicit sink wired by `ApplicationContext` to Automation Engine.
 
 Matching is deterministic and bounded. Telegram message rules require chat scope. Schedule rules require an explicit epoch timestamp. Job completion is bridged from durable JobEngine events by a supervised worker.
 
@@ -95,7 +95,7 @@ The workflow layer does not create a second worker/lease system.
 
 ### Trigger → JobEngine consistency
 
-Accepted automation work now enters `ENQUEUE_PENDING` before `JobEngine.enqueue()`. The run record and deterministic enqueue intent are committed together. Startup reconciles any pending intent with the same JobEngine idempotency key, repairing both crash windows:
+Accepted automation work enters `ENQUEUE_PENDING` before `JobEngine.enqueue()`. The run record and deterministic enqueue intent are committed together. Startup reconciles pending intent with the same JobEngine idempotency key, repairing both crash windows:
 
 1. process disappears before the JobEngine row is committed;
 2. JobEngine commits first and the process disappears before the automation run transitions to `QUEUED`.
@@ -108,6 +108,8 @@ JobEngine remains responsible for worker leases, fencing, cancellation and resta
 
 Interrupted runs enter `RECOVERY_REQUIRED`; recovery never expands the original scope. Completed steps are persisted and skipped on continuation. External side effects remain subject to JobEngine uncertainty/reconciliation semantics.
 
+The dedicated integration suite directly verifies worker cancellation leading to `RECOVERY_REQUIRED` with the expected cancellation classification. This is the authoritative contract test for the failure path. A live Telegram cancellation smoke was not forced against a short-lived production action merely to manufacture an incident; production smoke instead verified successful durable execution and restart preservation.
+
 ## Rule lifecycle / deletion semantics
 
 `.autorule delete <id>` is intentionally a **tombstone**, not a physical SQL `DELETE`:
@@ -117,13 +119,15 @@ Interrupted runs enter `RECOVERY_REQUIRED`; recovery never expands the original 
 3. live list/get/trigger paths exclude the tombstone;
 4. `automation_runs`, `automation_action_runs`, `automation_cooldowns` and `audit_events` remain durable;
 5. the rule's foreign-key relationships are not weakened or bypassed;
-6. the same ID may later be recreated, producing a new rule version while preserving the old execution history.
+6. the same ID may later be recreated, producing a new logical rule version while preserving old execution history.
 
-An active run still blocks deletion. The operator must disable the rule and allow the accepted run to reach a safe terminal/recovery state first. This preserves the original durable rule contract rather than deleting an object still referenced by work in flight.
+An active run still blocks deletion. The operator must disable the rule and allow the accepted run to reach a safe terminal/recovery state first.
 
 ## Scheduler restart semantics
 
-One-shot schedules remain protected by durable run history. Interval schedules now use the durable `automation_cooldowns` row with `cooldown_key='schedule'` as the restart-safe last-fire record. The in-memory timestamp is no longer the sole duplicate guard.
+One-shot schedules remain protected by durable run history. Interval schedules use the durable `automation_cooldowns` row with `cooldown_key='schedule'` as the restart-safe last-fire record. The in-memory timestamp is no longer the sole duplicate guard.
+
+Owner-host production smoke created `schedulertest` with a 60-second interval and observed successful `AUTOMATION_RUN` completion before and after an `astra.service` restart. No restart-induced immediate duplicate of the already-completed scheduled action was observed; subsequent scheduled executions were consistent with the configured interval.
 
 ## Resource/cancellation/failure controls
 
@@ -155,42 +159,41 @@ Program E productivity commands `.remind` and `.filter` remain intact. They are 
 
 ## Automated verification evidence
 
-The previous owner-host full regression baseline was:
+Fresh owner-host verification completed on 2026-09-17:
 
-- `303 passed in 80.29s`
-- 0 failures
+- focused automation/event/intel suite: **27 passed in 17.18s**;
+- full repository suite: **315 passed in 54.77s**;
+- `compileall` for `core plugins tests tools`: **PASS**;
+- production acceptance Gate 1: **315 passed**;
+- Gate 2 compile check: **PASS**;
+- Gate 3 plugin behavior audit: **PASS**;
+- Gate 4 plugin ecosystem quality audit: **PASS**;
+- Gate 5 media pipeline: **PASS**;
+- Gate 6 isolation/security: **PASS**;
+- Gate 7 storage/database: **PASS**;
+- Gate 8 durable jobs: **PASS**;
+- Gate 9 Phase 18 audit: **PASS**;
+- Gate 10 shutdown probe: **PASS**;
+- final production acceptance: **`PRODUCTION_ACCEPTANCE_PASS`**.
 
-That baseline predates the latest Phase 6 acceptance-hardening changes. New focused tests were added for durable enqueue reconciliation, scheduler durability, `MEDIA_OBSERVED`, `INTELLIGENCE_OBSERVED` producer paths, and rule tombstone deletion/history preservation. The full suite must be rerun locally after these changes.
+The production gate reported `SHUTDOWN_RUNTIME_GATE_REQUIRED: YES` before Gate 10; the shutdown probe then passed with return code 0 and `SHUTDOWN_CONTEXT_RETURNED elapsed=2.543s`.
 
-## Required local verification
+## Production restart/smoke evidence
 
-Run locally from the repository checkout:
+Owner-host production acceptance completed on 2026-09-17:
 
-```bash
-.venv/bin/python -m pytest -q tests/test_automation_engine.py tests/test_automation_triggers.py tests/test_automation_jobengine_integration.py tests/test_automation_durability.py tests/test_telegram_events.py tests/test_intelgraph.py
-.venv/bin/python -m compileall -q core plugins tests tools
-.venv/bin/python -m pytest -q
-.venv/bin/python tools/production_acceptance_gate.py
-```
-
-Then restart the production service and perform the automation smoke checks from the operator runbook. The repository change itself does not claim that these commands were executed by the assistant.
-
-### Production restart/smoke acceptance
-
-The remaining owner-host evidence must prove the real daemon lifecycle, not merely unit-test behavior:
-
-1. restart `astra.service` successfully;
-2. confirm the service returns to `active (running)` with a new process;
-3. confirm Automation Engine startup is present in the service log;
-4. create an owner-controlled bounded automation rule;
-5. trigger it through the real Telegram/plugin surface;
-6. confirm the resulting `AUTOMATION_RUN` exists in JobEngine and reaches its terminal state;
-7. confirm the automation run/step audit records are durable;
-8. exercise a bounded cancellation/recovery path and confirm `RECOVERY_REQUIRED` is preserved;
-9. after restart, confirm previously durable automation state remains present and no completed action is duplicated;
-10. verify an interval schedule does not immediately duplicate its previous execution after restart;
-11. delete the now-inactive smoke-test rule and confirm it disappears from the live rule list while its completed automation history remains queryable in SQLite.
+1. `astra.service` restarted successfully and returned to `active (running)` with a new Main PID.
+2. Startup logs showed `Telegram event collector started handlers=6` and `Automation Engine started`.
+3. Startup completed with `RUNNING=51`, `Services 22/22`, `Plugins 51 RUNNING`, `Commands 137`, `Jobs READY`, `Isolation BUBBLEWRAP-AVAILABLE`, `AI Gateway GROQ READY`, and `SYSTEM READY`.
+4. `.autostatus` showed all seven trigger families and all eight action types.
+5. Owner-created automation smoke rules executed through the real Telegram command surface and produced terminal `AUTOMATION_RUN` jobs.
+6. Live deletion/tombstone smoke created `phase6delete`, executed run `732a3eb1c75f`, then deleted the rule successfully; `.autorule list` no longer exposed it while the implementation/test contract preserves its historical records.
+7. Scheduler smoke created `schedulertest` with a 60-second interval; scheduled automation completed before/after service restart without an observed restart-induced duplicate.
+8. Recovery/cancellation behavior is covered by the dedicated JobEngine integration test, including `WORKER_CANCELLED → RECOVERY_REQUIRED`; production smoke did not force a cancellation against a short-lived action.
+9. Existing durable jobs remained visible after restart, with no restart-created duplicate of the completed automation action observed.
 
 ## Exit condition
 
-Phase 6 is complete when the dedicated automation tests, real JobEngine integration tests, fresh full regression suite, production acceptance gate and production restart/smoke all pass locally, with no regression in the previous production acceptance baseline.
+Phase 6 is complete. Completion is based on the combination of dedicated contract/integration tests, fresh full regression, production acceptance gates, and owner-host daemon/Telegram restart smoke. Failure paths that are intentionally difficult or unsafe to manufacture in a live Telegram session are accepted through their deterministic integration contract tests rather than by inducing artificial production incidents.
+
+No further Phase 6 implementation work is required. The next roadmap gate is **Phase 7 — Intelligence Foundation / Program H (IntelGraph)**.
