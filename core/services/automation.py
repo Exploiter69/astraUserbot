@@ -144,7 +144,7 @@ class AutomationEngine:
         if int(row[0]) >= MAX_RULES and not await self._rule_exists(rid):
             raise AutomationError("Automation rule limit reached")
         now = time.time()
-        params = (rid, RULE_SCHEMA_VERSION, 1, self.owner_id, self._dump(trigger), self._dump(scope), self._dump(match), self._dump(actions), float(cooldown_seconds), int(max_runs), now, now)
+        params = (rid, 1, 1, self.owner_id, self._dump(trigger), self._dump(scope), self._dump(match), self._dump(actions), float(cooldown_seconds), int(max_runs), now, now)
         await self.storage.execute("INSERT INTO automation_rules(id,version,enabled,owner,trigger_json,scope_json,match_json,actions_json,cooldown_seconds,max_runs,created_at,updated_at,deleted_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,NULL) ON CONFLICT(id) DO UPDATE SET version=automation_rules.version+1,enabled=1,owner=excluded.owner,trigger_json=excluded.trigger_json,scope_json=excluded.scope_json,match_json=excluded.match_json,actions_json=excluded.actions_json,cooldown_seconds=excluded.cooldown_seconds,max_runs=excluded.max_runs,updated_at=excluded.updated_at,deleted_at=NULL", params)
         await self._audit("AUTOMATION_RULE_UPSERT", rid, {"schema": RULE_SCHEMA_VERSION})
         return await self.get_rule(rid)
