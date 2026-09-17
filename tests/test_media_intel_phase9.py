@@ -37,7 +37,7 @@ class MediaIntelUnitTests(unittest.IsolatedAsyncioTestCase):
 class CaseServiceTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.storage = type("Storage", (), {})()
-        self.storage.execute = AsyncMock(side_effect=[type("Cursor", (), {"lastrowid": 1})(), None, None])
+        self.storage.execute = AsyncMock(return_value=type("Cursor", (), {"lastrowid": 1})())
         self.storage.fetchone = AsyncMock(return_value={"case_id": "case"})
         self.storage.fetchall = AsyncMock(return_value=[])
         graph = type("Graph", (), {"storage": self.storage, "start": AsyncMock()})()
@@ -47,7 +47,7 @@ class CaseServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_create_persists_case_and_timeline(self):
         case_id = await self.service.create("Phase 9 case")
         self.assertTrue(case_id)
-        self.assertGreaterEqual(self.storage.execute.await_count, 3)
+        self.assertGreaterEqual(self.storage.execute.await_count, 4)
 
     async def test_report_is_deterministic_and_bounded(self):
         self.service.get = AsyncMock(return_value={"case_id": "abc", "title": "Test", "status": "OPEN", "summary": "summary"})
