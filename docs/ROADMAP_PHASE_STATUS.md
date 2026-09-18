@@ -98,3 +98,29 @@ The case attached exact PHASH entity `3a17056f437b4547`, recorded a NOTE event, 
 **Phase 9 is closed. Phase 10 is unlocked.**
 
 Phase 10 work must continue through the roadmap prerequisite → discovery/design → implementation → verification → production acceptance → restart/live smoke → documentation gate sequence.
+
+
+## Phase 10 — Security + Ecosystem
+
+**Status:** IMPLEMENTATION COMPLETE — owner-host acceptance pending  
+**Gates:** SEC-1, SEC-2, SEC-3, SDK-1, SDK-2, COMP-1, COMP-2  
+**Architecture record:** docs/PHASE_10_SECURITY_ECOSYSTEM.md  
+**Competitive record:** docs/COMPETITOR_FEATURE_MATRIX.md
+
+### Implementation evidence
+
+- SEC-1 bounded explainable URL risk engine implemented in core/services/security_intel.py.
+- SEC-2 IDN/punycode/mixed-script/confusable analysis implemented.
+- SEC-3 public defensive URLhaus and MalwareBazaar adapters implemented with minimized responses and bounded HTTP usage.
+- New commands: .secrisk, .idn, .reputation.
+- Security service wired through ApplicationContext/shared services; no second network client or workflow engine introduced.
+- SDK-1 capability metadata remains part of the formal plugin contract.
+- SDK-2 read-only AST plugin registry/compatibility tooling implemented in tools/plugin_registry.py.
+- Phase 10 registry and security focused tests added.
+- COMP-1 competitor feature matrix frozen in docs/COMPETITOR_FEATURE_MATRIX.md.
+- COMP-2 useful catch-up work limited to security analysis and sustainable plugin ecosystem tooling; low-value command-volume copying explicitly rejected.
+- Read-only phase audit added: tools/phase10_security_ecosystem_audit.py.
+
+### Owner-host closure still required
+
+Run the Phase 10 focused suite, registry audit, full regression, compileall, production acceptance, system restart, and live .secrisk, .idn, and .reputation smoke tests. Only after those results are recorded should Phase 10 be marked COMPLETE.
