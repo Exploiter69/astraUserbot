@@ -78,6 +78,20 @@ class SecurityIntelService:
         except UnicodeError as exc:
             raise ValueError("Hostname contains invalid IDN data.") from exc
 
+        script_names = {
+            "LATIN": "Latin",
+            "CYRILLIC": "Cyrillic",
+            "GREEK": "Greek",
+            "HEBREW": "Hebrew",
+            "ARABIC": "Arabic",
+            "DEVANAGARI": "Devanagari",
+            "ARMENIAN": "Armenian",
+            "GEORGIAN": "Georgian",
+            "HIRAGANA": "Hiragana",
+            "KATAKANA": "Katakana",
+            "HANGUL": "Hangul",
+            "CJK": "CJK",
+        }
         scripts: set[str] = set()
         for char in unicode_host:
             if not char.isalpha():
@@ -85,15 +99,11 @@ class SecurityIntelService:
             name = unicodedata.name(char, "")
             script = next(
                 (
-                    item
-                    for item in (
-                        "LATIN", "CYRILLIC", "GREEK", "HEBREW", "ARABIC",
-                        "DEVANAGARI", "ARMENIAN", "GEORGIAN", "HIRAGANA",
-                        "KATAKANA", "HANGUL", "CJK",
-                    )
+                    script_names[item]
+                    for item in script_names
                     if item in name
                 ),
-                "OTHER",
+                "Other",
             )
             scripts.add(script)
 
