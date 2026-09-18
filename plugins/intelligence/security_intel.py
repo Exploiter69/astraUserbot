@@ -47,7 +47,7 @@ async def handle(event):
         result = await service.assess_text(text)
         if not result["assessments"]:
             raise CommandError("Usage: .secrisk <url> or reply to a message containing a URL.")
-        rows = [f"URLs analyzed: {len(result["assessments"])}"]
+        rows = [f"URLs analyzed: {len(result['assessments'])}"]
         for assessment in result["assessments"]:
             rows.extend([
                 f"{assessment.target[:150]}",
