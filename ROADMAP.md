@@ -298,7 +298,6 @@ Capabilities are observations with timestamps, not permanent truth.
 ## B4. Incremental synchronization
 
 Persist synchronization cursors:
-
 - chat ID;
 - last message ID;
 - last synced timestamp;
@@ -598,7 +597,6 @@ Initial concepts:
 - timestamps
 
 Example relationship types:
-
 - `OWNS`
 - `USES`
 - `RESOLVES_TO`
@@ -898,7 +896,6 @@ Where safe and useful, support:
 - dHash;
 - aHash;
 - video frame fingerprints.
-
 Exact SHA-256 remains the authoritative byte identity; perceptual hashes are similarity signals.
 
 ## N3. Screenshot intelligence
@@ -1197,8 +1194,7 @@ The roadmap is intentionally broad, but implementation order matters.
 ## Phase 4 — Product Feature Expansion
 
 18. productivity feature family
-19. moderation feature family
-20. Telegram utility family
+19. moderation feature family20. Telegram utility family
 21. media utility family
 22. web/network utility family
 23. command-by-command collision/permission audit
@@ -1497,8 +1493,7 @@ The standard lifecycle is:
 PREREQUISITES
     ↓
 DISCOVERY / DESIGN
-    ↓
-IMPLEMENTATION
+    ↓IMPLEMENTATION
     ↓
 TEST / FAILURE VALIDATION
     ↓
@@ -1798,7 +1793,6 @@ Determine whether one source is:
 - an extracted partition;
 - an enrichment of another;
 - a partial mirror.
-
 A smaller dataset is not automatically discarded. It may contain unique records or a useful partition not present in the selected master.
 
 **Exit:** derived/subset relationships are represented explicitly.
@@ -2097,8 +2091,7 @@ Selected External Datasets
 Local Archive
         │
         ▼
-Source Registry
-        │
+Source Registry        │
         ▼
 Normalization
         │
@@ -2398,7 +2391,6 @@ Major families have duplicate/derived/subset/merged/master-candidate relationshi
 The corpus can distinguish repository count from estimated unique coverage.
 
 ### `DS-ACCEPT-4` — Source manifest frozen
-
 Selected sources and their lineage are recorded in a versioned manifest.
 
 ### `DS-ACCEPT-5` — Remote query validated
@@ -2497,3 +2489,692 @@ This is the governing principle for the remainder of AstraUserbot 2.x:
 ---
 
 **Roadmap objective remains unchanged:** make AstraUserbot one coherent, feature-rich, zero-cost Telegram automation and local intelligence platform without sacrificing the production-grade engineering foundation already achieved in v1.0.0. The new dataset lineage and prerequisite model expands the roadmap; it does not remove or invalidate any existing A–T capability.
+
+
+---
+
+# 56. Competitive Product-Surface Maturity — selective parity, not command-count cloning
+
+This section is a deliberate product-surface expansion derived from research into mature Telegram userbot ecosystems, including Hikka, CatUserbot, Ultroid, CipherElite and Project Akasha. It is not a request to copy their command volume or their implementation architecture.
+
+The objective is to copy the things that make a mature userbot feel finished:
+
+- discoverable;
+- obvious;
+- interactive;
+- easy to configure;
+- easy to install;
+- easy to operate;
+- useful immediately after first launch;
+- consistent across plugins;
+- pleasant for both simple commands and long-running jobs.
+
+Astra must absorb these qualities while preserving its own platform contracts:
+
+Command Contract → authorization → TelegramTrafficController → plugin/service → JobEngine when durable → event/search/intelligence projections → evidence/provenance → recovery
+
+No competitor-derived UX feature may bypass those contracts.
+
+## 56.1 Research signals
+
+### Hikka
+
+Hikka is the strongest reference for developer-oriented userbot UX and module ergonomics. Its public documentation exposes inline forms, galleries, lists, inline interactions, bot interactions, InlineLogs, Grep, entity caching, API flood protection, UI/UX improvements and compatibility with older module ecosystems. These are product-surface patterns worth reproducing selectively.
+
+Astra should learn from Hikka:
+
+- richer interactive UI;
+- forms;
+- galleries;
+- lists;
+- command discovery;
+- module UX;
+- actionable error presentation;
+- plugin/module compatibility ergonomics;
+- operator-friendly diagnostics.
+
+Astra must not copy Hikka's legacy architecture or treat old module compatibility as a reason to weaken current safety contracts.
+
+### CatUserbot
+
+CatUserbot is a useful reference for practical Telegram utility and group-management breadth. Its long-lived Telethon codebase and large community/plugin history demonstrate the value of immediately useful moderation and owner utilities rather than only intelligence features.
+
+Astra should learn from CatUserbot:
+
+- mature moderation workflows;
+- practical Telegram utilities;
+- purge/restriction workflows;
+- useful group-management helpers;
+- media helpers;
+- plugin ergonomics;
+- straightforward deployment/documentation.
+
+Astra must keep destructive operations bounded, authorized and observable. Features associated with spam, raid behavior, restriction evasion or abusive automation are not competitive requirements.
+
+### Ultroid
+
+Ultroid is a useful reference for pluggable Telegram breadth and addon ergonomics. Its public ecosystem separates core functionality from plugins/addons and provides simple decorator-based extension patterns.
+
+Astra should learn from Ultroid:
+
+- clean plugin/addon discovery;
+- low-friction extension conventions;
+- practical moderation and utility workflows;
+- media helpers;
+- assistant-oriented plugin separation;
+- simple examples for third-party contributors;
+- predictable command ownership.
+
+Astra's plugin API remains richer and more explicit than a simple decorator contract because it must carry permissions, operation class, resource bounds, compatibility, network usage, destructive classification and durable behavior.
+
+### CipherElite
+
+CipherElite is the strongest reference for frictionless product onboarding and operator experience. Its public surface emphasizes a free deployer flow, plugin discovery, AI assistant features, configuration/update controls, analytics and a large plugin/command catalog.
+
+Astra should learn from CipherElite:
+
+- frictionless first-run experience;
+- plugin discoverability;
+- AI assistant UX;
+- update/configuration UX;
+- deployment/operator UX;
+- obvious setup diagnostics;
+- easy recovery/restart controls;
+- useful defaults.
+
+Astra must not copy unsafe automatic dependency installation blindly. Plugin dependencies should remain declared, inspected, compatibility-checked and subject to Astra's controlled installation/isolation policy.
+
+### Project Akasha / AI-oriented userbot ecosystems
+
+AI-oriented userbots demonstrate the value of:
+
+- context-aware AI;
+- conversational automation;
+- media + AI integration;
+- voice/TTS workflows;
+- AI-assisted Telegram interaction;
+- persistent conversational context.
+
+Astra should learn from this product behavior while keeping the AI advisory boundary:
+
+- model output is not authorization;
+- model output is not durable truth;
+- tool access is explicitly bounded;
+- destructive actions require policy/authorization;
+- durable work goes through JobEngine;
+- context is bounded and provenance-aware.
+
+## 56.2 Cross-ecosystem product qualities
+
+Across the researched ecosystems, Astra should deliberately converge on:
+
+### Help and discovery
+
+The owner should not need to remember command names.
+
+Required direction:
+
+- polished .help;
+- category browsing;
+- search by command name/description;
+- aliases;
+- examples;
+- permissions;
+- operation class;
+- owning plugin;
+- whether a command creates a durable job;
+- whether network access is required;
+- whether confirmation is required.
+
+Target interaction:
+
+.help → categories
+
+.help moderation → moderation commands
+
+.help search → matching commands
+
+.command describe <name> → complete contract
+
+.command examples <name> → runnable examples
+
+### Obvious commands
+
+Commands should use predictable names and aliases.
+
+Avoid:
+
+- cryptic abbreviations unless historically established;
+- multiple plugins claiming the same canonical command;
+- undocumented hidden aliases;
+- commands whose destructive behavior is not obvious.
+
+The Command Contract becomes the source of truth.
+
+### Predictable aliases
+
+Aliases must be:
+
+- explicit;
+- collision-checked;
+- versioned;
+- shown in help;
+- included in compatibility metadata.
+
+An alias must never bypass permissions or operation classification.
+
+### Discoverability
+
+Users should be able to discover functionality from inside Telegram.
+
+Target capabilities:
+
+- command search;
+- plugin/category browsing;
+- examples;
+- recently used commands where privacy-safe;
+- contextual suggestions after known errors;
+- links from a command to its plugin/source/contract;
+- discoverable job status/retry/cancel controls.
+
+### Useful defaults
+
+A fresh installation should work sensibly before extensive configuration.
+
+Defaults should cover:
+
+- safe help;
+- health/status;
+- plugin inventory;
+- bounded diagnostics;
+- standard formatting;
+- conservative Telegram traffic limits;
+- safe media limits;
+- bounded AI context;
+- local storage paths;
+- default logging;
+- recovery visibility.
+
+Defaults must be conservative. Convenience must not silently enable destructive or high-volume behavior.
+
+## 56.3 Rich interactive UI
+
+Astra should reach a mature interactive UX without making interactive UI mandatory.
+
+### UX-UI-1 — Buttons
+
+Support inline buttons for:
+
+- pagination;
+- navigation;
+- confirmation;
+- retry;
+- cancel;
+- open details;
+- source/evidence inspection;
+- case navigation;
+- plugin/category navigation.
+
+### UX-UI-2 — Forms
+
+Provide structured forms for commands with multiple parameters.
+
+Examples:
+
+- automation rule creation;
+- archive scope;
+- AI context selection;
+- case creation;
+- dataset/source inspection;
+- moderation configuration.
+
+Forms must produce the same Command Contract as text commands.
+
+### UX-UI-3 — Galleries
+
+Support bounded galleries for:
+
+- media search;
+- image results;
+- archived media;
+- screenshots;
+- evidence media;
+- case attachments.
+
+Every gallery must enforce result count, media-size and resource limits.
+
+### UX-UI-4 — Lists
+
+Support interactive lists for:
+
+- plugins;
+- commands;
+- cases;
+- jobs;
+- sources;
+- entities;
+- datasets;
+- lineage families;
+- evidence records.
+
+### UX-UI-5 — Progress
+
+Long-running operations should expose:
+
+- queued;
+- running;
+- progress;
+- waiting;
+- completed;
+- failed;
+- recovery required.
+
+Where Telegram edits are too expensive, use bounded progress updates rather than message spam.
+
+### UX-UI-6 — Structured errors
+
+Errors should answer:
+
+1. what failed;
+2. whether the operation changed anything;
+3. whether retry is safe;
+4. what the user can do next;
+5. where detailed diagnostics live.
+
+Never expose secrets, internal stack traces or provider credentials.
+
+## 56.4 Module/plugin UX
+
+Astra's plugin system should feel as easy to use as the mature ecosystems while remaining safer.
+
+### PLUX-1 — Plugin catalog
+
+Expose:
+
+.plugins
+
+with:
+
+- installed;
+- running;
+- quarantined;
+- disabled;
+- incompatible;
+- available metadata;
+- version;
+- capabilities;
+- permissions;
+- network usage;
+- dependencies;
+- compatibility.
+
+### PLUX-2 — Plugin detail
+
+Target:
+
+.plugin <name>
+
+Show:
+
+- purpose;
+- commands;
+- aliases;
+- services used;
+- permissions;
+- network access;
+- durable jobs;
+- configuration;
+- dependencies;
+- compatibility;
+- source;
+- version;
+- safety classification.
+
+### PLUX-3 — Plugin lifecycle
+
+Support controlled:
+
+- enable;
+- disable;
+- reload where safe;
+- quarantine;
+- update;
+- rollback;
+- compatibility validation.
+
+Plugin lifecycle actions must not corrupt active jobs or durable state.
+
+### PLUX-4 — Plugin installation ergonomics
+
+Astra should eventually support a clear workflow:
+
+discover → inspect → compatibility check → dependency check → policy check → install → load → health check → enable
+
+Do not implement blind:
+
+plugin asks for dependency → pip install immediately
+
+Third-party code remains an untrusted edge.
+
+## 56.5 Moderation product maturity
+
+Astra already has moderation foundations. The goal is to make them feel complete rather than merely increase command count.
+
+Required workflow quality:
+
+- target selection from reply/username/ID;
+- permission preflight;
+- capability preflight;
+- confirmation for dangerous bulk operations;
+- bounded target count;
+- progress;
+- audit record;
+- result summary;
+- retry/recovery classification;
+- clear partial-success reporting.
+
+Target workflows:
+
+- purge;
+- ban/unban;
+- mute/unmute;
+- warn;
+- kick;
+- pin/unpin;
+- lockdown;
+- anti-spam;
+- filters;
+- welcome/goodbye;
+- moderation reports;
+- moderation history.
+
+Do not add unrestricted spam/raid automation merely for parity with old userbot ecosystems.
+
+## 56.6 Practical Telegram utilities
+
+Expand the utility surface around high-frequency owner tasks:
+
+- message inspection;
+- message IDs;
+- permalink generation;
+- entity inspection;
+- chat diagnostics;
+- reply/reference helpers;
+- formatting;
+- notes/bookmarks;
+- saved-message workflows;
+- templates/snippets;
+- translation;
+- extraction;
+- link inspection;
+- bounded bulk operations;
+- local search;
+- archive search;
+- job controls.
+
+Every utility should prefer reusing existing services rather than creating a duplicate implementation.
+
+## 56.7 Media product maturity
+
+The mature-userbot baseline should include convenient media workflows:
+
+- image/media inspection;
+- conversion;
+- compression under explicit limits;
+- metadata extraction;
+- screenshot/frame extraction;
+- OCR;
+- speech-to-text;
+- text-to-speech;
+- media search;
+- media deduplication;
+- archive/export;
+- evidence attachment.
+
+The media intelligence pipeline remains authoritative for hashes, OCR/STT evidence and correlation. UX commands should be thin adapters over that platform.
+
+## 56.8 AI assistant UX
+
+Astra's AI should feel as easy to use as modern AI-oriented userbots while remaining safer.
+
+Required UX patterns:
+
+- reply to a message → ask AI about it;
+- selected message window → summarize/explain;
+- media → OCR/STT → AI;
+- archive/search result → AI synthesis;
+- intelligence evidence → AI explanation;
+- case/timeline → AI-assisted report draft;
+- conversational follow-up within bounded context;
+- explicit model/provider status;
+- clear failure/retry behavior.
+
+Target flow:
+
+Telegram context → bounded context builder → AI provider → structured result → optional durable job → evidence/provenance
+
+AI must never silently mutate Telegram state.
+
+## 56.9 Context-aware conversational automation
+
+Support controlled conversational workflows:
+
+- conversation context windows;
+- per-chat context policies;
+- explicit reset;
+- context size limits;
+- local context cache;
+- source-aware context;
+- media-derived context;
+- job-backed long conversations where necessary.
+
+Automation may propose actions, but actual Telegram mutations still pass through authorization and traffic-control layers.
+
+## 56.10 Update/configuration UX
+
+A mature Astra installation should make lifecycle management obvious.
+
+Target:
+
+.update
+.config
+.restart
+.health
+.doctor
+
+Features:
+
+- show current version;
+- show available update;
+- preflight compatibility;
+- display changed components;
+- preserve configuration;
+- preserve durable state;
+- refuse unsafe migrations;
+- support rollback/recovery;
+- report exact post-update health.
+
+Updates must never silently replace the durable database or invalidate active jobs.
+
+## 56.11 Deployment/operator UX
+
+Astra is local-first, but local-first does not mean difficult.
+
+First-run should provide:
+
+1. environment preflight;
+2. dependency check;
+3. Telegram credential/session guidance;
+4. storage initialization;
+5. plugin discovery;
+6. AI provider status;
+7. isolation availability;
+8. systemd/service guidance;
+9. health verification;
+10. first safe command tutorial.
+
+Target:
+
+clone → configure → preflight → initialize → login → health → .help → ready
+
+No paid hosting is required.
+
+Optional deployment helpers must remain replaceable and must not become architectural dependencies.
+
+## 56.12 Easy installation
+
+Installation documentation should be optimized for the shortest safe path.
+
+Provide:
+
+- one canonical local install path;
+- one canonical development/test path;
+- one canonical systemd path;
+- explicit zero-cost assumptions;
+- exact prerequisites;
+- common failure diagnostics;
+- safe update path;
+- backup/recovery path.
+
+Avoid maintaining many stale deployment paths merely because old userbots used them.
+
+## 56.13 Product-surface acceptance gates
+
+Add these gates to the roadmap execution:
+
+### UX-MATURITY-1 — Command discovery
+
+Every production command is discoverable from the command registry and searchable through help.
+
+### UX-MATURITY-2 — Interactive foundation
+
+Buttons, pagination, confirmations and progress are available through shared UX services.
+
+### UX-MATURITY-3 — Forms/galleries/lists
+
+High-value workflows expose structured UI where it materially improves usability.
+
+### UX-MATURITY-4 — Plugin UX
+
+Plugins have inspectable metadata, lifecycle state, compatibility and source information.
+
+### UX-MATURITY-5 — Moderation maturity
+
+High-frequency moderation workflows have preflight, authorization, bounds, audit and recovery semantics.
+
+### UX-MATURITY-6 — AI UX
+
+AI works naturally with replies, bounded context, media and local intelligence while preserving advisory authority.
+
+### UX-MATURITY-7 — Lifecycle UX
+
+Update/configuration/restart/doctor workflows are deterministic and recoverable.
+
+### UX-MATURITY-8 — First-run UX
+
+A clean installation can reach a healthy state through one documented, zero-cost path.
+
+### UX-MATURITY-9 — Product acceptance
+
+The complete UX surface passes focused tests, full regression, production acceptance and owner-host validation.
+
+## 56.14 Competitive catch-up rule
+
+A competitor feature is eligible for Astra only when at least one of these is true:
+
+- it materially improves daily Telegram use;
+- it improves discoverability;
+- it improves safety;
+- it improves operator experience;
+- it improves AI/media interaction;
+- it provides a reusable platform primitive;
+- it closes a clearly demonstrated product-surface gap.
+
+Do not implement a feature solely because another userbot has more commands.
+
+The target is:
+
+> mature product surface, not maximal command count.
+
+---
+
+# 57. Roadmap completion state and deferred capabilities
+
+The roadmap is intentionally larger than the current implementation.
+
+The existence of a section, gate or design in this file does not mean the feature is already built.
+
+At the current execution checkpoint:
+
+- numbered Phases 1–10 have been completed through the Security + Ecosystem gate;
+- the long-term A–T program map remains the capability architecture;
+- future program work must still be implemented and accepted;
+- dataset/Hugging Face work is explicitly not complete merely because the design exists.
+
+## 57.1 Dataset/Hugging Face work remains gated
+
+The correct sequence remains:
+
+account census → dataset inventory → family clustering → lineage comparison → duplicate/derived/subset/merged analysis → master candidate selection → unique coverage → source manifest → remote query validation → provenance → graph ingestion
+
+Therefore Astra must not:
+
+- fork random datasets before lineage analysis;
+- treat repository count as unique coverage;
+- build adapters for every discovered fork;
+- claim a master source without evidence;
+- download huge datasets merely because they are available;
+- treat duplicate datasets as independent corroboration.
+
+The DS-*, DS-ACCEPT-* and HF-* gates are future implementation work until their owner-host acceptance evidence exists.
+
+## 57.2 Other roadmap designs are also not completion claims
+
+The same rule applies to:
+
+- future UX maturity gates;
+- remaining AI product work;
+- future automation capabilities;
+- additional intelligence adapters;
+- expanded media workflows;
+- correlation engine expansion;
+- dataset integrations;
+- plugin SDK expansion;
+- competitive catch-up;
+- release/operations work.
+
+A feature is complete only after implementation, tests, documentation, production acceptance and owner-host validation satisfy the relevant gate.
+
+## 57.3 Prerequisite-first execution
+
+Before beginning any major future phase:
+
+1. inspect the current roadmap gate;
+2. identify every prerequisite;
+3. verify which prerequisites are actually implemented;
+4. finish missing prerequisites first;
+5. perform external-source/account/dataset research where required;
+6. select authoritative sources;
+7. implement the minimum platform contract;
+8. implement the feature;
+9. integrate search/intelligence/job/event projections where applicable;
+10. test failure/recovery paths;
+11. update acceptance evidence;
+12. only then mark the gate complete.
+
+This prevents documentation from being mistaken for implementation.
+
+## 57.4 No hidden completion
+
+Never mark a gate COMPLETE because:
+
+- code exists;
+- a command appears in help;
+- a test passes in isolation;
+- a dataset was discovered;
+- a repository was forked;
+- an adapter was written;
+- a README describes the feature.
+
+Completion requires the gate's full evidence contract.
+
