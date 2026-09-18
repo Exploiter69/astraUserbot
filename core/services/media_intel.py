@@ -111,44 +111,34 @@ class MediaIntelService:
         """Decode one bounded grayscale frame through the reviewed isolation boundary."""
         if not shutil.which("ffmpeg"):
             return {"phash": None, "ahash": None, "dhash": None}
-        raw = workspace.resolve("hash.raw")
         relative = source.relative_to(workspace.path).as_posix()
-        result = await self.media.run_isolated(
-            [
-                "ffmpeg",
-                "-hide_banner",
-                "-nostdin",
-                "-v",
-                "error",
-                "-threads",
-                "1",
-                "-filter_threads",
-                "1",
-                "-filter_complex_threads",
-                "1",
-                "-i",
-                f"/workspace/{relative}",
-                "-an",
-                "-sn",
-                "-dn",
-                "-frames:v",
-                "1",
-                "-vf",
-                "scale=32:32:flags=bilinear",
-                "-pix_fmt",
-                "gray",
-                "-f",
-                "rawvideo",
-                "-y",
-                "/workspace/hash.raw",
-            ],
-            workspace=workspace,
-            timeout=30,
-            max_output_bytes=16 * 1024,
-        )
-        if result.returncode != 0 or not raw.is_file() or raw.stat().st_size < 1024:
+        result = await self.media.run_isolated([
+            "ffmpeg", "-hide_banner", "-nostdin", "-v", "error",
+            "-threads", "1", "-filter_threads", "1", "-filter_complex_threads", "1",
+            "-i", f"/workspace/{relative}", "-an", "-sn", "-dn", "-frames:v", "1",
+            "-vf", "scale=32:32:flags=bilinear", "-pix_fmt", "gray", "-f", "rawvideo", "pipe:1",
+        ], workspace=workspace, timeout=30, max_output_bytes=16 * 1024)
+        pixels = result.stdout.encode("latin-1") if result.stdout else b""
+        if result.returncode != 0 or len(pixels) < 1024:
+            pgm = workspace.resolve("hash.pgm")
+            fallback = await self.media.run_isolated([
+                "ffmpeg", "-hide_banner", "-nostdin", "-v", "error",
+                "-threads", "1", "-filter_threads", "1", "-filter_complex_threads", "1",
+                "-i", f"/workspace/{relative}", "-an", "-sn", "-dn", "-frames:v", "1",
+                "-vf", "scale=32:32:flags=bilinear,format=gray",
+                "-f", "image2", "-vcodec", "pgm", "-y", "/workspace/hash.pgm",
+            ], workspace=workspace, timeout=30, max_output_bytes=16 * 1024)
+            if fallback.returncode != 0 or not pgm.is_file():
+                return {"phash": None, "ahash": None, "dhash": None}
+            payload = pgm.read_bytes()
+            marker = payload.find(b"\\n255\\n")
+            if marker < 0:
+                return {"phash": None, "ahash": None, "dhash": None}
+            pixels = payload[marker + 5: marker + 5 + 1024]
+        else:
+            pixels = pixels[:1024]
+        if len(pixels) < 1024:
             return {"phash": None, "ahash": None, "dhash": None}
-        pixels = raw.read_bytes()[:1024]
         ahash_pixels = bytes(pixels[row * 32 + col] for row in range(0, 32, 4) for col in range(0, 32, 4))
         dhash_grid = bytearray()
         for row in range(8):
@@ -156,12 +146,7 @@ class MediaIntelService:
             for col in range(9):
                 x = min(col * 4, 31)
                 dhash_grid.append(pixels[y * 32 + x])
-        return {
-            "phash": self._dct_phash(pixels),
-            "ahash": self._ahash(ahash_pixels),
-            "dhash": self._dhash(bytes(dhash_grid)),
-        }
-
+        return {"phash": self._dct_phash(pixels), "ahash": self._ahash(ahash_pixels), "dhash": self._dhash(bytes(dhash_grid))}
     async def _entity_observation(self, entity_type: str, value: str, *, matched_field: str, match_type: str, provenance: dict[str, Any], confidence: float = 1.0) -> str:
         entity_id = await self.intelgraph.add_entity(entity_type=entity_type, canonical_value=value, display_value=value)
         await self.intelgraph.add_observation(entity_id=entity_id, source_id="media-intel-local", source_family="MEDIA", matched_field=matched_field, match_type=match_type, evidence_state="OBSERVED", confidence=confidence, provenance=provenance)
@@ -228,10 +213,12 @@ class MediaIntelService:
                             "1",
                             "-filter_complex_threads",
                             "1",
-                            "-ss",
-                            str(seconds),
                             "-i",
                             f"/workspace/{relative}",
+                            "-ss",
+                            str(seconds),
+                            "-copyts",
+                            "-start_at_zero",
                             "-an",
                             "-sn",
                             "-dn",
