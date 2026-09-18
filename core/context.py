@@ -17,6 +17,7 @@ from core.services import (
     MediaIntelService,
     MediaService,
     PublicIntelService,
+    SecurityIntelService,
     SecretStore,
     SearchService,
     StorageService,
@@ -71,6 +72,7 @@ class ApplicationContext:
         self.get("telegram_events").add_sink(self._project_event)
         self.register("intelgraph", IntelGraph(self.get("storage")))
         self.register("public_intel", PublicIntelService(self.get("intelgraph"), self.get("http"), self.get("telegram")))
+        self.register("security_intel", SecurityIntelService(self.get("http"), self.get("public_intel")))
         self.register("workspace", WorkspaceService(self.project_root))
         self.register("isolation", IsolationService())
         self.register("media", MediaService(self.get("workspace"), self.get("subprocess"), self.get("isolation")))
