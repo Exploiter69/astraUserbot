@@ -7,7 +7,6 @@ return minimized metadata.
 
 from __future__ import annotations
 
-import hashlib
 import ipaddress
 import json
 import re
@@ -15,13 +14,9 @@ import unicodedata
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
-from core.errors import ResourceError
-
 
 _MAX_URL = 2048
 _MAX_DOMAIN = 253
-_MAX_TEXT = 4000
-_MAX_REDIRECTS = 5
 _MAX_REPUTATION_BYTES = 256 * 1024
 _HASH_RE = re.compile(r"^(?:[0-9a-fA-F]{32}|[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$")
 _URL_RE = re.compile(r"https?://[^\\s<>\\]\\[)]+", re.IGNORECASE)
