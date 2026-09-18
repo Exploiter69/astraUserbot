@@ -13,6 +13,7 @@ from core.services.media_intel import MediaIntelService
 from core.services.metrics import MetricSnapshot, MetricsService
 from core.services.public_intel import PublicIntelService
 from core.services.search import SearchResult, SearchService
+from core.services.security_intel import IDNAnalysis, RiskAssessment, SecurityIntelService
 from core.services.secrets import SecretStore, SecretStoreError
 from core.services.storage import StorageError, StorageService
 from core.services.subprocess import SubprocessResult, SubprocessService
@@ -35,7 +36,7 @@ __all__ = [
     "Artifact", "CacheEntry", "CacheService", "CacheStats", "CaseService", "FeatureFlagService", "HttpService",
     "IsolationAssessment", "IsolationService", "IsolationUnavailable", "Job", "JobEngine", "JobError", "JobState",
     "MediaArtifact", "MediaService", "MediaIntelService", "MetricSnapshot", "MetricsService", "PublicIntelService", "SearchResult", "SearchService",
-    "SecretStore", "SecretStoreError", "StorageError", "StorageService", "SubprocessResult", "SubprocessService",
+    "SecretStore", "SecretStoreError", "StorageError", "StorageService", "SubprocessResult", "SubprocessService", "SecurityIntelService", "IDNAnalysis", "RiskAssessment",
     "DialogState", "EntityState", "TelegramStateCache", "SyncCursor", "SyncResult", "TelegramIncrementalSync",
     "TelegramEvent", "TelegramEventCollector", "TelegramEventJournal", "TelegramEventProjections", "TelegramEventReplay",
     "TelegramArchiveJobModel", "TelegramArchiveRequest", "TelegramArchiveService", "TelegramFacade", "TelegramTrafficController", "Workspace", "WorkspaceService",
