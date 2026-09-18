@@ -102,7 +102,8 @@ Phase 10 work must continue through the roadmap prerequisite → discovery/desig
 
 ## Phase 10 — Security + Ecosystem
 
-**Status:** IMPLEMENTATION COMPLETE — owner-host acceptance pending  
+**Status:** **COMPLETE**  
+**Closed:** 2026-09-18  
 **Gates:** SEC-1, SEC-2, SEC-3, SDK-1, SDK-2, COMP-1, COMP-2  
 **Architecture record:** docs/PHASE_10_SECURITY_ECOSYSTEM.md  
 **Competitive record:** docs/COMPETITOR_FEATURE_MATRIX.md
@@ -121,6 +122,26 @@ Phase 10 work must continue through the roadmap prerequisite → discovery/desig
 - COMP-2 useful catch-up work limited to security analysis and sustainable plugin ecosystem tooling; low-value command-volume copying explicitly rejected.
 - Read-only phase audit added: tools/phase10_security_ecosystem_audit.py.
 
-### Owner-host closure still required
+### Completion evidence
 
-Run the Phase 10 focused suite, registry audit, full regression, compileall, production acceptance, system restart, and live .secrisk, .idn, and .reputation smoke tests. Only after those results are recorded should Phase 10 be marked COMPLETE.
+- SEC-1 bounded explainable URL risk engine implemented and live-validated.
+- SEC-2 IDN/punycode/mixed-script/confusable analysis implemented and live-validated.
+- SEC-3 public defensive URLhaus and MalwareBazaar adapters implemented and live-validated through `.reputation`.
+- SDK-1 capability metadata contract enforced; security plugin capability declaration validated.
+- SDK-2 read-only AST plugin registry/compatibility tooling and ecosystem audit: **PASS**.
+- COMP-1 competitor feature matrix frozen.
+- COMP-2 useful catch-up work implemented without copying low-value command volume.
+- Focused Phase 10 security suite: **35 passed**.
+- Full regression: **352 passed**.
+- Compileall: **PASS**.
+- Production acceptance: **10/10 automated gates PASS**.
+- Owner-host `astra.service` restart: **PASS**; service `active (running)` and `SYSTEM READY`.
+- Runtime after restart: **26/26 services**, **55 plugins RUNNING**, **150 commands**, **Jobs READY**, **BUBBLEWRAP-AVAILABLE**, **GROQ READY**.
+- Live `.secrisk https://alokthakur.me`: **PASS** — LOW (0/100), no local heuristic risk signals.
+- Live `.idn xn--80ak6aa92e.com`: **PASS** — mixed Cyrillic/Latin scripts, punycode and Unicode confusable detection surfaced.
+- Live `.reputation https://alokthakur.me`: **PASS** — LOW (0/100), URLhaus UNKNOWN, no local heuristic risk signals.
+- Live reply-based `.secrisk` on `https://youtube.com`: **PASS** — one URL analyzed, LOW (0/100).
+
+### Downstream unlock
+
+**Phase 10 is closed. Phase 11 may proceed only after its own roadmap prerequisites and acceptance gates are satisfied.**
