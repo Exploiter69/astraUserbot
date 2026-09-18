@@ -57,7 +57,7 @@ def main() -> int:
 
     has_commands = all(name in plugin_meta for name in ("plugin_name", "plugin_version", "plugin_api_version", "capabilities"))
     has_setup = any(isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "setup" for node in plugin_tree.body)
-    registry_has_ast = any(isinstance(node, ast.Call) and getattr(node.func, "attr", "") == "parse" for node in registry_tree.body for _ in [node])
+    registry_has_ast = any(isinstance(node, ast.Call) and getattr(node.func, "attr", "") == "parse" for node in ast.walk(registry_tree))
 
     payload = {
         "security_service": "PASS" if not missing_methods else "FAIL",
