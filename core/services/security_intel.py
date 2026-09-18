@@ -19,7 +19,6 @@ _MAX_URL = 2048
 _MAX_DOMAIN = 253
 _MAX_REPUTATION_BYTES = 256 * 1024
 _HASH_RE = re.compile(r"^(?:[0-9a-fA-F]{32}|[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$")
-_URL_RE = re.compile(r"https?://[^\\s<>\\]\\[)]+", re.IGNORECASE)
 
 
 @dataclass(frozen=True, slots=True)
