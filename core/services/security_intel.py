@@ -119,6 +119,21 @@ class SecurityIntelService:
             visual_similarity=tuple(visual_similarity),
         )
 
+
+    @staticmethod
+    def extract_urls(text: str) -> list[str]:
+        if not text:
+            return []
+        urls = re.findall(r"https?://[^\\s<>()[\\]]+", text[:4000], flags=re.IGNORECASE)
+        return list(dict.fromkeys(url.rstrip(".,;:") for url in urls))[:3]
+
+    async def assess_text(self, text: str) -> dict:
+        urls = self.extract_urls(text)
+        assessments = []
+        for url in urls:
+            assessments.append(await self.assess_url(url))
+        return {"urls": urls, "assessments": tuple(assessments)}
+
     async def assess_url(self, target: str, *, follow_redirects: bool = True) -> RiskAssessment:
         value = target.strip()
         if not value:
