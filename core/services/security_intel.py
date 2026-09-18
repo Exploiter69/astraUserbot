@@ -97,7 +97,7 @@ class SecurityIntelService:
             )
             scripts.add(script)
 
-        labels = unicode_host.split(".")
+        labels = ascii_host.split(".")
         visual_similarity: list[str] = []
         confusables = {
             "а": "a", "е": "e", "о": "o", "р": "p", "с": "c", "х": "x",
@@ -124,7 +124,7 @@ class SecurityIntelService:
     def extract_urls(text: str) -> list[str]:
         if not text:
             return []
-        urls = re.findall(r"https?://[^\\s<>()[\\]]+", text[:4000], flags=re.IGNORECASE)
+        urls = re.findall(r"https?://[^\s<>()[\]]+", text[:4000], flags=re.IGNORECASE)
         return list(dict.fromkeys(url.rstrip(".,;:") for url in urls))[:3]
 
     async def assess_text(self, text: str) -> dict:
