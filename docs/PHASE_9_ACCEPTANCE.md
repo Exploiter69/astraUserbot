@@ -1,8 +1,8 @@
 # Phase 9 Acceptance — Media + Investigation
 
-**Status:** IMPLEMENTATION COMPLETE / OWNER-HOST ACCEPTANCE PENDING  
+**Status:** **COMPLETE — owner-host acceptance closed 2026-09-18**  
 **Phase:** 9 — Media + Investigation  
-**Closed:** not yet  
+**Closed:** 2026-09-18  
 **Roadmap gates:** `MEDIAINTEL-1`, `MEDIAINTEL-2`, `MEDIAINTEL-3`, `MEDIAINTEL-4`, `CASE-1`, `CASE-2`, `CASE-3`
 
 ## 1. Prerequisite gate
@@ -14,11 +14,11 @@
 - [x] Existing AIService is reused for optional speech transcription.
 - [x] Existing SQLite/WAL store remains the sole durable case store.
 - [x] No second job/workflow system is introduced.
-- [ ] Owner-host focused Phase 9 tests pass after the final implementation correction pass.
-- [ ] Owner-host full regression passes after the final implementation correction pass.
-- [ ] Owner-host production acceptance passes after the final implementation correction pass.
-- [ ] Owner-host system restart remains healthy.
-- [ ] Owner-host live media/case smoke passes.
+- [x] Owner-host focused Phase 9 tests pass after the final implementation correction pass.
+- [x] Owner-host full regression passes after the final implementation correction pass.
+- [x] Owner-host production acceptance passes after the final implementation correction pass.
+- [x] Owner-host system restart remains healthy.
+- [x] Owner-host live media/case smoke passes.
 
 ## 2. MEDIAINTEL-1
 
@@ -104,7 +104,7 @@
 - [x] `.case report <case-id>`
 - [x] `.case close <case-id>`
 
-## 10. Required owner-host validation
+## 10. Owner-host validation evidence
 
 Run after pulling the final Phase 9 implementation:
 
@@ -131,6 +131,41 @@ Then perform live smoke with authorized non-sensitive media:
 
 Do not use private third-party data as test material.
 
-## 11. Completion rule
+## 11. Owner-host validation evidence
 
-Phase 9 must remain **PENDING** until the focused tests, full regression, production acceptance, restart and live media/case smoke are all green. Implementation existence alone is not acceptance evidence.
+The final owner-host validation pass completed before live smoke:
+
+- Phase 9 static audit: **PASS**.
+- Focused Phase 9 suite: **52 passed**.
+- Full regression suite: **341 passed**.
+- Python `compileall`: **PASS**.
+- Production acceptance: **10/10 automated gates PASS**.
+- Overall result: **`PRODUCTION_ACCEPTANCE_PASS`**.
+- `astra.service` restarted successfully and returned healthy with runtime READY, Telegram CONNECTED, database PASS, 25/25 services, 54 running plugins, 147 commands, Jobs READY, Bubblewrap available and AI Gateway READY.
+
+### Live media smoke
+
+Authorized, non-sensitive test media was exercised through the real Telegram command path.
+
+- Image `.mediaintel`: SHA-256, pHash-family fingerprints, one sampled frame and OCR were returned; OCR text was `JAIPUR`.
+- Audio `.mediaintel`: SHA-256 and transcript `Thanks for watching!` were returned.
+- Two video test files produced pHash/dHash/aHash fingerprints.
+- `.mediasim` returned bounded zero-distance matches for both returned pHashes.
+- The tested video clips did not surface additional OCR/transcription fields in the Telegram response; no false observation was recorded. Bounded frame/OCR/audio-fusion behavior is covered by the automated Phase 9 gate and implementation contracts.
+
+Video 1 pHash: `3a17056f437b4547`  
+Video 2 pHash: `63d898c3ff372620`
+
+### Live case smoke
+
+Smoke case ID: `dacd9364cb7144f8b291b8ccfe795164`.
+
+The real command sequence completed successfully:
+
+`.case new` → `.case add` with exact PHASH target → `.case event` → `.case show` → `.case graph` → `.case timeline` → `.case report` → `.case close` → final `.case show`.
+
+The attached exact IntelGraph entity was PHASH `3a17056f437b4547`, entity ID `b93c788253d88cfc8e2e06a6483d0a847692a7fabed750959c6f0be26eb30c43`. The report exposed confidence `0.95`, source `media-intel-local`, and timestamped evidence. Final persisted case status was **CLOSED**.
+
+## 12. Completion rule
+
+All Phase 9 prerequisites, implementation gates, automated acceptance gates, production restart checks and live Telegram media/case smoke checks are green.
