@@ -1,6 +1,7 @@
 # Phase 10 — Security + Ecosystem
 
-**Status:** Implementation complete — owner-host acceptance pending  
+**Status:** COMPLETE  
+**Closed:** 2026-09-18  
 **Roadmap gates:** SEC-1, SEC-2, SEC-3, SDK-1, SDK-2, COMP-1, COMP-2
 
 ## Scope
@@ -106,7 +107,7 @@ The matrix is an engineering gap audit, not a marketing ranking. Reference proje
 
 ## Acceptance
 
-Phase 10 closes only after:
+Phase 10 is closed. Owner-host acceptance evidence:
 1. focused security tests pass;
 2. registry tooling passes;
 3. plugin ecosystem audit passes;
@@ -118,3 +119,19 @@ Phase 10 closes only after:
 9. system restart succeeds;
 10. live .secrisk, .idn, and .reputation smoke tests succeed;
 11. docs/state are updated with exact evidence.
+
+### Closure evidence
+
+- Focused Phase 10 security suite: **35 passed**.
+- Plugin ecosystem quality audit: **PASS** (`PLUGIN_ECOSYSTEM_QUALITY_AUDIT_PASS`).
+- Full regression: **352 passed**.
+- Python `compileall`: **PASS**.
+- Production acceptance: **10/10 automated gates PASS** (`PRODUCTION_ACCEPTANCE_PASS`).
+- Owner-host `astra.service` restart: **PASS**; service returned `active (running)` and logged `SYSTEM READY`.
+- Runtime after restart: **26/26 services**, **55 plugins RUNNING**, **150 commands**, **Jobs READY**, **BUBBLEWRAP-AVAILABLE**, **GROQ READY**.
+- Live `.secrisk https://alokthakur.me`: **PASS**, LOW (0/100), no local heuristic risk signals.
+- Live `.idn xn--80ak6aa92e.com`: **PASS**, Unicode `аррӏе.com`, mixed scripts, punycode and confusable detection all surfaced.
+- Live `.reputation https://alokthakur.me`: **PASS**, LOW (0/100), URLhaus UNKNOWN, no local heuristic risk signals.
+- Live reply-based `.secrisk` on `https://youtube.com`: **PASS**, one URL analyzed, LOW (0/100).
+
+These live results validate the bounded defensive-only security commands in the actual Telegram runtime.
