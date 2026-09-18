@@ -60,26 +60,41 @@ Phase 7 is closed. Later source-specific intelligence programs may proceed only 
 
 ## Phase 9 — Media + Investigation
 
-**Status:** IMPLEMENTATION COMPLETE / ACCEPTANCE PENDING  
+**Status:** **COMPLETE**  
+**Closed:** 2026-09-18  
 **Gates:** `MEDIAINTEL-1`, `MEDIAINTEL-2`, `MEDIAINTEL-3`, `MEDIAINTEL-4`, `CASE-1`, `CASE-2`, `CASE-3`  
 **Architecture record:** `docs/PHASE_9_MEDIA_INVESTIGATION.md`  
 **Acceptance record:** `docs/PHASE_9_ACCEPTANCE.md`
 
-### Implementation currently present
+### Completion evidence
 
-- SHA-256 content-addressed media observations;
-- deterministic bounded perceptual-hash candidate matching;
-- isolated video frame extraction;
-- isolated Tesseract screenshot/image OCR where installed;
-- bounded audio extraction and optional AIService transcription;
-- durable SQLite investigation cases;
-- exact IntelGraph entity attachments;
-- durable case timelines and observation references;
-- deterministic bounded case reports;
-- `.mediaintel`, `.mediasim` and `.case` command surfaces;
-- shared MediaService/IsolationService/AIService/IntelGraph integration;
-- Phase 9 unit and static gate coverage.
+- N1 SHA-256 content addressing and authoritative byte-identity evidence;
+- N2 pHash, dHash, aHash and bounded perceptual similarity;
+- N3 bounded video frame sampling, isolated OCR and deterministic IOC extraction from OCR text;
+- N4 bounded audio extraction, optional transcription and deterministic IOC extraction from transcript text;
+- O1 durable timeline/event evidence with source/time/confidence support;
+- O2 durable case tables, exact IntelGraph references and open/closed lifecycle;
+- O3 deterministic evidence reports with observation/entity/source/note/timeline separation;
+- Phase 9 static audit: **PASS**;
+- focused Phase 9 suite: **52 passed**;
+- full regression: **341 passed**;
+- compileall: **PASS**;
+- production acceptance: **10/10 automated gates PASS**;
+- owner-host `astra.service` restart: **PASS**;
+- live image OCR smoke: **PASS**;
+- live audio transcription smoke: **PASS**;
+- live video perceptual fingerprint smoke: **PASS** for two test videos;
+- live `.mediasim` exact candidate matches: **PASS**;
+- live case lifecycle smoke: **PASS**, including report and final persisted CLOSED state.
 
-### Acceptance status
+### Live case record
 
-Implementation is complete, but Phase 9 remains open until owner-host focused tests, full regression, production acceptance, system restart and live media/case smoke are recorded in `docs/PHASE_9_ACCEPTANCE.md`.
+Smoke case ID: `dacd9364cb7144f8b291b8ccfe795164`.
+
+The case attached exact PHASH entity `3a17056f437b4547`, recorded a NOTE event, exposed graph/timeline/report views, and was closed successfully. The report exposed confidence `0.95`, source `media-intel-local`, and timestamped evidence.
+
+### Downstream unlock
+
+**Phase 9 is closed. Phase 10 is unlocked.**
+
+Phase 10 work must continue through the roadmap prerequisite → discovery/design → implementation → verification → production acceptance → restart/live smoke → documentation gate sequence.
