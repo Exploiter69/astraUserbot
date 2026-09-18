@@ -44,6 +44,15 @@ class SecurityIntelPhase10Tests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.mixed_script)
         self.assertEqual(result.ascii, "example.com")
 
+    def test_message_url_extraction_is_bounded(self):
+        text = " ".join(f"https://example{i}.test/path" for i in range(10))
+        self.assertEqual(len(self.service.extract_urls(text)), 3)
+
+    async def test_message_risk_uses_extracted_urls(self):
+        result = await self.service.assess_text("See https://example.test/login")
+        self.assertEqual(len(result["assessments"]), 1)
+        self.assertEqual(result["assessments"][0].target, "https://example.test/login")
+
     async def test_url_risk_is_bounded_and_explainable(self):
         result = await self.service.assess_url("http://xn--80ak6aa92e.com/login")
         self.assertGreaterEqual(result.score, 30)
