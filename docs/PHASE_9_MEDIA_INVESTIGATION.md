@@ -1,6 +1,6 @@
 # Phase 9 — Media + Investigation Architecture
 
-**Status:** IMPLEMENTATION COMPLETE / OWNER-HOST ACCEPTANCE PENDING  
+**Status:** **COMPLETE — owner-host acceptance closed 2026-09-18**  
 **Gates:** `MEDIAINTEL-1`, `MEDIAINTEL-2`, `MEDIAINTEL-3`, `MEDIAINTEL-4`, `CASE-1`, `CASE-2`, `CASE-3`
 
 ## Scope
@@ -61,7 +61,22 @@ Case entities are exact IntelGraph references. Attaching an entity captures boun
 
 Reports are deterministic local renderings and do not depend on an LLM. They separate the available evidence into observation state/confidence, attached entities, sources, notes and timeline entries. Unknown or unavailable information is not fabricated, and the report is capped at 16,000 characters.
 
-## Resource and safety bounds
+## Owner-host acceptance evidence
+
+- Phase 9 static audit: **PASS**.
+- Focused Phase 9 suite: **52 passed**.
+- Full regression: **341 passed**.
+- `compileall`: **PASS**.
+- Production acceptance: **10/10 automated gates PASS**.
+- `astra.service` restart: **PASS** and healthy.
+- Live image OCR and audio transcription smoke: **PASS**.
+- Live video perceptual fingerprint smoke: **PASS** for two test videos.
+- Live `.mediasim`: **PASS**, including zero-distance matches.
+- Live case lifecycle: **PASS**, including exact IntelGraph attachment, report generation, close, and final CLOSED persistence.
+
+Smoke case: `dacd9364cb7144f8b291b8ccfe795164`; attached PHASH target: `3a17056f437b4547`.
+
+
 
 - Media input remains subject to existing MediaService size, duration, workspace and disk guards.
 - OCR/transcript text is capped at 64 KiB.
