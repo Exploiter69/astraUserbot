@@ -40,10 +40,27 @@ async def setup(client):
 async def handle(event):
     command = event.pattern_match.group(1).lower()
     target = (event.pattern_match.group(2) or "").strip()
+    service = _service()
+    if not target and command == "secrisk":
+        reply = await event.get_reply_message()
+        text = getattr(reply, "raw_text", "") if reply is not None else ""
+        result = await service.assess_text(text)
+        if not result["assessments"]:
+            raise CommandError("Usage: .secrisk <url> or reply to a message containing a URL.")
+        rows = [f"URLs analyzed: {len(result["assessments"])}"]
+        for assessment in result["assessments"]:
+            rows.extend([
+                f"{assessment.target[:150]}",
+                f"  Risk: {assessment.level} ({assessment.score}/100)",
+                *[f"  · {signal[:170]}" for signal in assessment.signals[:5]],
+            ])
+        rows = rows[:18]
+        rows.append("Defensive signal only; risk is not proof of maliciousness.")
+        await event.edit(render("SECURITY // MESSAGE RISK", rows, footer="security | secrisk | bounded | public-only"))
+        return
     if not target:
         raise CommandError(f"Usage: .{command} <url|domain|hash>")
 
-    service = _service()
     if command == "secrisk":
         try:
             result = await service.assess_url(target)
