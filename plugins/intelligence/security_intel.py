@@ -14,7 +14,7 @@ plugin_name = "plugins.intelligence.security_intel"
 plugin_version = "1.0.0"
 plugin_api_version = 1
 plugin_description = "Bounded defensive URL, IDN and public reputation analysis."
-capabilities = ("network.request", "intelligence.collection")
+capabilities = ("network.request",)
 critical = False
 
 PATTERN = rf"^{re.escape(config.PREFIX)}(secrisk|idn|reputation)(?:\s+(.*))?$"
