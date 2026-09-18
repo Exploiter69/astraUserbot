@@ -112,31 +112,21 @@ class MediaIntelService:
         if not shutil.which("ffmpeg"):
             return {"phash": None, "ahash": None, "dhash": None}
         relative = source.relative_to(workspace.path).as_posix()
+        pgm = workspace.resolve("hash.pgm")
         result = await self.media.run_isolated([
             "ffmpeg", "-hide_banner", "-nostdin", "-v", "error",
             "-threads", "1", "-filter_threads", "1", "-filter_complex_threads", "1",
             "-i", f"/workspace/{relative}", "-an", "-sn", "-dn", "-frames:v", "1",
-            "-vf", "scale=32:32:flags=bilinear", "-pix_fmt", "gray", "-f", "rawvideo", "pipe:1",
+            "-vf", "scale=32:32:flags=bilinear,format=gray",
+            "-f", "image2", "-vcodec", "pgm", "-y", "/workspace/hash.pgm",
         ], workspace=workspace, timeout=30, max_output_bytes=16 * 1024)
-        pixels = result.stdout.encode("latin-1") if result.stdout else b""
-        if result.returncode != 0 or len(pixels) < 1024:
-            pgm = workspace.resolve("hash.pgm")
-            fallback = await self.media.run_isolated([
-                "ffmpeg", "-hide_banner", "-nostdin", "-v", "error",
-                "-threads", "1", "-filter_threads", "1", "-filter_complex_threads", "1",
-                "-i", f"/workspace/{relative}", "-an", "-sn", "-dn", "-frames:v", "1",
-                "-vf", "scale=32:32:flags=bilinear,format=gray",
-                "-f", "image2", "-vcodec", "pgm", "-y", "/workspace/hash.pgm",
-            ], workspace=workspace, timeout=30, max_output_bytes=16 * 1024)
-            if fallback.returncode != 0 or not pgm.is_file():
-                return {"phash": None, "ahash": None, "dhash": None}
-            payload = pgm.read_bytes()
-            marker = payload.find(b"\\n255\\n")
-            if marker < 0:
-                return {"phash": None, "ahash": None, "dhash": None}
-            pixels = payload[marker + 5: marker + 5 + 1024]
-        else:
-            pixels = pixels[:1024]
+        if result.returncode != 0 or not pgm.is_file():
+            return {"phash": None, "ahash": None, "dhash": None}
+        payload = pgm.read_bytes()
+        marker = payload.find(b"\n255\n")
+        if marker < 0:
+            return {"phash": None, "ahash": None, "dhash": None}
+        pixels = payload[marker + 5: marker + 5 + 1024]
         if len(pixels) < 1024:
             return {"phash": None, "ahash": None, "dhash": None}
         ahash_pixels = bytes(pixels[row * 32 + col] for row in range(0, 32, 4) for col in range(0, 32, 4))
@@ -217,8 +207,6 @@ class MediaIntelService:
                             f"/workspace/{relative}",
                             "-ss",
                             str(seconds),
-                            "-copyts",
-                            "-start_at_zero",
                             "-an",
                             "-sn",
                             "-dn",
