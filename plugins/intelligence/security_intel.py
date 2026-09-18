@@ -6,6 +6,7 @@ import re
 
 from config import config
 from core.context import get_application_context
+from core.errors import CommandError
 from core.registry import register_cmd
 from helpers.hud import render
 
@@ -22,7 +23,7 @@ PATTERN = rf"^{re.escape(config.PREFIX)}(secrisk|idn|reputation)(?:\s+(.*))?$"
 def _service():
     context = get_application_context()
     if context is None:
-        raise RuntimeError("Runtime context is unavailable")
+        raise CommandError("Runtime context is unavailable")
     return context.get("security_intel")
 
 
@@ -40,11 +41,14 @@ async def handle(event):
     command = event.pattern_match.group(1).lower()
     target = (event.pattern_match.group(2) or "").strip()
     if not target:
-        raise ValueError(f"Usage: .{command} <url|domain|hash>")
+        raise CommandError(f"Usage: .{command} <url|domain|hash>")
 
     service = _service()
     if command == "secrisk":
-        result = await service.assess_url(target)
+        try:
+            result = await service.assess_url(target)
+        except ValueError as exc:
+            raise CommandError(str(exc)) from exc
         rows = [
             f"Target: {result.target[:180]}",
             f"Risk: {result.level} ({result.score}/100)",
@@ -54,7 +58,10 @@ async def handle(event):
         ]
         title = "SECURITY // URL RISK"
     elif command == "idn":
-        result = service.analyze_idn(target)
+        try:
+            result = service.analyze_idn(target)
+        except ValueError as exc:
+            raise CommandError(str(exc)) from exc
         rows = [
             f"Input: {result.input[:180]}",
             f"ASCII: {result.ascii[:180]}",
@@ -66,7 +73,10 @@ async def handle(event):
         ]
         title = "SECURITY // IDN"
     else:
-        result = await service.inspect(target)
+        try:
+            result = await service.inspect(target)
+        except ValueError as exc:
+            raise CommandError(str(exc)) from exc
         rows = [f"Target: {target[:180]}"]
         if result["kind"] == "hash":
             rep = result["reputation"]
