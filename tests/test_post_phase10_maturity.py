@@ -92,6 +92,11 @@ class PostPhase10ContractTests(unittest.TestCase):
         self.assertIn("doctor|config|update|restart", product)
         self.assertIn("command search", help_text) or self.assertIn("COMMAND_PATTERN", help_text)
 
+    def test_help_surface_documents_canonical_command_or_category_discovery(self):
+        root = Path(__file__).resolve().parents[1]
+        help_text = (root / "plugins/system/help.py").read_text(encoding="utf-8")
+        self.assertIn(".help <command-or-category>", help_text)
+
 
 if __name__ == "__main__":
     unittest.main()
