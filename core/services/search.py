@@ -122,12 +122,16 @@ class SearchService:
         if not self._ready:
             raise RuntimeError("SearchService is not started")
         counts: dict[str, int] = {}
+        # archive_message is already a canonical search_documents source. It is
+        # deliberately preserved while the derived FTS rows for other sources
+        # are rebuilt.
         for source in (
-            "plugin", "command", "document", "message", "archive_message",
+            "plugin", "command", "document", "message",
             "intel_entity", "intel_observation", "ocr", "transcript", "case", "media", "security",
         ):
             await self.remove_source(source)
             counts[source] = 0
+        counts["archive_message"] = 0
 
         rows = await self.storage.fetchall("SELECT name,module,state,updated_at FROM plugins ORDER BY name")
         for row in rows:
@@ -221,8 +225,6 @@ class SearchService:
                 clauses.append("d.source IN (" + ",".join("?" for _ in ordered) + ")")
                 params.extend(ordered)
 
-        cursor_rank: float | None = None
-        cursor_id: str | None = None
         if cursor:
             cursor_rank, cursor_id = self._decode_cursor(cursor, query=query, sources=sources)
             clauses.append("(bm25(search_fts) > ? OR (bm25(search_fts) = ? AND d.id > ?))")
