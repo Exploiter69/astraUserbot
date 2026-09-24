@@ -154,8 +154,24 @@ class SearchService:
         if not cleaned:
             return []
         limit = max(1, min(int(limit), self.MAX_RESULTS))
+        offset = max(0, min(int(offset), 10000))
+        clauses = ["search_fts MATCH ?"]
+        params: list[object] = [cleaned]
+        if sources:
+            ordered = sorted(str(item) for item in sources if item)
+            if ordered:
+                clauses.append("d.source IN (" + ",".join("?" for _ in ordered) + ")")
+                params.extend(ordered)
+        params.extend([limit, offset])
         rows = await self.storage.fetchall(
-            "SELECT d.source,d.ref,d.title,snippet(search_fts,2,'','', '…', 18),bm25(search_fts) FROM search_fts JOIN search_documents d ON d.id=search_fts.id WHERE search_fts MATCH ? ORDER BY bm25(search_fts) LIMIT ?",
-            (cleaned, limit),
+            "SELECT d.source,d.ref,d.title,snippet(search_fts,2,'','', '…', 18),bm25(search_fts),d.id FROM search_fts JOIN search_documents d ON d.id=search_fts.id WHERE "
+            + " AND ".join(clauses)
+            + " ORDER BY bm25(search_fts), d.id LIMIT ? OFFSET ?",
+            tuple(params),
         )
+        return [
+            SearchResult(str(row[0]), str(row[1]), str(row[2]), str(row[3]), float(row[4]), result_id=str(row[5]), evidence_ref=str(row[1]))
+            for row in rows
+        ]
+
         return [SearchResult(str(row[0]), str(row[1]), str(row[2]), str(row[3]), float(row[4])) for row in rows]
