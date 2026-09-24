@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import base64
+import hashlib
+import json
 import re
 import sqlite3
 import time
@@ -20,6 +23,12 @@ class SearchResult:
     evidence_ref: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class SearchPage:
+    results: list[SearchResult]
+    next_cursor: str | None = None
+
+
 class SearchService:
     """Bounded, rebuildable SQLite FTS5 search over platform and local knowledge."""
 
@@ -27,6 +36,7 @@ class SearchService:
     MAX_RESULTS = 50
     MAX_DOCUMENT_BYTES = 512 * 1024
     TEXT_SUFFIXES = {".md", ".txt", ".rst", ".json"}
+    CURSOR_VERSION = 1
 
     def __init__(self, storage: StorageService, project_root: str | Path) -> None:
         self.storage = storage
@@ -51,6 +61,45 @@ class SearchService:
         terms = re.findall(r"[\w@./:-]+", query, flags=re.UNICODE)
         return " AND ".join(f'"{term.replace(chr(34), "")}"' for term in terms)
 
+    @staticmethod
+    def _cursor_signature(query: str, sources: set[str] | None) -> str:
+        normalized_sources = sorted(str(item) for item in (sources or set()) if item)
+        payload = json.dumps(
+            {"query": " ".join(str(query).split()), "sources": normalized_sources},
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+    @classmethod
+    def _encode_cursor(cls, *, query: str, sources: set[str] | None, rank: float, result_id: str) -> str:
+        payload = {
+            "v": cls.CURSOR_VERSION,
+            "q": cls._cursor_signature(query, sources),
+            "r": repr(float(rank)),
+            "id": result_id,
+        }
+        raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+        return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+    @classmethod
+    def _decode_cursor(cls, cursor: str, *, query: str, sources: set[str] | None) -> tuple[float, str]:
+        raw = str(cursor).strip()
+        if not raw or len(raw) > 256:
+            raise ValueError("Invalid search cursor.")
+        padding = "=" * (-len(raw) % 4)
+        try:
+            payload = json.loads(base64.urlsafe_b64decode((raw + padding).encode("ascii")).decode("utf-8"))
+            if payload.get("v") != cls.CURSOR_VERSION or payload.get("q") != cls._cursor_signature(query, sources):
+                raise ValueError("Search cursor does not match this query/filter set.")
+            rank = float(payload["r"])
+            result_id = str(payload["id"])
+        except (ValueError, KeyError, TypeError, json.JSONDecodeError, UnicodeError) as exc:
+            raise ValueError("Invalid search cursor.") from exc
+        if not result_id or len(result_id) > 512:
+            raise ValueError("Invalid search cursor.")
+        return rank, result_id
+
     async def upsert(self, *, source: str, ref: str, title: str, content: str) -> None:
         if not self._ready:
             raise RuntimeError("SearchService is not started")
@@ -73,7 +122,10 @@ class SearchService:
         if not self._ready:
             raise RuntimeError("SearchService is not started")
         counts: dict[str, int] = {}
-        for source in ("plugin", "command", "document", "message", "intel_entity", "intel_observation", "case", "media", "security"):
+        for source in (
+            "plugin", "command", "document", "message", "archive_message",
+            "intel_entity", "intel_observation", "ocr", "transcript", "case", "media", "security",
+        ):
             await self.remove_source(source)
             counts[source] = 0
 
@@ -126,11 +178,14 @@ class SearchService:
                     conn.close()
             except sqlite3.Error:
                 continue
+
         optional_queries = [
             ("intel_entity", "SELECT entity_id, entity_type, canonical_value, COALESCE(display_value,'') FROM intel_entities ORDER BY updated_at DESC LIMIT 10000"),
-            ("intel_observation", "SELECT observation_id, source_family, COALESCE(source_dataset,''), COALESCE(matched_field,''), evidence_state FROM intel_observations ORDER BY retrieved_at DESC LIMIT 10000"),
-            ("media", "SELECT observation_id, source_family, COALESCE(source_dataset,''), COALESCE(matched_field,''), evidence_state FROM intel_observations WHERE lower(source_family) LIKE '%media%' ORDER BY retrieved_at DESC LIMIT 5000"),
-            ("security", "SELECT observation_id, source_family, COALESCE(source_dataset,''), COALESCE(matched_field,''), evidence_state FROM intel_observations WHERE lower(source_family) LIKE '%security%' ORDER BY retrieved_at DESC LIMIT 5000"),
+            ("intel_observation", "SELECT o.observation_id, o.source_family, COALESCE(o.source_dataset,''), COALESCE(o.matched_field,''), o.evidence_state, COALESCE(e.canonical_value,''), COALESCE(e.display_value,'') FROM intel_observations o LEFT JOIN intel_entities e ON e.entity_id=o.entity_id ORDER BY o.retrieved_at DESC LIMIT 10000"),
+            ("ocr", "SELECT o.observation_id, COALESCE(e.canonical_value,''), COALESCE(e.display_value,''), COALESCE(o.provenance_json,'') FROM intel_observations o LEFT JOIN intel_entities e ON e.entity_id=o.entity_id WHERE lower(COALESCE(o.matched_field,''))='ocr_text' ORDER BY o.retrieved_at DESC LIMIT 5000"),
+            ("transcript", "SELECT o.observation_id, COALESCE(e.canonical_value,''), COALESCE(e.display_value,''), COALESCE(o.provenance_json,'') FROM intel_observations o LEFT JOIN intel_entities e ON e.entity_id=o.entity_id WHERE lower(COALESCE(o.matched_field,''))='transcript' ORDER BY o.retrieved_at DESC LIMIT 5000"),
+            ("media", "SELECT o.observation_id, o.source_family, COALESCE(o.source_dataset,''), COALESCE(o.matched_field,''), o.evidence_state, COALESCE(e.canonical_value,'') FROM intel_observations o LEFT JOIN intel_entities e ON e.entity_id=o.entity_id WHERE lower(o.source_family) LIKE '%media%' ORDER BY o.retrieved_at DESC LIMIT 5000"),
+            ("security", "SELECT o.observation_id, o.source_family, COALESCE(o.source_dataset,''), COALESCE(o.matched_field,''), o.evidence_state, COALESCE(e.canonical_value,'') FROM intel_observations o LEFT JOIN intel_entities e ON e.entity_id=o.entity_id WHERE lower(o.source_family) LIKE '%security%' ORDER BY o.retrieved_at DESC LIMIT 5000"),
             ("case", "SELECT case_id, title, status, summary FROM cases ORDER BY updated_at DESC LIMIT 5000"),
         ]
         for source, sql in optional_queries:
@@ -146,6 +201,52 @@ class SearchService:
                 counts[source] += 1
         return counts
 
+    async def search_page(
+        self,
+        query: str,
+        *,
+        limit: int = 10,
+        cursor: str | None = None,
+        sources: set[str] | None = None,
+    ) -> SearchPage:
+        cleaned = self._clean_query(query)
+        if not cleaned:
+            return SearchPage([])
+        limit = max(1, min(int(limit), self.MAX_RESULTS))
+        clauses = ["search_fts MATCH ?"]
+        params: list[object] = [cleaned]
+        if sources:
+            ordered = sorted(str(item) for item in sources if item)
+            if ordered:
+                clauses.append("d.source IN (" + ",".join("?" for _ in ordered) + ")")
+                params.extend(ordered)
+
+        cursor_rank: float | None = None
+        cursor_id: str | None = None
+        if cursor:
+            cursor_rank, cursor_id = self._decode_cursor(cursor, query=query, sources=sources)
+            clauses.append("(bm25(search_fts) > ? OR (bm25(search_fts) = ? AND d.id > ?))")
+            params.extend([cursor_rank, cursor_rank, cursor_id])
+
+        params.append(limit + 1)
+        rows = await self.storage.fetchall(
+            "SELECT d.source,d.ref,d.title,snippet(search_fts,2,'','', '…', 18),bm25(search_fts),d.id FROM search_fts JOIN search_documents d ON d.id=search_fts.id WHERE "
+            + " AND ".join(clauses)
+            + " ORDER BY bm25(search_fts), d.id LIMIT ?",
+            tuple(params),
+        )
+        has_next = len(rows) > limit
+        rows = rows[:limit]
+        results = [
+            SearchResult(str(row[0]), str(row[1]), str(row[2]), str(row[3]), float(row[4]), result_id=str(row[5]), evidence_ref=str(row[1]))
+            for row in rows
+        ]
+        next_cursor = None
+        if has_next and results:
+            last = results[-1]
+            next_cursor = self._encode_cursor(query=query, sources=sources, rank=last.rank, result_id=last.result_id)
+        return SearchPage(results, next_cursor)
+
     async def search(
         self,
         query: str,
@@ -154,6 +255,7 @@ class SearchService:
         offset: int = 0,
         sources: set[str] | None = None,
     ) -> list[SearchResult]:
+        """Backward-compatible offset search; new product surfaces should prefer search_page()."""
         cleaned = self._clean_query(query)
         if not cleaned:
             return []
@@ -177,4 +279,3 @@ class SearchService:
             SearchResult(str(row[0]), str(row[1]), str(row[2]), str(row[3]), float(row[4]), result_id=str(row[5]), evidence_ref=str(row[1]))
             for row in rows
         ]
-
