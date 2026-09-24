@@ -49,10 +49,19 @@ def main() -> int:
             text=True,
             capture_output=True,
         )
-        if completed.returncode != 0:\n            print(f"PRODUCTION_ACCEPTANCE_FAIL gate={index} rc={completed.returncode}")\n            if completed.stdout:\n                print("--- stdout ---")\n                print(completed.stdout.rstrip())\n            if completed.stderr:\n                print("--- stderr ---")\n                print(completed.stderr.rstrip())\n            return completed.returncode or 1\n        print(f"PASS gate={index}")\n    print("\nPRODUCTION_ACCEPTANCE_PASS")
+        if completed.returncode != 0:
+            print(f"PRODUCTION_ACCEPTANCE_FAIL gate={index} rc={completed.returncode}")
+            if completed.stdout:
+                print("--- stdout ---")
+                print(completed.stdout.rstrip())
+            if completed.stderr:
+                print("--- stderr ---")
+                print(completed.stderr.rstrip())
+            return completed.returncode or 1
+        print(f"PASS gate={index}")
+    print("\nPRODUCTION_ACCEPTANCE_PASS")
     print("Manual systemd/Telegram acceptance remains required; this gate is non-destructive.")
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())
