@@ -12,6 +12,8 @@ The rebuild path covers:
 - Telegram messages/archive records;
 - IntelGraph entities;
 - intelligence observations;
+- OCR-derived evidence;
+- transcript-derived evidence;
 - media-derived evidence observations;
 - security-derived evidence observations;
 - cases.
@@ -24,22 +26,30 @@ The service supports:
 - bounded result count;
 - deterministic ranking;
 - source filtering;
-- deterministic offset pagination;
 - stable result IDs;
-- evidence/reference IDs.
+- evidence/reference IDs;
+- opaque query/filter-bound page cursors;
+- backward-compatible offset pagination for internal callers.
 
-The operator `.search` surface additionally supports:
+A cursor cannot be reused with a different query or source-filter set.
 
-`page=N`
+The operator `.search` surface supports the existing bounded text-page interface and source filters. New product integrations should prefer `SearchService.search_page()` when they need stable cursor pagination.
 
-and
+## Result identity
 
-`source=A,B`
+Every result has:
 
-filters.
+- source;
+- source reference;
+- stable derived result ID;
+- FTS rank;
+- bounded snippet;
+- evidence reference.
 
-Search indexes are derived and rebuildable. They never become the authoritative source of the underlying evidence.
+The index remains a derived projection. Source records remain authoritative.
 
 ## Safety
 
 The current Telegram operator surface is owner-only. Search does not grant access beyond the actor's existing Astra scope, and AI synthesis consumes only the bounded search results returned by the same service.
+
+Search never turns a derived match into an identity claim.
