@@ -108,7 +108,7 @@ async def handle_moderation(event):
     if target.id == config.OWNER_ID and cmd in {"mute", "ban", "warn"}:
         raise CommandError("Cannot moderate the owner account.")
     reason = _reason(arg)
-    if cmd in {"mute", "unmute", "ban", "unban", "pin", "unpin"}:
+    if cmd in {"mute", "unmute", "ban", "unban"}:
         await _permission_preflight(event, target)
 
     if cmd == "warn":
