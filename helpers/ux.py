@@ -95,3 +95,14 @@ def bounded_callback_token(*parts: str, max_length: int = 96) -> bytes:
     """Create a callback token with no arbitrary payload."""
     value = ":".join(str(part).replace(":", "_")[:32] for part in parts)
     return value[:max_length].encode("utf-8")
+
+
+def parse_callback_token(data: bytes | str, *, max_parts: int = 8) -> tuple[str, ...]:
+    """Parse a bounded namespaced callback token without accepting arbitrary payloads."""
+    raw = data.decode("utf-8", errors="strict") if isinstance(data, bytes) else str(data)
+    if len(raw) > 96:
+        raise ValueError("Callback token exceeds the bounded UI contract.")
+    parts = tuple(item for item in raw.split(":") if item)
+    if not parts or len(parts) > max_parts:
+        raise ValueError("Callback token shape is invalid.")
+    return parts
