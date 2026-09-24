@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock
 
-from core.registry import CommandRegistration, command_metadata, register_cmd
+from core.registry import CommandRegistration, command_metadata, recent_registrations, register_cmd
 from core.services.search import SearchResult
 from helpers.ux import bounded_callback_token, form_buttons, gallery_buttons, list_buttons
 
@@ -54,6 +54,16 @@ class PostPhase10ContractTests(unittest.TestCase):
             self.assertFalse(registration.destructive)
             self.assertEqual(registration.compatibility, "1.0")
             self.assertTrue(registration.examples)
+        finally:
+            registration.unregister(client)
+
+    def test_recent_command_discovery_never_contains_arguments(self):
+        client = Mock()
+        registration = register_cmd(client, r"^\\.recentprobe(?:\\s+(.*))?$", lambda event: None, category="system", description="Recent probe")
+        try:
+            recent = recent_registrations(5)
+            self.assertTrue(any(item.registration_id == registration.registration_id for item in recent))
+            self.assertFalse(any("secret" in str(item) for item in recent))
         finally:
             registration.unregister(client)
 
