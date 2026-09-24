@@ -227,6 +227,7 @@ def register_cmd(
     example_values = tuple(examples or (f"{config.PREFIX}{primary_name}",))
     capability_values = tuple(required_capabilities or ())
     usage_value = usage or example_values[0]
+    source_ref_value = source_ref or f"{getattr(handler, '__module__', 'unknown')}:{getattr(handler, '__name__', 'handler')}"
 
     registration = CommandRegistration(
         registration_id=registration_id,
@@ -246,7 +247,7 @@ def register_cmd(
         destructive=destructive_value,
         confirmation_required=confirmation_value,
         resource_class=resource_class,
-        source_ref=source_ref,
+        source_ref=source_ref_value,
         usage=usage_value,
         event_builder=event_builder,
         wrapper=wrapper,
@@ -270,7 +271,7 @@ def register_cmd(
         "destructive": destructive_value,
         "confirmation_required": confirmation_value,
         "resource_class": resource_class,
-        "source_ref": source_ref,
+        "source_ref": source_ref_value,
         "usage": usage_value,
     }
     _REGISTRATIONS[registration_id] = registration
