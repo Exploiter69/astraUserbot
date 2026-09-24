@@ -40,7 +40,8 @@ REQUIRED_TEXT = {
         "recent_registrations",
     ),
     "plugins/system/help.py": (
-        ".command",
+        "COMMAND_PATTERN",
+        "HELP_PATTERN",
         "search|describe|examples|category|aliases|permissions|source|recent",
         ".help <command-or-category>",
     ),
@@ -101,6 +102,29 @@ def main() -> int:
         for needle in needles:
             if needle not in text:
                 failures.append(f"{relative_path}: missing contract marker {needle!r}")
+
+    help_path = ROOT / "plugins/system/help.py"
+    if help_path.is_file():
+        help_text = help_path.read_text(encoding="utf-8")
+        command_pattern = next(
+            (line for line in help_text.splitlines() if line.startswith("COMMAND_PATTERN = ")),
+            "",
+        )
+        required_actions = (
+            "search",
+            "describe",
+            "examples",
+            "category",
+            "aliases",
+            "permissions",
+            "source",
+            "recent",
+        )
+        for action in required_actions:
+            if action not in command_pattern:
+                failures.append(f"help: COMMAND_PATTERN missing action {action!r}")
+        if "register_cmd(" not in help_text:
+            failures.append("help: command discovery surface is not registered")
 
     registry = (ROOT / "core/registry.py").read_text(encoding="utf-8")
     if "raise CommandRegistrationError" not in registry:
