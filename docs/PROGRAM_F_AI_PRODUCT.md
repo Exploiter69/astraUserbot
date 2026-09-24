@@ -114,3 +114,18 @@ Acceptance basis:
 - evaluate richer multimodal context only when it can remain within Astra's existing bounded/isolation architecture
 
 These are quality enhancements, not reasons to reopen the Phase 5 architecture gate.
+
+
+## Post-Phase-10 AI product UX
+
+The existing AI gateway is now also exposed through bounded product flows:
+
+- `aiux summarize` — replied/selected text summary;
+- `aiux explain` — bounded explanation;
+- `aiux search <query>` — search-evidence synthesis;
+- `aiux evidence <target>` — evidence explanation;
+- `aiux case <case-id>` — case report draft;
+- `aiux timeline <case-id>` — timeline summary;
+- `aiux media` — OCR/STT evidence to AI.
+
+These flows reuse the existing AIService, MediaIntelService, SearchService and CaseService. They do not grant the model Telegram mutation authority.
