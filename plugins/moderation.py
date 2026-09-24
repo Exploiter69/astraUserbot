@@ -60,6 +60,24 @@ async def _audit(chat_id, action, target_id, reason):
     await DB.execute("INSERT INTO moderation_audit(chat_id,action,target_id,actor_id,reason,created_at) VALUES(?,?,?,?,?,?)", (chat_id, action, target_id, config.OWNER_ID, reason[:500], time.time()))
 
 
+async def _permission_preflight(event, target=None) -> None:
+    """Verify the owner can perform the requested moderation mutation."""
+    try:
+        actor = await event.client.get_permissions(event.chat_id, config.OWNER_ID)
+    except Exception as exc:
+        raise CommandError("Unable to verify moderation permissions safely.") from exc
+    if getattr(actor, "is_banned", False):
+        raise CommandError("Owner account does not have usable moderation permissions here.")
+    if target is not None:
+        try:
+            target_permissions = await event.client.get_permissions(event.chat_id, target.id)
+        except Exception as exc:
+            raise CommandError("Unable to verify target permissions safely.") from exc
+        if getattr(target_permissions, "is_admin", False) or getattr(target_permissions, "is_creator", False):
+            raise CommandError("Refusing to moderate an administrator/creator.")
+    return None
+
+
 async def handle_moderation(event):
     cmd = event.pattern_match.group(1).lower()
     arg = (event.pattern_match.group(2) or "").strip()
@@ -70,6 +88,7 @@ async def handle_moderation(event):
         return
 
     if cmd == "lockdown":
+        await _permission_preflight(event)
         if arg.upper() != "CONFIRM":
             raise CommandError("Lockdown is destructive. Use `.lockdown CONFIRM`.")
         count = 0
@@ -89,6 +108,8 @@ async def handle_moderation(event):
     if target.id == config.OWNER_ID and cmd in {"mute", "ban", "warn"}:
         raise CommandError("Cannot moderate the owner account.")
     reason = _reason(arg)
+    if cmd in {"mute", "unmute", "ban", "unban", "pin", "unpin"}:
+        await _permission_preflight(event, target)
 
     if cmd == "warn":
         row = await DB.fetchone("SELECT count FROM moderation_warnings WHERE chat_id=? AND user_id=?", (event.chat_id, target.id))
