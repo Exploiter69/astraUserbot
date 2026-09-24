@@ -220,6 +220,10 @@ def register_cmd(
             op_text = "NETWORK"
         else:
             op_text = "READ"
+    if op_text not in {"READ", "NETWORK", "MUTATION", "DESTRUCTIVE", "JOB"}:
+        raise CommandRegistrationError(f"Unsupported operation class: {op_text}")
+    if not compatibility or len(compatibility) > 32:
+        raise CommandRegistrationError("Command compatibility metadata is invalid.")
     destructive_value = bool(destructive) if destructive is not None else op_text == "DESTRUCTIVE"
     confirmation_value = bool(confirmation_required) if confirmation_required is not None else destructive_value
     network_value = bool(network) if network is not None else op_text == "NETWORK"
