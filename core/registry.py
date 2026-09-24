@@ -51,7 +51,13 @@ class CommandRegistration:
     destructive: bool = False
     confirmation_required: bool = False
     resource_class: str = "default"
+    argument_schema: dict[str, Any] = field(default_factory=dict)
+    priority: int = 100
+    timeout_seconds: float = 30.0
+    cancellation_supported: bool = False
+    durable_execution_supported: bool = False
     source_ref: str = ""
+    owner_version: str = "legacy"
     usage: str = ""
     event_builder: Any = field(default=None, compare=False, repr=False)
     wrapper: Callable[..., Any] = field(default=lambda event: None, compare=False, repr=False)
@@ -115,12 +121,23 @@ def register_cmd(
     destructive: bool | None = None,
     confirmation_required: bool | None = None,
     resource_class: str = "default",
+    argument_schema: Optional[Dict[str, Any]] = None,
+    priority: int = 100,
+    timeout_seconds: float = 30.0,
+    cancellation_supported: bool | None = None,
+    durable_execution_supported: bool | None = None,
     source_ref: str = "",
     usage: str = "",
 ) -> CommandRegistration:
     """Register one outgoing command with deterministic ownership."""
     if not pattern or not callable(handler):
         raise CommandRegistrationError("pattern and callable handler are required")
+    if not isinstance(priority, int) or not 0 <= priority <= 1000:
+        raise CommandRegistrationError("Command priority must be an integer from 0 to 1000.")
+    if not isinstance(timeout_seconds, (int, float)) or not 0 < float(timeout_seconds) <= 3600:
+        raise CommandRegistrationError("Command timeout must be greater than 0 and at most 3600 seconds.")
+    if argument_schema is not None and not isinstance(argument_schema, dict):
+        raise CommandRegistrationError("Command argument_schema must be a JSON-safe mapping.")
 
     names = _command_names(pattern, aliases)
     collisions: list[str] = []
@@ -140,6 +157,9 @@ def register_cmd(
         )
 
     owner = PluginManager.current_plugin()
+    manager = PluginManager.current_manager()
+    owner_record = manager.records.get(owner) if manager is not None and owner is not None else None
+    owner_version = getattr(owner_record, "version", "legacy")
     registration_id = uuid.uuid4().hex
     event_builder = events.NewMessage(outgoing=True, pattern=pattern)
 
@@ -233,6 +253,9 @@ def register_cmd(
     durable_value = bool(durable_job) if durable_job is not None else op_text == "JOB"
     example_values = tuple(examples or (f"{config.PREFIX}{primary_name}",))
     capability_values = tuple(required_capabilities or ())
+    argument_schema_value = dict(argument_schema or {})
+    cancellation_value = bool(cancellation_supported) if cancellation_supported is not None else False
+    durable_execution_value = bool(durable_execution_supported) if durable_execution_supported is not None else durable_value
     usage_value = usage or example_values[0]
     source_ref_value = source_ref or f"{getattr(handler, '__module__', 'unknown')}:{getattr(handler, '__name__', 'handler')}"
 
@@ -254,7 +277,13 @@ def register_cmd(
         destructive=destructive_value,
         confirmation_required=confirmation_value,
         resource_class=resource_class,
+        argument_schema=argument_schema_value,
+        priority=priority,
+        timeout_seconds=float(timeout_seconds),
+        cancellation_supported=cancellation_value,
+        durable_execution_supported=durable_execution_value,
         source_ref=source_ref_value,
+        owner_version=str(owner_version),
         usage=usage_value,
         event_builder=event_builder,
         wrapper=wrapper,
@@ -278,7 +307,13 @@ def register_cmd(
         "destructive": destructive_value,
         "confirmation_required": confirmation_value,
         "resource_class": resource_class,
+        "argument_schema": dict(argument_schema_value),
+        "priority": priority,
+        "timeout_seconds": float(timeout_seconds),
+        "cancellation_supported": cancellation_value,
+        "durable_execution_supported": durable_execution_value,
         "source_ref": source_ref_value,
+        "owner_version": str(owner_version),
         "usage": usage_value,
     }
     _REGISTRATIONS[registration_id] = registration
@@ -334,7 +369,13 @@ def command_metadata(registration: CommandRegistration) -> dict[str, Any]:
         "destructive": registration.destructive,
         "confirmation_required": registration.confirmation_required,
         "resource_class": registration.resource_class,
+        "argument_schema": dict(registration.argument_schema),
+        "priority": registration.priority,
+        "timeout_seconds": registration.timeout_seconds,
+        "cancellation_supported": registration.cancellation_supported,
+        "durable_execution_supported": registration.durable_execution_supported,
         "source_ref": registration.source_ref,
+        "owner_version": registration.owner_version,
     }
 
 def find_registrations(query: str) -> list[CommandRegistration]:
