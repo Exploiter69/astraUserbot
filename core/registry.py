@@ -97,7 +97,14 @@ def _command_names(pattern: str, aliases: Optional[Iterable[str]] = None) -> tup
         alias = alias.strip().lstrip(config.PREFIX)
         if alias:
             names.append(alias)
-    return tuple(sorted(set(name.lower() for name in names)))
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for name in names:
+        normalized = name.lower()
+        if normalized not in seen:
+            seen.add(normalized)
+            ordered.append(normalized)
+    return tuple(ordered)
 
 
 def _new_correlation_id() -> str:
@@ -416,4 +423,10 @@ def recent_registrations(limit: int = 10) -> list[CommandRegistration]:
             result.append(registration)
         if len(result) >= bounded:
             break
-    return result
+    if result:
+        return result
+
+    # With no invocation history yet, expose the newest live registrations.
+    # This keeps the discovery surface useful immediately after startup while
+    # preserving the privacy invariant: only registration metadata is returned.
+    return list(reversed(list(_REGISTRATIONS.values())))[:bounded]
