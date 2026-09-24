@@ -57,3 +57,19 @@ Command failures continue through the central registry error boundary and `Comma
 - [x] Central structured command errors retained.
 - [x] UX primitive tests added.
 - [ ] Production Telegram callback/pagination/cancel smoke test.
+
+
+## Post-Phase-10 UX maturity primitives
+
+The shared UX layer now also exposes bounded reusable primitives for:
+
+- list navigation;
+- structured form submit/cancel actions;
+- gallery navigation;
+- bounded callback tokens.
+
+These remain presentation primitives. They do not create a second state machine or durable authority.
+
+High-value durable-job workflows continue to use the existing JobEngine-backed buttons/pagination/progress/cancel/retry controls.
+
+The post-Phase-10 product spine adds command discovery, unified inspection, correlation, plugin lifecycle and AI/operator surfaces on top of these primitives.
