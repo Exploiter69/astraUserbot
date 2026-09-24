@@ -189,3 +189,16 @@ isolation available for isolated workloads
 AI guardrails active when AI is enabled
 backup/recovery path known
 ```
+
+
+## Post-Phase-10 operator control surface
+
+Additional owner-facing controls:
+
+- `.doctor` — safe platform diagnostics;
+- `.config` — redacted configuration view;
+- `.update check` — clean-tree/update preflight;
+- `.update apply` — fast-forward-only update after clean-tree preflight;
+- `.restart confirm` — explicit supervisor-compatible restart request.
+
+These controls reuse existing storage, search, AI, isolation, plugin and process lifecycle boundaries. Update never falls back to a destructive merge or reset.
