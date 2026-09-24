@@ -79,10 +79,22 @@ class SearchService:
         for row in rows:
             await self.upsert(source="plugin", ref=row[0], title=row[0], content=f"{row[0]} {row[1]} {row[2]}")
             counts["plugin"] += 1
-        rows = await self.storage.fetchall("SELECT pattern,plugin_name,metadata_json FROM commands ORDER BY pattern")
-        for row in rows:
-            await self.upsert(source="command", ref=row[0], title=row[0], content=f"{row[1] or ''} {row[2] or ''}")
-            counts["command"] += 1
+        try:
+            from core.registry import registry_snapshot
+            for item in registry_snapshot():
+                ref = str(item["registration_id"])
+                content = " ".join([
+                    *item["names"], item["category"], item["description"],
+                    item["permission"], item["operation_class"], item["plugin"] or "",
+                    *item["examples"],
+                ])
+                await self.upsert(source="command", ref=ref, title=item["names"][0] if item["names"] else ref, content=content)
+                counts["command"] += 1
+        except Exception:
+            rows = await self.storage.fetchall("SELECT pattern,plugin_name,metadata_json FROM commands ORDER BY pattern")
+            for row in rows:
+                await self.upsert(source="command", ref=row[0], title=row[0], content=f"{row[1] or ''} {row[2] or ''}")
+                counts["command"] += 1
 
         for path in self.project_root.rglob("*"):
             if not path.is_file() or path.suffix.lower() not in self.TEXT_SUFFIXES:
