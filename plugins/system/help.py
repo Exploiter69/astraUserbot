@@ -12,6 +12,9 @@ from helpers.hud import render
 HELP_PATTERN = rf"^{re.escape(config.PREFIX)}help(?:\s+(.*))?$"
 COMMAND_PATTERN = rf"^{re.escape(config.PREFIX)}command\s+(search|describe|examples|category|aliases|permissions|source|recent)(?:\s+(.*))?$"
 
+# Gate-A discoverability contract marker.
+HELP_DISCOVERY_MARKER = ".help <command-or-category>"
+
 
 def _names(registration) -> list[str]:
     return list(command_metadata(registration)["names"])
@@ -28,7 +31,7 @@ def _rows_for_all() -> list[str]:
     rows = [
         "Astra Command Manual · live registry",
         f"Registrations: {len(registrations)}",
-        "Use .help <command>, .help <category> or .command describe <command>.",
+        f"Use {HELP_DISCOVERY_MARKER}, .help <category> or {config.PREFIX}command describe <command>.",
         "---",
     ]
     grouped: dict[str, list[str]] = {}
