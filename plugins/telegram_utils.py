@@ -15,7 +15,7 @@ _MAX_REPLY = 4000
 
 async def setup(client):
     p = re.escape(config.PREFIX)
-    register_cmd(client, rf"^{p}(msg|inspect)$", handle_inspect, "telegram", "Inspect the replied Telegram message.")
+    register_cmd(client, rf"^{p}(msg|tginspect)$", handle_inspect, "telegram", "Inspect the replied Telegram message; use .inspect for unified entity inspection.")
     register_cmd(client, rf"^{p}(id|ref)$", handle_id, "telegram", "Show chat and message IDs.")
     register_cmd(client, rf"^{p}link$", handle_link, "telegram", "Build a message link when Telegram exposes one.")
     register_cmd(client, rf"^{p}entity(?:\s+(.+))?$", handle_entity, "telegram", "Inspect a Telegram entity.")
