@@ -6,11 +6,11 @@ import re
 
 from config import config
 from core.errors import CommandError
-from core.registry import command_metadata, find_registrations, list_registrations, register_cmd
+from core.registry import command_metadata, find_registrations, list_registrations, recent_registrations, register_cmd
 from helpers.hud import render
 
 HELP_PATTERN = rf"^{re.escape(config.PREFIX)}help(?:\s+(.*))?$"
-COMMAND_PATTERN = rf"^{re.escape(config.PREFIX)}command\s+(search|describe|examples|category|aliases|permissions|source)(?:\s+(.*))?$"
+COMMAND_PATTERN = rf"^{re.escape(config.PREFIX)}command\s+(search|describe|examples|category|aliases|permissions|source|recent)(?:\s+(.*))?$"
 
 
 def _names(registration) -> list[str]:
@@ -109,6 +109,11 @@ async def handle_help(event):
 async def handle_command(event):
     action = (event.pattern_match.group(1) or "").lower()
     query = (event.pattern_match.group(2) or "").strip()
+    if action == "recent":
+        registrations = recent_registrations(10)
+        rows = [_display(item) for item in registrations]
+        await event.edit(render("COMMAND // RECENT", rows or ["No recent command history."], footer="system | privacy-safe recent identities"))
+        return
     if action == "search":
         if not query:
             raise CommandError(f"Usage: {config.PREFIX}command search <query>")
