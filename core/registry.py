@@ -12,6 +12,7 @@ import logging
 import re
 import time
 import uuid
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
@@ -68,6 +69,7 @@ class CommandRegistration:
 COMMANDS: Dict[str, Dict[str, Any]] = {}
 _REGISTRATIONS: Dict[str, CommandRegistration] = {}
 _COMMAND_OWNERS: Dict[str, str] = {}
+_RECENT_COMMANDS: deque[str] = deque(maxlen=50)
 
 
 def _command_names(pattern: str, aliases: Optional[Iterable[str]] = None) -> tuple[str, ...]:
@@ -144,6 +146,7 @@ def register_cmd(
     async def wrapper(event: Any) -> None:
         if not event.out:
             return
+        _RECENT_COMMANDS.append(registration_id)
         correlation_id = _new_correlation_id()
         start_time = time.perf_counter()
         metrics = None
@@ -356,3 +359,20 @@ def find_registrations(query: str) -> list[CommandRegistration]:
 
 def registry_snapshot() -> list[dict[str, Any]]:
     return [command_metadata(item) for item in list_registrations()]
+
+
+def recent_registrations(limit: int = 10) -> list[CommandRegistration]:
+    """Return privacy-safe recent command identities; arguments are never stored."""
+    bounded = max(1, min(int(limit), 25))
+    seen: set[str] = set()
+    result: list[CommandRegistration] = []
+    for registration_id in reversed(_RECENT_COMMANDS):
+        if registration_id in seen:
+            continue
+        seen.add(registration_id)
+        registration = _REGISTRATIONS.get(registration_id)
+        if registration is not None:
+            result.append(registration)
+        if len(result) >= bounded:
+            break
+    return result
