@@ -79,6 +79,25 @@ async def inspect_target(target: str) -> list[str]:
     ctx = _ctx()
     target = target[:512]
     rows = [f"Target: {target}", "---"]
+    if target.startswith("message:"):
+        message_id = target.split(":", 1)[1].strip()
+        results = await ctx.get("search").search(message_id, limit=5, sources={"message", "archive_message"})
+        rows += [f"Type: MESSAGE", f"Message reference: {message_id}"]
+        rows.extend(f"Evidence: [{item.source}] {item.title} · {item.snippet}" for item in results)
+        rows.append("Unknown: message search results are observations, not permission grants.")
+        return rows
+
+    if target.startswith("media:"):
+        media_ref = target.split(":", 1)[1].strip()
+        results = await ctx.get("search").search(media_ref, limit=5, sources={"media"})
+        rows += [f"Type: MEDIA", f"Media reference: {media_ref}"]
+        rows.extend(f"Evidence: {item.title} · {item.snippet}" for item in results)
+        rows.append("Unknown: media evidence is derived and bounded.")
+        return rows
+
+    if target.startswith("ioc:"):
+        target = target.split(":", 1)[1].strip()
+        rows[0] = f"Target: ioc:{target}"
     if target.startswith("case:"):
         case_id = target.split(":", 1)[1].strip()
         case = await ctx.get("cases").get(case_id)
