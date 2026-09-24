@@ -178,4 +178,3 @@ class SearchService:
             for row in rows
         ]
 
-        return [SearchResult(str(row[0]), str(row[1]), str(row[2]), str(row[3]), float(row[4])) for row in rows]
