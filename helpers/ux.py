@@ -69,3 +69,29 @@ def render_jobs(jobs: Iterable, page: int, *, has_next: bool) -> str:
     if len(rows) == 2:
         rows.append("No jobs on this page.")
     return render("JOBS", rows, footer="system | jobs")
+
+
+def list_buttons(kind: str, page: int, *, has_next: bool, prefix: str = "ux") -> list[list[Button]]:
+    """Generic bounded list navigation; callback contains only a small page token."""
+    return page_buttons(f"{prefix}:{kind}", page, has_next=has_next)
+
+
+def form_buttons(form_id: str, *, submit_label: str = "Submit", cancel_label: str = "Cancel") -> list[list[Button]]:
+    """Reusable form action row; payload contains only a bounded form identifier."""
+    safe = str(form_id)[:64]
+    return [[
+        Button.inline(submit_label[:32], f"ux:form:submit:{safe}".encode()),
+        Button.inline(cancel_label[:32], f"ux:form:cancel:{safe}".encode()),
+    ]]
+
+
+def gallery_buttons(gallery_id: str, page: int, *, has_next: bool) -> list[list[Button]]:
+    """Reusable bounded gallery navigation."""
+    safe = str(gallery_id)[:64]
+    return page_buttons(f"gallery:{safe}", page, has_next=has_next)
+
+
+def bounded_callback_token(*parts: str, max_length: int = 96) -> bytes:
+    """Create a callback token with no arbitrary payload."""
+    value = ":".join(str(part).replace(":", "_")[:32] for part in parts)
+    return value[:max_length].encode("utf-8")
