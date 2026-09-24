@@ -1997,3 +1997,10 @@ And the engineering rule remains:
 The product target is not maximum command count.
 
 The target is a **mature, discoverable, evidence-aware, durable, recoverable, zero-cost Telegram automation and local-intelligence platform** that preserves the production-grade engineering foundation already achieved.
+
+
+# 24. Implementation checkpoint
+
+Gates A–H now have a repository implementation baseline covering command contract/discovery, unified search, unified inspection, correlation UX, reusable interactive UX primitives, plugin UX/lifecycle controls, AI product flows, and the operator control plane. The acceptance ledger is `docs/POST_PHASE10_ACCEPTANCE.md`.
+
+**Important:** implementation is not being represented as owner-host verification. The next validation pass must run the focused maturity tests, full regression, compileall, existing ecosystem/media/storage/isolation audits, production acceptance, and live Telegram/systemd smoke before the A–H program is marked ACCEPTED.
