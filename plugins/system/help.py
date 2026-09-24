@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from config import config
+from core.errors import CommandError
 from core.registry import command_metadata, find_registrations, list_registrations, register_cmd
 from helpers.hud import render
 
@@ -110,13 +111,13 @@ async def handle_command(event):
     query = (event.pattern_match.group(2) or "").strip()
     if action == "search":
         if not query:
-            raise ValueError(f"Usage: {config.PREFIX}command search <query>")
+            raise CommandError(f"Usage: {config.PREFIX}command search <query>")
         matches = find_registrations(query)
         rows = [f"{_display(item)} · {command_metadata(item)['description'][:100]}" for item in matches]
         await event.edit(render("COMMAND SEARCH", rows or ["No matching commands."], footer="system | bounded | max 25"))
         return
     if not query:
-        raise ValueError(f"Usage: {config.PREFIX}command {action} <command>")
+        raise CommandError(f"Usage: {config.PREFIX}command {action} <command>")
     registration = _resolve(query)
     if registration is None:
         await event.edit(render("COMMAND", [f"Unknown command: {query}"], footer="system | registry"))
