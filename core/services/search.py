@@ -16,6 +16,8 @@ class SearchResult:
     title: str
     snippet: str
     rank: float
+    result_id: str = ""
+    evidence_ref: str | None = None
 
 
 class SearchService:
