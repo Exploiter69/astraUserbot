@@ -9,6 +9,19 @@ ROOT = Path(__file__).resolve().parents[1]
 PYTHON = sys.executable
 
 STEPS = [
+    [PYTHON, "tools/post_phase10_maturity_audit.py"],
+    [PYTHON, "-m", "ruff", "check", "."],
+    [PYTHON, "-m", "ruff", "format", "--check", "."],
+    [
+        PYTHON,
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_post_phase10_maturity.py",
+        "tests/test_phase10_15_gate.py",
+        "tests/test_runtime_services.py",
+        "tests/test_phase16_gate.py",
+    ],
     [PYTHON, "-m", "pytest", "-q"],
     [PYTHON, "-m", "compileall", "-q", "core", "plugins", "tools"],
     [PYTHON, "tools/plugin_behavior_audit.py"],
