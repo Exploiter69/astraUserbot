@@ -61,7 +61,7 @@ class RuntimeServiceTests(unittest.IsolatedAsyncioTestCase):
                 {
                     "storage", "cache", "http", "subprocess", "telegram_state", "telegram",
                     "telegram_event_journal", "telegram_events", "telegram_event_projections",
-                    "telegram_event_replay", "intelgraph", "public_intel", "security_intel", "workspace", "media",
+                    "telegram_event_replay", "intelgraph", "intel_correlation", "public_intel", "security_intel", "workspace", "media",
                     "jobs", "automation", "secrets", "ai", "search", "telegram_archive", "media_intel",
                     "cases", "metrics", "flags", "isolation",
                 },
@@ -85,6 +85,7 @@ class RuntimeServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(context.get("telegram_archive")._started)
             self.assertTrue(context.get("media_intel")._started)
             self.assertTrue(context.get("cases")._started)
+            self.assertIs(context.get("intel_correlation").graph, context.get("intelgraph"))
             await context.close()
             self.assertEqual(context.snapshot()["state"], "CLOSED")
             self.assertIsNone(context.get("http").session)
