@@ -41,6 +41,17 @@ class CommandRegistration:
     aliases: tuple[str, ...] = ()
     permission: str = "owner"
     owner: str | None = None
+    operation_class: str = "READ"
+    required_capabilities: tuple[str, ...] = ()
+    examples: tuple[str, ...] = ()
+    compatibility: str = "1.0"
+    network: bool = False
+    durable_job: bool = False
+    destructive: bool = False
+    confirmation_required: bool = False
+    resource_class: str = "default"
+    source_ref: str = ""
+    usage: str = ""
     event_builder: Any = field(default=None, compare=False, repr=False)
     wrapper: Callable[..., Any] = field(default=lambda event: None, compare=False, repr=False)
 
@@ -93,6 +104,17 @@ def register_cmd(
     description: str = "No description provided.",
     aliases: Optional[List[str]] = None,
     permission: str = "owner",
+    operation_class: str | None = None,
+    required_capabilities: Optional[List[str]] = None,
+    examples: Optional[List[str]] = None,
+    compatibility: str = "1.0",
+    network: bool | None = None,
+    durable_job: bool | None = None,
+    destructive: bool | None = None,
+    confirmation_required: bool | None = None,
+    resource_class: str = "default",
+    source_ref: str = "",
+    usage: str = "",
 ) -> CommandRegistration:
     """Register one outgoing command with deterministic ownership."""
     if not pattern or not callable(handler):
