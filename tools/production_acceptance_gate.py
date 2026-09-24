@@ -42,7 +42,14 @@ def main() -> int:
     for index, command in enumerate(STEPS, 1):
         print(f"\n--- GATE {index}/{len(STEPS)} ---")
         print("$", " ".join(command))
-        completed = subprocess.run(\n            command,\n            cwd=ROOT,\n            check=False,\n            text=True,\n            capture_output=True,\n        )\n        if completed.returncode != 0:\n            print(f"PRODUCTION_ACCEPTANCE_FAIL gate={index} rc={completed.returncode}")\n            if completed.stdout:\n                print("--- stdout ---")\n                print(completed.stdout.rstrip())\n            if completed.stderr:\n                print("--- stderr ---")\n                print(completed.stderr.rstrip())\n            return completed.returncode or 1\n        print(f"PASS gate={index}")\n    print("\nPRODUCTION_ACCEPTANCE_PASS")
+        completed = subprocess.run(
+            command,
+            cwd=ROOT,
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        if completed.returncode != 0:\n            print(f"PRODUCTION_ACCEPTANCE_FAIL gate={index} rc={completed.returncode}")\n            if completed.stdout:\n                print("--- stdout ---")\n                print(completed.stdout.rstrip())\n            if completed.stderr:\n                print("--- stderr ---")\n                print(completed.stderr.rstrip())\n            return completed.returncode or 1\n        print(f"PASS gate={index}")\n    print("\nPRODUCTION_ACCEPTANCE_PASS")
     print("Manual systemd/Telegram acceptance remains required; this gate is non-destructive.")
     return 0
 
