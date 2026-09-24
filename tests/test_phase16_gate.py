@@ -56,11 +56,12 @@ class Phase16Gate(unittest.TestCase):
             expected = {
                 "storage", "cache", "http", "subprocess", "telegram_state", "telegram",
                 "telegram_event_journal", "telegram_events", "telegram_event_projections", "telegram_event_replay", "intelgraph",
-                "public_intel", "telegram_archive", "workspace", "media", "media_intel", "cases", "jobs", "automation", "secrets", "ai", "search", "metrics", "flags", "isolation", "security_intel",
+                "intel_correlation", "public_intel", "telegram_archive", "workspace", "media", "media_intel", "cases", "jobs", "automation", "secrets", "ai", "search", "metrics", "flags", "isolation", "security_intel",
             }
             self.assertEqual(set(context.services), expected)
             await context.start()
             self.assertEqual(context.snapshot()["state"], "RUNNING")
+            self.assertIs(context.get("intel_correlation").graph, context.get("intelgraph"))
             await context.close()
             self.assertEqual(context.snapshot()["state"], "CLOSED")
         asyncio.run(run())
