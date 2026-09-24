@@ -171,6 +171,20 @@ async def handle_plugin(event):
     arg = (event.pattern_match.group(2) or "").strip()
     records = manager.snapshot()
     if not action:
+        if arg:
+            record = _find_plugin(records, arg)
+            rows = [
+                f"Plugin: {_plugin_name(record['name'])}",
+                f"State: {record['state']}",
+                f"Version: {record['version']}",
+                f"API: {record['api_version']}",
+                f"Description: {record['description'] or '—'}",
+                f"Capabilities: {', '.join(record['capabilities']) or 'none'}",
+                f"Dependencies: {', '.join(_plugin_name(x) for x in record['dependencies']) or 'none'}",
+                f"Commands owned: {len(record['registrations'])}",
+            ]
+            await event.edit(render("PLUGIN // DETAIL", rows, footer="system_ops | plugin"))
+            return
         rows = [f"{_plugin_name(r['name'])} · {r['state']} · v{r['version']} · {len(r['capabilities'])} caps" for r in records]
         await event.edit(render("PLUGIN // CATALOG", rows[:60] or ["No plugins."], footer="system_ops | plugin"))
         return
