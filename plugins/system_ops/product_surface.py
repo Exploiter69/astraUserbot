@@ -56,10 +56,63 @@ def _find_plugin(records, query: str):
 
 
 async def setup(client):
-    register_cmd(client, PRODUCT_PATTERN, handle_product, "product", "Unified entity inspection and evidence-backed correlation.", examples=[f"{config.PREFIX}inspect example.com", f"{config.PREFIX}correlate example.com"])
-    register_cmd(client, PLUGIN_PATTERN, handle_plugin, "system_ops", "Plugin catalog, detail, compatibility and safe lifecycle controls.", operation_class="MUTATION", destructive=False, examples=[f"{config.PREFIX}plugin", f"{config.PREFIX}plugin search intel", f"{config.PREFIX}plugin health plugins.intelligence.security_intel"])
-    register_cmd(client, AI_PATTERN, handle_aiux, "ai", "Native AI product flows over bounded replies, search, evidence, cases and media.", operation_class="NETWORK", network=True, examples=[f"{config.PREFIX}aiux summarize", f"{config.PREFIX}aiux search intel"])
-    register_cmd(client, CONTROL_PATTERN, handle_control, "system_ops", "Operator doctor, safe config inspection, update preflight and controlled restart.", operation_class="MUTATION", examples=[f"{config.PREFIX}doctor", f"{config.PREFIX}update check", f"{config.PREFIX}restart confirm"])
+    register_cmd(
+        client,
+        PRODUCT_PATTERN,
+        handle_product,
+        "product",
+        "Unified entity inspection and evidence-backed correlation.",
+        permission="owner",
+        required_capabilities=["intel.read"],
+        argument_schema={"target": {"type": "string", "required": True, "max_length": 512}},
+        resource_class="intel-read",
+        timeout_seconds=20,
+        cancellation_supported=False,
+        durable_execution_supported=False,
+        examples=[f"{config.PREFIX}inspect example.com", f"{config.PREFIX}correlate example.com"],
+    )
+    register_cmd(
+        client,
+        PLUGIN_PATTERN,
+        handle_plugin,
+        "system_ops",
+        "Plugin catalog, detail, compatibility and safe lifecycle controls.",
+        permission="owner",
+        operation_class="MUTATION",
+        required_capabilities=["plugin.manage"],
+        destructive=False,
+        resource_class="plugin-lifecycle",
+        timeout_seconds=20,
+        examples=[f"{config.PREFIX}plugin", f"{config.PREFIX}plugin search intel", f"{config.PREFIX}plugin health plugins.intelligence.security_intel"],
+    )
+    register_cmd(
+        client,
+        AI_PATTERN,
+        handle_aiux,
+        "ai",
+        "Native AI product flows over bounded replies, search, evidence, cases and media.",
+        permission="owner",
+        operation_class="NETWORK",
+        required_capabilities=["ai.use"],
+        network=True,
+        resource_class="ai",
+        timeout_seconds=120,
+        cancellation_supported=True,
+        examples=[f"{config.PREFIX}aiux summarize", f"{config.PREFIX}aiux search intel"],
+    )
+    register_cmd(
+        client,
+        CONTROL_PATTERN,
+        handle_control,
+        "system_ops",
+        "Operator doctor, safe config inspection, update preflight and controlled restart.",
+        permission="owner",
+        operation_class="MUTATION",
+        required_capabilities=["operator.manage"],
+        resource_class="operator",
+        timeout_seconds=30,
+        examples=[f"{config.PREFIX}doctor", f"{config.PREFIX}update check", f"{config.PREFIX}restart confirm"],
+    )
 
 
 async def handle_product(event):
