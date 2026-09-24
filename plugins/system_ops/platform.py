@@ -256,10 +256,31 @@ async def handle(event):
         await event.edit(render("DIAGNOSTICS // REPORT", [f"Written: {path.relative_to(ctx.project_root)}", f"DB integrity: {'PASS' if report['db_integrity'] else 'FAIL'}", f"Plugins: {len(report['plugins'])}", f"Quarantined: {len(report['quarantined'])}", f"Commands: {report['commands']}", f"Jobs sampled: {len(jobs)}"], footer="system_ops | diagnostics")); return
 
     if cmd == "search":
-        if not arg: raise CommandError(f"Usage: {config.PREFIX}search <query>")
+        if not arg: raise CommandError(f"Usage: {config.PREFIX}search <query> [page=N] [source=A,B]")
         if len(arg) > 512: raise CommandError("Search query must be 512 characters or fewer.")
-        results = await ctx.get("search").search(arg, limit=10); rows = [f"[{item.source}] {item.title}: {item.snippet}" for item in results]
-        await event.edit(render("SEARCH // RESULTS", rows or ["No results."], footer=f"system_ops | search | {len(results)}")); return
+        tokens = arg.split()
+        page = 1
+        source_filter = None
+        query_tokens = []
+        for token in tokens:
+            if token.lower().startswith("page="):
+                try:
+                    page = max(1, min(1000, int(token.split("=", 1)[1])))
+                except ValueError as exc:
+                    raise CommandError("page must be an integer.") from exc
+            elif token.lower().startswith("source="):
+                source_filter = {item.strip() for item in token.split("=", 1)[1].split(",") if item.strip()}
+            else:
+                query_tokens.append(token)
+        query_text = " ".join(query_tokens).strip()
+        if not query_text:
+            raise CommandError("Search query is empty after filters.")
+        results = await ctx.get("search").search(query_text, limit=10, offset=(page - 1) * 10, sources=source_filter)
+        rows = [f"[{item.source}] {item.title}: {item.snippet} · id={item.result_id[:40]}" for item in results]
+        if results:
+            rows.append(f"Page: {page} · Next: {config.PREFIX}search {query_text} page={page + 1}" )
+        await event.edit(render("SEARCH // UNIFIED", rows or ["No results."], footer=f"system_ops | search | {len(results)} | bounded | permission-aware source contract"))
+        return
 
     if cmd == "reindex":
         counts = await ctx.get("search").rebuild(); rows = [f"{source}: {count}" for source, count in sorted(counts.items())]
