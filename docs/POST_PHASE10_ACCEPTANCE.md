@@ -251,3 +251,20 @@ accepted
 ```
 
 The code in this gate is the implementation baseline. Local/owner-host validation is the final acceptance authority.
+
+
+## Roadmap crosswalk
+
+The A–H program maps to the existing competitive maturity gates as follows:
+
+- UX-MATURITY-1 → Gate A command discovery and searchable help;
+- UX-MATURITY-2 → Gate E shared buttons/pagination/confirmation/progress primitives;
+- UX-MATURITY-3 → Gate E forms/galleries/lists primitives and selected high-value workflow migration;
+- UX-MATURITY-4 → Gate F plugin catalog/detail/lifecycle/compatibility;
+- UX-MATURITY-5 → existing moderation audit/bounds plus new permission/target preflight;
+- UX-MATURITY-6 → Gate G bounded AI reply/search/evidence/case/timeline/media flows;
+- UX-MATURITY-7 → Gate H update/config/restart/doctor;
+- UX-MATURITY-8 → remaining first-run documentation/preflight validation after A–H implementation;
+- UX-MATURITY-9 → Product Maturity acceptance after focused/full/live validation.
+
+The existing Program F `.rewrite`, `.translate`, `.extract`, and `.code` surfaces remain on the unified AI gateway and are not replaced by `aiux`; the new `aiux` commands add product-integrated context/evidence/case/media workflows.
