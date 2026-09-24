@@ -72,7 +72,10 @@ def _rows_for_one(registration) -> list[str]:
         f"Durable job: {'yes' if meta['durable_job'] else 'no'}",
         f"Destructive: {'yes' if meta['destructive'] else 'no'}",
         f"Confirmation: {'yes' if meta['confirmation_required'] else 'no'}",
-        f"Compatibility: {meta['compatibility']}",
+        f"Compatibility: {meta['compatibility']} · plugin v{meta['owner_version']}",
+        f"Priority: {meta['priority']} · timeout: {meta['timeout_seconds']:.0f}s",
+        f"Cancellation: {'yes' if meta['cancellation_supported'] else 'no'} · durable execution: {'yes' if meta['durable_execution_supported'] else 'no'}",
+        f"Arguments: {meta['argument_schema'] or 'none'}",
         f"Usage: {meta['usage']}",
         f"Examples: {' | '.join(meta['examples'])}",
     ]
