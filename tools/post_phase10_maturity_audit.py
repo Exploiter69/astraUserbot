@@ -8,8 +8,6 @@ Those remain local/live acceptance steps.
 """
 
 from pathlib import Path
-import re
-import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -87,21 +85,22 @@ REQUIRED_TEXT = {
     ),
 }
 
+
 def main() -> int:
     failures: list[str] = []
 
-    for rel in REQUIRED_FILES:
-        if not (ROOT / rel).is_file():
-            failures.append(f"missing file: {rel}")
+    for relative_path in REQUIRED_FILES:
+        if not (ROOT / relative_path).is_file():
+            failures.append(f"missing file: {relative_path}")
 
-    for rel, needles in REQUIRED_TEXT.items():
-        path = ROOT / rel
+    for relative_path, needles in REQUIRED_TEXT.items():
+        path = ROOT / relative_path
         if not path.is_file():
             continue
         text = path.read_text(encoding="utf-8")
         for needle in needles:
             if needle not in text:
-                failures.append(f"{rel}: missing contract marker {needle!r}")
+                failures.append(f"{relative_path}: missing contract marker {needle!r}")
 
     registry = (ROOT / "core/registry.py").read_text(encoding="utf-8")
     if "raise CommandRegistrationError" not in registry:
@@ -122,6 +121,7 @@ def main() -> int:
     print("Gates A-H: implementation contracts present")
     print("Owner-host/live validation: required separately")
     return 0
+
 
 if __name__ == "__main__":
     raise SystemExit(main())
