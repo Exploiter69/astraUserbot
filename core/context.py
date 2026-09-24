@@ -12,6 +12,7 @@ from core.services import (
     CacheService,
     CaseService,
     HttpService,
+    IntelCorrelationEngine,
     IntelGraph,
     JobEngine,
     MediaIntelService,
@@ -71,6 +72,7 @@ class ApplicationContext:
         self.get("telegram_events").add_sink(self.get("telegram_event_journal").append)
         self.get("telegram_events").add_sink(self._project_event)
         self.register("intelgraph", IntelGraph(self.get("storage")))
+        self.register("intel_correlation", IntelCorrelationEngine(self.get("intelgraph")))
         self.register("public_intel", PublicIntelService(self.get("intelgraph"), self.get("http"), self.get("telegram")))
         self.register("security_intel", SecurityIntelService(self.get("http"), self.get("public_intel")))
         self.register("workspace", WorkspaceService(self.project_root))
