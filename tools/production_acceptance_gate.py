@@ -36,12 +36,8 @@ STEPS = [
 
 
 def main() -> int:
-    print("=== ASTRA PRODUCTION ACCEPTANCE GATE ===")
-    print(f"python={PYTHON}")
-    print(f"root={ROOT}")
+    print("=== ASTRA PRODUCTION ACCEPTANCE ===")
     for index, command in enumerate(STEPS, 1):
-        print(f"\n--- GATE {index}/{len(STEPS)} ---")
-        print("$", " ".join(command))
         completed = subprocess.run(
             command,
             cwd=ROOT,
@@ -50,18 +46,23 @@ def main() -> int:
             capture_output=True,
         )
         if completed.returncode != 0:
-            print(f"PRODUCTION_ACCEPTANCE_FAIL gate={index} rc={completed.returncode}")
-            if completed.stdout:
-                print("--- stdout ---")
-                print(completed.stdout.rstrip())
-            if completed.stderr:
-                print("--- stderr ---")
-                print(completed.stderr.rstrip())
+            print(f"FAIL gate={index}/{len(STEPS)} rc={completed.returncode}")
+            output = (completed.stdout or "") + (completed.stderr or "")
+            lines = [line.strip() for line in output.splitlines() if line.strip()]
+            if command[2:4] == ["ruff", "check"]:
+                findings = [line for line in lines if line.startswith(("I", "F", "E", "W", "UP", "SIM", "BLE", "S", "RUF", "TRY", "ASYNC", "G", "C", "RET", "FURB"))]
+                print(f"ruff findings: {len(findings)}")
+                for line in findings[:5]:
+                    print(f"  {line}")
+                if len(findings) > 5:
+                    print(f"  ... {len(findings) - 5} more (run ruff check . for full details)")
+            else:
+                for line in lines[-8:]:
+                    print(f"  {line}")
             return completed.returncode or 1
-        print(f"PASS gate={index}")
-    print("\nPRODUCTION_ACCEPTANCE_PASS")
-    print("Manual systemd/Telegram acceptance remains required; this gate is non-destructive.")
+        print(f"PASS gate={index}/{len(STEPS)}")
+    print("PRODUCTION_ACCEPTANCE_PASS")
+    print("Manual systemd/Telegram acceptance remains required.")
     return 0
-
 if __name__ == "__main__":
     raise SystemExit(main())
