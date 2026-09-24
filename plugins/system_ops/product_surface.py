@@ -88,9 +88,16 @@ async def inspect_target(target: str) -> list[str]:
         return rows
 
     if target.startswith("plugin:"):
-        record = _find_plugin(getattr(_manager_stub(ctx), "snapshot")(), target.split(":", 1)[1])
-        rows += [f"Type: PLUGIN", f"State: {record['state']}", f"Version: {record['version']}", f"API: {record['api_version']}", f"Description: {record['description'] or '—'}"]
-        rows.append(f"Capabilities: {', '.join(record['capabilities']) or 'none'}")
+        name = target.split(":", 1)[1].strip()
+        row = await ctx.get("storage").fetchone(
+            "SELECT name,module,state,updated_at FROM plugins WHERE name=? OR module=? LIMIT 1",
+            (name, name),
+        )
+        if row:
+            rows += [f"Type: PLUGIN", f"Name: {row[0]}", f"Module: {row[1]}", f"State: {row[2]}"]
+        else:
+            rows += ["Type: PLUGIN", "Observed fact: plugin metadata is not persisted in the canonical platform database."]
+            rows.append("Unknown: live plugin lifecycle details require the plugin observatory.")
         return rows
 
     if target.startswith("command:"):
