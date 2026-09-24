@@ -3178,3 +3178,58 @@ Never mark a gate COMPLETE because:
 
 Completion requires the gate's full evidence contract.
 
+
+---
+
+## 58. Post-Phase-10 execution baseline
+
+The original numbered implementation sequence is accepted through **Phase 10**. Do not invent a new numbered Phase 11.
+
+Current execution program:
+
+A → Command Contract + Discoverability
+B → Unified Search
+C → Unified Entity Inspector
+D → Correlation / Intelligence UX
+E → Interactive UX Maturity
+F → Plugin UX + Compatibility
+G → AI Product UX
+H → Astra Control Plane / Operator UX
+↓ Product Maturity Gate
+↓ Dataset / Hugging Face lineage research
+↓ remaining intelligence/media work
+↓ release/operations hardening
+
+The detailed dependency-first execution contract is maintained in `ROADMAP_POST_PHASE10.md`.
+
+The implementation baseline for Gates A–H is recorded in `docs/POST_PHASE10_ACCEPTANCE.md`.
+
+### Current implementation additions
+
+- command registrations now expose a stable mature metadata contract;
+- live command discovery and command-contract inspection are available;
+- unified search supports cross-domain indexing, bounded source filters, pagination and stable result IDs;
+- `.inspect` is reserved for the unified entity inspector; the older Telegram message inspector remains available as `.msg`/`.tginspect`;
+- `.correlate` exposes existing IntelGraph relationships and evidence state;
+- reusable list/form/gallery UX callback primitives exist;
+- plugin catalog/detail/search/health/lifecycle controls reuse PluginManager;
+- bounded AI product flows connect replies, search, evidence, cases, timelines and media OCR/STT to the existing AI gateway;
+- operator doctor/config/update/restart controls reuse existing storage, search, AI, isolation, plugin and process lifecycle services.
+
+### Acceptance rule
+
+These source changes constitute the **implementation baseline**, not a claim of owner-host verification.
+
+A–H becomes release-accepted only after:
+
+1. focused maturity tests;
+2. full regression;
+3. compileall;
+4. plugin ecosystem audit;
+5. media/security/search/storage audits;
+6. production acceptance;
+7. owner-host Telegram smoke;
+8. systemd restart/recovery validation;
+9. documentation and acceptance evidence synchronization.
+
+The Dataset/Hugging Face track remains blocked until account census, dataset inventory, family clustering, lineage comparison, unique-coverage analysis, authoritative-source selection, provenance manifest and remote validation are complete.
