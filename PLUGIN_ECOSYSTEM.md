@@ -87,3 +87,18 @@ A green ecosystem gate is:
 ```text
 PLUGIN_ECOSYSTEM_QUALITY_AUDIT_PASS
 ```
+
+## Post-Phase-10 operator UX
+
+The existing PluginManager remains the lifecycle authority. The product surface exposes:
+
+- `.plugin` — catalog;
+- `.plugin <name>` — detail;
+- `.plugin search <query>` — discovery;
+- `.plugin health <name>` — health/lifecycle state;
+- `.plugin enable <name>` — controlled activation;
+- `.plugin disable <name>` — controlled disable;
+- `.plugin reload <name>` — disable + enable under the same lifecycle contract;
+- `.plugin install <name>` — safe local-discovered enable, not arbitrary package installation.
+
+Compatibility, dependency, quarantine and lifecycle checks remain enforced by PluginManager.
