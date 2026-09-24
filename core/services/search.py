@@ -71,7 +71,7 @@ class SearchService:
         if not self._ready:
             raise RuntimeError("SearchService is not started")
         counts: dict[str, int] = {}
-        for source in ("plugin", "command", "document", "message"):
+        for source in ("plugin", "command", "document", "message", "intel_entity", "intel_observation", "case", "media", "security"):
             await self.remove_source(source)
             counts[source] = 0
 
@@ -124,9 +124,32 @@ class SearchService:
                     conn.close()
             except sqlite3.Error:
                 continue
+        optional_queries = [
+            ("intel_entity", "SELECT entity_id, entity_type, canonical_value, COALESCE(display_value,'') FROM intel_entities ORDER BY updated_at DESC LIMIT 10000"),
+            ("intel_observation", "SELECT observation_id, source_family, COALESCE(source_dataset,''), COALESCE(matched_field,''), evidence_state FROM intel_observations ORDER BY retrieved_at DESC LIMIT 10000"),
+            ("case", "SELECT case_id, title, status, summary FROM cases ORDER BY updated_at DESC LIMIT 5000"),
+        ]
+        for source, sql in optional_queries:
+            try:
+                rows = await self.storage.fetchall(sql)
+            except Exception:
+                rows = []
+            for row in rows:
+                ref = str(row[0])
+                title = str(row[2] if source == "intel_entity" else row[1])
+                content = " ".join(str(item or "") for item in row)
+                await self.upsert(source=source, ref=ref, title=title, content=content)
+                counts[source] += 1
         return counts
 
-    async def search(self, query: str, *, limit: int = 10) -> list[SearchResult]:
+    async def search(
+        self,
+        query: str,
+        *,
+        limit: int = 10,
+        offset: int = 0,
+        sources: set[str] | None = None,
+    ) -> list[SearchResult]:
         cleaned = self._clean_query(query)
         if not cleaned:
             return []
