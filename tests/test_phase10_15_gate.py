@@ -34,6 +34,52 @@ class Phase10To15Tests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(item.source == "plugin" for item in results))
         await service.close()
 
+    async def test_search_cursor_is_opaque_and_stable_for_same_query(self):
+        service = SearchService(self.storage, self.root)
+        await service.start()
+        for index in range(3):
+            await service.upsert(source="document", ref=f"{index}.md", title=f"alpha {index}", content="alpha evidence")
+        first = await service.search_page("alpha", limit=1)
+        self.assertEqual(len(first.results), 1)
+        self.assertTrue(first.next_cursor)
+        second = await service.search_page("alpha", limit=1, cursor=first.next_cursor)
+        self.assertEqual(len(second.results), 1)
+        self.assertNotEqual(first.results[0].result_id, second.results[0].result_id)
+        with self.assertRaises(ValueError):
+            await service.search_page("different", limit=1, cursor=first.next_cursor)
+        await service.close()
+
+    async def test_search_rebuild_indexes_ocr_and_transcript_evidence(self):
+        service = SearchService(self.storage, self.root)
+        await service.start()
+        now = 1.0
+        await self.storage.execute(
+            "INSERT INTO intel_entities(entity_id,entity_type,canonical_value,display_value,created_at,updated_at) VALUES(?,?,?,?,?,?)",
+            ("ocr-entity", "TEXT", "invoice account 123", "invoice account 123", now, now),
+        )
+        await self.storage.execute(
+            "INSERT INTO intel_entities(entity_id,entity_type,canonical_value,display_value,created_at,updated_at) VALUES(?,?,?,?,?,?)",
+            ("transcript-entity", "TEXT", "spoken phrase 456", "spoken phrase 456", now, now),
+        )
+        await self.storage.execute(
+            "INSERT INTO intel_sources(source_id,source_family,provider,source_type,created_at,updated_at) VALUES(?,?,?,?,?,?)",
+            ("media-source", "media", "test", "local", now, now),
+        )
+        await self.storage.execute(
+            "INSERT INTO intel_observations(observation_id,entity_id,source_id,source_family,retrieved_at,matched_field,evidence_state,confidence,provenance_json) VALUES(?,?,?,?,?,?,?,?,?)",
+            ("ocr-obs", "ocr-entity", "media-source", "media", now, "ocr_text", "OBSERVED", 0.9, "{}"),
+        )
+        await self.storage.execute(
+            "INSERT INTO intel_observations(observation_id,entity_id,source_id,source_family,retrieved_at,matched_field,evidence_state,confidence,provenance_json) VALUES(?,?,?,?,?,?,?,?,?)",
+            ("transcript-obs", "transcript-entity", "media-source", "media", now, "transcript", "OBSERVED", 0.9, "{}"),
+        )
+        counts = await service.rebuild()
+        self.assertGreaterEqual(counts["ocr"], 1)
+        self.assertGreaterEqual(counts["transcript"], 1)
+        self.assertTrue(await service.search("invoice"))
+        self.assertTrue(await service.search("spoken"))
+        await service.close()
+
     async def test_search_is_rebuildable(self):
         service = SearchService(self.storage, self.root)
         await service.start()
