@@ -129,6 +129,8 @@ class SearchService:
         optional_queries = [
             ("intel_entity", "SELECT entity_id, entity_type, canonical_value, COALESCE(display_value,'') FROM intel_entities ORDER BY updated_at DESC LIMIT 10000"),
             ("intel_observation", "SELECT observation_id, source_family, COALESCE(source_dataset,''), COALESCE(matched_field,''), evidence_state FROM intel_observations ORDER BY retrieved_at DESC LIMIT 10000"),
+            ("media", "SELECT observation_id, source_family, COALESCE(source_dataset,''), COALESCE(matched_field,''), evidence_state FROM intel_observations WHERE lower(source_family) LIKE '%media%' ORDER BY retrieved_at DESC LIMIT 5000"),
+            ("security", "SELECT observation_id, source_family, COALESCE(source_dataset,''), COALESCE(matched_field,''), evidence_state FROM intel_observations WHERE lower(source_family) LIKE '%security%' ORDER BY retrieved_at DESC LIMIT 5000"),
             ("case", "SELECT case_id, title, status, summary FROM cases ORDER BY updated_at DESC LIMIT 5000"),
         ]
         for source, sql in optional_queries:
