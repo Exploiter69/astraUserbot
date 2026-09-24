@@ -170,14 +170,34 @@ async def correlate_target(target: str) -> list[str]:
         return ["Unknown: no entity match."]
     if result.get("ambiguous"):
         return ["Possible correlation candidates:"] + [f"{item['entity_type']} · {item['canonical_value']}" for item in result["candidates"][:15]] + ["No candidate was selected."]
-    rows = [f"Root: {result['root']['entity_type']} · {result['root'].get('display_value') or result['root']['canonical_value']}", f"Edges: {result['total_edges']}"]
+
+    root = result["root"]
+    assessments = await ctx.get("intel_correlation").assess_entity(root["entity_id"], limit=25)
+    assessed = {item.relationship_id: item for item in assessments}
+    rows = [
+        f"Root: {root['entity_type']} · {root.get('display_value') or root['canonical_value']}",
+        f"Edges: {result['total_edges']}",
+    ]
     for edge in result["edges"][:20]:
-        other_id = edge["to_id"] if edge["from_id"] == result["root"]["entity_id"] else edge["from_id"]
+        other_id = edge["to_id"] if edge["from_id"] == root["entity_id"] else edge["from_id"]
         other = next((node for node in result["nodes"] if node["entity_id"] == other_id), None)
         if not other:
             continue
-        rows.append(f"{edge['relationship_type']} → {other['entity_type']} {other.get('display_value') or other['canonical_value']} · state={edge['evidence_state']} · confidence={float(edge['confidence']):.2f}")
-    rows.append("Interpretation: observed facts and derived relationships remain explicitly separated.")
+        assessment = assessed.get(edge["relationship_id"])
+        if assessment is None:
+            state = str(edge["evidence_state"])
+            confidence = float(edge["confidence"])
+            reasons = "graph evidence"
+        else:
+            state = assessment.state
+            confidence = assessment.confidence
+            reasons = "; ".join(assessment.reasons) or "no additional assessment reason"
+        rows.append(
+            f"{edge['relationship_type']} → {other['entity_type']} "
+            f"{other.get('display_value') or other['canonical_value']} · "
+            f"state={state} · confidence={confidence:.2f} · {reasons}"
+        )
+    rows.append("Interpretation: observed facts, derived relationships, contradictions and unknowns remain explicitly separated.")
     return rows
 
 
