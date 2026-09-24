@@ -29,7 +29,13 @@ class PostPhase10ContractTests(unittest.TestCase):
             destructive=False,
             confirmation_required=False,
             resource_class="default",
+            argument_schema={"text": {"type": "string", "required": True}},
+            priority=200,
+            timeout_seconds=15.0,
+            cancellation_supported=True,
+            durable_execution_supported=False,
             source_ref="tests",
+            owner_version="1.2.3",
             usage=".example <text>",
         )
         metadata = command_metadata(registration)
@@ -38,6 +44,12 @@ class PostPhase10ContractTests(unittest.TestCase):
         self.assertEqual(metadata["required_capabilities"], ["search.read"])
         self.assertEqual(metadata["compatibility"], "1.0")
         self.assertEqual(metadata["usage"], ".example <text>")
+        self.assertEqual(metadata["argument_schema"]["text"]["type"], "string")
+        self.assertEqual(metadata["priority"], 200)
+        self.assertEqual(metadata["timeout_seconds"], 15.0)
+        self.assertTrue(metadata["cancellation_supported"])
+        self.assertFalse(metadata["durable_execution_supported"])
+        self.assertEqual(metadata["owner_version"], "1.2.3")
 
     def test_register_cmd_infers_safe_read_contract(self):
         client = Mock()
@@ -54,6 +66,10 @@ class PostPhase10ContractTests(unittest.TestCase):
             self.assertFalse(registration.destructive)
             self.assertEqual(registration.compatibility, "1.0")
             self.assertTrue(registration.examples)
+            self.assertEqual(registration.priority, 100)
+            self.assertEqual(registration.timeout_seconds, 30.0)
+            self.assertFalse(registration.cancellation_supported)
+            self.assertFalse(registration.durable_execution_supported)
         finally:
             registration.unregister(client)
 
