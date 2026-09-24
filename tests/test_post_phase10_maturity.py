@@ -7,7 +7,7 @@ from unittest.mock import Mock
 
 from core.registry import CommandRegistration, command_metadata, recent_registrations, register_cmd
 from core.services.search import SearchResult
-from helpers.ux import bounded_callback_token, form_buttons, gallery_buttons, list_buttons
+from helpers.ux import bounded_callback_token, form_buttons, gallery_buttons, list_buttons, parse_callback_token
 
 
 class PostPhase10ContractTests(unittest.TestCase):
@@ -78,6 +78,9 @@ class PostPhase10ContractTests(unittest.TestCase):
         self.assertTrue(form_buttons("case-1"))
         self.assertTrue(gallery_buttons("media-1", 0, has_next=True))
         self.assertTrue(list_buttons("search", 0, has_next=True))
+        self.assertEqual(parse_callback_token(b"ux:search:page:2"), ("ux", "search", "page", "2"))
+        with self.assertRaises(ValueError):
+            parse_callback_token(b"x" * 97)
 
     def test_product_spine_surfaces_exist(self):
         root = Path(__file__).resolve().parents[1]
