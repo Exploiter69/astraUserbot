@@ -206,6 +206,28 @@ def register_cmd(
                 ),
             ))
 
+    primary_name = names[0] if names else "command"
+    description_lower = description.lower()
+    op_text = operation_class.upper() if operation_class else ""
+    if not op_text:
+        if any(token in primary_name for token in ("delete", "remove", "purge", "wipe", "clear")) or any(token in description_lower for token in ("delete", "purge", "wipe")):
+            op_text = "DESTRUCTIVE"
+        elif category in {"jobs", "job"} or any(token in primary_name for token in ("job", "task", "retry", "cancel")):
+            op_text = "JOB"
+        elif any(token in primary_name for token in ("send", "edit", "rename", "block", "unblock", "ban", "unban", "enable", "disable", "restart", "update", "close")):
+            op_text = "MUTATION"
+        elif any(token in description_lower for token in ("network", "http", "public-source", "telegram", "url", "remote", "provider")):
+            op_text = "NETWORK"
+        else:
+            op_text = "READ"
+    destructive_value = bool(destructive) if destructive is not None else op_text == "DESTRUCTIVE"
+    confirmation_value = bool(confirmation_required) if confirmation_required is not None else destructive_value
+    network_value = bool(network) if network is not None else op_text == "NETWORK"
+    durable_value = bool(durable_job) if durable_job is not None else op_text == "JOB"
+    example_values = tuple(examples or (f"{config.PREFIX}{primary_name}",))
+    capability_values = tuple(required_capabilities or ())
+    usage_value = usage or example_values[0]
+
     registration = CommandRegistration(
         registration_id=registration_id,
         pattern=pattern,
