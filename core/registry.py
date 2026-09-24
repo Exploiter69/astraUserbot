@@ -193,6 +193,17 @@ def register_cmd(
         aliases=tuple(aliases or ()),
         permission=permission,
         owner=owner,
+        operation_class=op_text,
+        required_capabilities=capability_values,
+        examples=example_values,
+        compatibility=compatibility,
+        network=network_value,
+        durable_job=durable_value,
+        destructive=destructive_value,
+        confirmation_required=confirmation_value,
+        resource_class=resource_class,
+        source_ref=source_ref,
+        usage=usage_value,
         event_builder=event_builder,
         wrapper=wrapper,
     )
@@ -206,6 +217,17 @@ def register_cmd(
         "aliases": list(registration.aliases),
         "permission": permission,
         "owner": owner,
+        "operation_class": op_text,
+        "required_capabilities": list(capability_values),
+        "examples": list(example_values),
+        "compatibility": compatibility,
+        "network": network_value,
+        "durable_job": durable_value,
+        "destructive": destructive_value,
+        "confirmation_required": confirmation_value,
+        "resource_class": resource_class,
+        "source_ref": source_ref,
+        "usage": usage_value,
     }
     _REGISTRATIONS[registration_id] = registration
     for name in names:
@@ -238,3 +260,50 @@ def clear_registrations(client: Any) -> None:
     """Remove every command registration; primarily for controlled shutdown/tests."""
     for registration in list(_REGISTRATIONS.values()):
         registration.unregister(client)
+
+def command_metadata(registration: CommandRegistration) -> dict[str, Any]:
+    """Return the stable, JSON-safe command contract."""
+    return {
+        "registration_id": registration.registration_id,
+        "pattern": registration.pattern,
+        "names": list(_command_names(registration.pattern, registration.aliases)),
+        "aliases": list(registration.aliases),
+        "plugin": registration.owner,
+        "category": registration.category,
+        "description": registration.description,
+        "usage": registration.usage,
+        "examples": list(registration.examples),
+        "permission": registration.permission,
+        "operation_class": registration.operation_class,
+        "required_capabilities": list(registration.required_capabilities),
+        "compatibility": registration.compatibility,
+        "network": registration.network,
+        "durable_job": registration.durable_job,
+        "destructive": registration.destructive,
+        "confirmation_required": registration.confirmation_required,
+        "resource_class": registration.resource_class,
+        "source_ref": registration.source_ref,
+    }
+
+def find_registrations(query: str) -> list[CommandRegistration]:
+    """Bounded deterministic command discovery over the live registry."""
+    needle = str(query).strip().lstrip(config.PREFIX).lower()
+    if not needle:
+        return list_registrations()
+    scored: list[tuple[int, CommandRegistration]] = []
+    for registration in list_registrations():
+        names = _command_names(registration.pattern, registration.aliases)
+        haystack = " ".join((registration.category, registration.description, registration.owner or "", *names)).lower()
+        if needle in names:
+            score = 100
+        elif any(name.startswith(needle) for name in names):
+            score = 80
+        elif needle in haystack:
+            score = 50
+        else:
+            continue
+        scored.append((score, registration))
+    return [item[1] for item in sorted(scored, key=lambda pair: (-pair[0], pair[1].pattern))[:25]]
+
+def registry_snapshot() -> list[dict[str, Any]]:
+    return [command_metadata(item) for item in list_registrations()]
