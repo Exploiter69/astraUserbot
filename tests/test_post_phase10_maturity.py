@@ -153,7 +153,7 @@ class PostPhase10ContractTests(unittest.TestCase):
 
         grouped_registration = CommandRegistration(
             registration_id="grouped-id",
-            pattern=r"^\\.(alpha|beta)(?:\\s+(.*))?$",
+            pattern=r"^\.(alpha|beta)(?:\s+(.*))?$",
             handler=lambda event: None,
             category="system",
             description="grouped commands",
