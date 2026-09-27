@@ -1,4 +1,6 @@
+import asyncio
 import os
+
 import aiohttp
 from helpers.net import get_session
 from core.errors import CommandError
@@ -40,7 +42,8 @@ async def transcribe_audio(file_path: str, model: str = "whisper-large-v3") -> s
     }
     
     data = aiohttp.FormData()
-    data.add_field('file', open(file_path, 'rb'), filename=os.path.basename(file_path))
+    audio_bytes = await asyncio.to_thread(lambda: open(file_path, 'rb').read())
+    data.add_field('file', audio_bytes, filename=os.path.basename(file_path))
     data.add_field('model', model)
     
     async with session.post("https://api.groq.com/openai/v1/audio/transcriptions", headers=headers, data=data) as resp:
