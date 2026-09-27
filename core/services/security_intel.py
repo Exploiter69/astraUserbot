@@ -202,7 +202,7 @@ class SecurityIntelService:
                 if len(redirect_hops) >= 3:
                     score += 10
                     signals.append(f"Long redirect chain ({len(redirect_hops)} observed hops)")
-            except Exception:
+            except Exception:  # noqa: BLE001 - redirect enrichment is optional
                 signals.append("Redirect analysis unavailable")
 
         score = min(100, score)
