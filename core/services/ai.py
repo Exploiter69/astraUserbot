@@ -87,9 +87,9 @@ class GroqProvider(_HTTPProvider):
         path = Path(file_path)
         try:
             payload = aiohttp.FormData()
-            with path.open("rb") as handle:
-                payload.add_field("file", handle, filename=path.name)
-                payload.add_field("model", model)
+            audio_bytes = await asyncio.to_thread(path.read_bytes)
+            payload.add_field("file", audio_bytes, filename=path.name)
+            payload.add_field("model", model)
                 response = await self.http.post(
                     f"{self.base_url}/audio/transcriptions",
                     headers={"Authorization": f"Bearer {self.api_key}"},
