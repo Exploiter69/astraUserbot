@@ -57,8 +57,11 @@ def _rows_for_all() -> list[str]:
         "---",
     ]
     for category in sorted(grouped):
-        rows.append(f"◈ {category.upper()}")
-        rows.extend(f"  {item}" for item in grouped[category])
+        # Keep the command deck compact so the full inventory remains visible.
+        # One category line can carry the same concrete-name inventory that the
+        # old operator-facing deck exposed, while the discovery commands provide
+        # detailed per-command metadata.
+        rows.append(f"◈ {category.upper()}  {' '.join(grouped[category])}")
     return rows
 
 def _resolve(query: str):
@@ -136,9 +139,7 @@ async def handle_help(event):
     query = (event.pattern_match.group(1) or "").strip()
     if not query:
         await event.edit(
-            render(
-                "COMMAND DECK", _rows_for_all()[:120], footer="system | live registry"
-            )
+            render("COMMAND DECK", _rows_for_all(), footer="system | live registry")
         )
         return
     category_rows = _category_rows(query)
