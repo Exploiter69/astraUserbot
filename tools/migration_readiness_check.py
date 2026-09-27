@@ -29,8 +29,8 @@ EXPECTED = [
     "tools/astra_platform.py",
     "tools/plugin_architecture_check.py",
     "tests/test_plugin_contracts.py",
-    "DISASTER_RECOVERY.md",
-    "PRODUCTION_BOUNDARY.md",
+    "docs/operations/DISASTER_RECOVERY.md",
+    "docs/architecture/PRODUCTION_BOUNDARY.md",
 ]
 
 LEGACY_IMPORTS = {
@@ -137,7 +137,7 @@ def runtime_processes() -> list[str]:
     for line in result.stdout.splitlines():
         if (
             "AstraUserbot" in line or "astra.py" in line or "main.py" in line
-        ) and "phase17_migration_audit.py" not in line:
+        ) and "migration_readiness_check.py" not in line:
             rows.append(line.strip())
     return rows
 
@@ -222,7 +222,7 @@ def main() -> int:
     print("=== PHASE 17 MIGRATION READINESS AUDIT ===")
     print(json.dumps(report, indent=2, sort_keys=True))
 
-    output = ROOT / "data" / "logs" / "phase17_migration_audit.json"
+    output = ROOT / "data" / "logs" / "migration_readiness.json"
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
 

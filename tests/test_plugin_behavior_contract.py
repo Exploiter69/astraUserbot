@@ -119,8 +119,8 @@ class PluginBehaviorContractTests(unittest.TestCase):
         self.assertIn("async with _state_lock", text)
         self.assertIn("_remember_warning", text)
 
-    def test_plugin_behavior_audit_exists_and_is_ast_only(self):
-        text = (ROOT / "tools/plugin_behavior_audit.py").read_text(encoding="utf-8")
+    def test_plugin_behavior_check_exists_and_is_ast_only(self):
+        text = (ROOT / "tools/plugin_behavior_check.py").read_text(encoding="utf-8")
         self.assertIn("ast.parse", text)
         self.assertNotIn("importlib.import_module", text)
         self.assertNotIn("exec(", text)
