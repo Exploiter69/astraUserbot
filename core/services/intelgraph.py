@@ -159,6 +159,11 @@ class IntelGraph:
             raise ValueError(f"unknown source_id: {source_id}")
         if str(source[0]) != source_family:
             raise ValueError("source_family does not match the registered source")
+        entity = await self.storage.fetchone(
+            "SELECT 1 FROM intel_entities WHERE entity_id=?", (entity_id,)
+        )
+        if entity is None:
+            raise ValueError(f"unknown entity_id: {entity_id}")
         observation_id = observation_id or uuid.uuid4().hex
         bounded_confidence = max(0.0, min(1.0, float(confidence)))
         await self.storage.execute(
