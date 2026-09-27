@@ -1,5 +1,6 @@
 import asyncio
 import os
+from pathlib import Path
 
 import aiohttp
 from helpers.net import get_session
@@ -42,7 +43,7 @@ async def transcribe_audio(file_path: str, model: str = "whisper-large-v3") -> s
     }
     
     data = aiohttp.FormData()
-    audio_bytes = await asyncio.to_thread(lambda: open(file_path, 'rb').read())
+    audio_bytes = await asyncio.to_thread(Path(file_path).read_bytes)
     data.add_field('file', audio_bytes, filename=os.path.basename(file_path))
     data.add_field('model', model)
     
