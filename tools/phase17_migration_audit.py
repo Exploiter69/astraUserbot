@@ -97,7 +97,7 @@ def plugin_import_violations() -> list[dict[str, str]]:
 
         try:
             tree = ast.parse(path.read_text())
-        except Exception as exc:
+        except SyntaxError as exc:
             violations.append(
                 {"file": str(path.relative_to(ROOT)), "reason": f"parse error: {exc}"}
             )
@@ -138,9 +138,8 @@ def runtime_processes() -> list[str]:
     )
     rows = []
     for line in result.stdout.splitlines():
-        if "AstraUserbot" in line or "astra.py" in line or "main.py" in line:
-            if "phase17_migration_audit.py" not in line:
-                rows.append(line.strip())
+        if ("AstraUserbot" in line or "astra.py" in line or "main.py" in line) and "phase17_migration_audit.py" not in line:
+            rows.append(line.strip())
     return rows
 
 
