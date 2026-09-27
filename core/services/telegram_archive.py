@@ -29,7 +29,7 @@ class TelegramArchiveRequest:
         if not 0 <= int(self.min_message_id) <= self.MAX_MESSAGE_ID:
             raise ValueError("Archive message cursor is invalid")
         if not isinstance(self.include_media, bool):
-            raise ValueError("Archive include_media must be boolean")
+            raise TypeError("Archive include_media must be boolean")
 
     @property
     def payload(self) -> dict[str, Any]:
