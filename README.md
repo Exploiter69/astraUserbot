@@ -2,7 +2,7 @@
 
 A modular, service-oriented Telegram userbot platform designed for reliability, explicit safety boundaries, durable background work, observable operations and zero-cost operation.
 
-**Current release:** `1.0.0`  
+**Current release candidate:** `1.0.1`  
 **Architecture:** single-process Python/asyncio modular monolith  
 **Transport:** Telethon  
 **Durable store:** SQLite/WAL  
@@ -143,7 +143,7 @@ Production service lifecycle is managed by systemd. Follow `OPERATIONS_RUNBOOK.m
 
 ## Release model
 
-`VERSION` contains the canonical release version. The current release is `1.0.0` and its Git tag is `v1.0.0`.
+`VERSION` contains the canonical release version. The current release candidate is `1.0.1`. It is not tagged until the owner-host Telegram/systemd acceptance checklist passes.
 
 Release tags are immutable release markers; post-release maintenance commits remain on `main`.
 
