@@ -277,7 +277,7 @@ def main() -> int:
     try:
         check_static_contracts()
         asyncio.run(actual_pipeline())
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - audit must report any unexpected failure as a failed gate
         print(f"MEDIA_PIPELINE_AUDIT_FAIL: {exc}")
         return 1
     print("MEDIA_PIPELINE_HARDENING_AUDIT_PASS")
