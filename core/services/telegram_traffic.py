@@ -332,11 +332,10 @@ class TelegramTrafficController:
             return False
         if now < self._cooldowns.get(f"method:{item.method}", 0.0):
             return False
-        if item.peer_key is not None and now < self._cooldowns.get(
-            f"peer:{item.peer_key}", 0.0
-        ):
-            return False
-        return True
+        return not (
+            item.peer_key is not None
+            and now < self._cooldowns.get(f"peer:{item.peer_key}", 0.0)
+        )
 
     def _pop_eligible(self) -> _QueuedCall | None:
         now = time.monotonic()
