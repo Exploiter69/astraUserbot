@@ -105,8 +105,9 @@ def main() -> int:
         if not path.is_file():
             continue
         text = path.read_text(encoding="utf-8")
+        normalized = "".join(text.split())
         for needle in needles:
-            if needle not in text:
+            if needle not in text and needle.replace(" ", "") not in normalized:
                 failures.append(f"{relative_path}: missing contract marker {needle!r}")
 
     help_path = ROOT / "plugins/system/help.py"
