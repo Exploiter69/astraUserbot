@@ -43,7 +43,7 @@ class IntelGraphTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_foreign_keys_prevent_orphan_observations(self):
         await self.graph.add_source(source_id="src1", source_family="f", provider="p", source_type="test")
-        with self.assertRaises(Exception):
+        with self.assertRaises(ValueError):
             await self.graph.add_observation(entity_id="missing", source_id="src1", source_family="f")
 
     async def test_observation_sink_receives_bounded_intelligence_event(self):
