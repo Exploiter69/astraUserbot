@@ -402,7 +402,7 @@ class TelegramTrafficController:
             if not item.future.done():
                 item.future.cancel()
             raise
-        except BaseException as exc:
+        except BaseException as exc:  # noqa: BLE001 - preserve every operation failure for the waiting caller
             if not item.future.done():
                 item.future.set_exception(exc)
             self._counters["failed"] += 1
