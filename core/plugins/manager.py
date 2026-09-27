@@ -208,7 +208,7 @@ class PluginManager:
             except Exception as exc:
                 record.state = PluginState.FAILED_IMPORT
                 record.error = str(exc)
-                logger.error("Failed to import plugin %s: %s", name, exc, exc_info=True)
+                logger.exception("Failed to import plugin %s: %s", name, exc)
                 if record.critical:
                     raise
         try:
@@ -231,7 +231,7 @@ class PluginManager:
             except Exception as exc:
                 record.state = PluginState.FAILED_SETUP
                 record.error = str(exc)
-                logger.error("Failed to setup plugin %s: %s", name, exc, exc_info=True)
+                logger.exception("Failed to setup plugin %s: %s", name, exc)
                 if record.critical:
                     raise
         self._log_report()
@@ -272,7 +272,9 @@ class PluginManager:
             return
         try:
             task.exception()
-        except (asyncio.CancelledError, Exception):
+        except asyncio.CancelledError:
+            return
+        except Exception:
             return
 
     async def _bounded_unload(self, name: str, timeout: float) -> None:
@@ -282,7 +284,7 @@ class PluginManager:
             try:
                 task.result()
             except Exception:
-                logger.error("Plugin shutdown failed: %s", name, exc_info=True)
+                logger.exception("Plugin shutdown failed: %s", name)
             return
         task.cancel()
         task.add_done_callback(self._consume_background_result)
