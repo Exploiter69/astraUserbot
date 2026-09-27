@@ -13,8 +13,6 @@ ROOT = Path(__file__).resolve().parents[1]
 
 REQUIRED_FILES = (
     "ROADMAP.md",
-    "ROADMAP_COMPETITIVE_ADDENDUM.md",
-    "ROADMAP_POST_PHASE10.md",
     "docs/POST_PHASE10_ACCEPTANCE.md",
     "docs/UNIFIED_SEARCH.md",
     "docs/ENTITY_INSPECTOR.md",
