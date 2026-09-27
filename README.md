@@ -93,16 +93,16 @@ Quarantine is intentional. Do not remove it merely because an AI command is unav
 | `FAILURE_MODE_MATRIX.md` | Failure detection and response |
 | `RELEASE_NOTES_v1.0.0.md` | v1.0.0 release summary |
 | `RELEASE_NOTES_v1.0.1.md` | v1.0.1 release summary |
-| `docs/acceptance/POST_PHASE10_ACCEPTANCE.md` | Post-Phase-10 maturity acceptance ledger |
+| `docs/acceptance/POST_PHASE10_ACCEPTANCE.md` | Product maturity maturity acceptance ledger |
 
-Audit and verification implementations live under `tools/`; tests live under `tests/`. Historical phase/readiness and one-time release documents are intentionally not kept in the repository root.
+Audit and verification implementations live under `tools/`; tests live under `tests/`. Historical implementation artifacts and one-time release documents are intentionally not kept in the repository root.
 
 ## Verification
 
 The canonical non-destructive verification gate is:
 
 ```bash
-python tools/production_acceptance_gate.py
+python tools/release_acceptance.py
 ```
 
 Useful individual gates:
@@ -110,14 +110,14 @@ Useful individual gates:
 ```bash
 python -m pytest -q
 python -m compileall -q core plugins tools
-python tools/plugin_behavior_audit.py
-python tools/plugin_ecosystem_audit.py
-python tools/media_pipeline_audit.py
-python tools/isolation_security_audit.py
-python tools/storage_hardening_audit.py
-python tools/job_hardening_audit.py
-python tools/phase18_production_audit.py
-python tools/phase18_shutdown_probe.py
+python tools/plugin_behavior_check.py
+python tools/plugin_ecosystem_check.py
+python tools/media_pipeline_check.py
+python tools/isolation_security_check.py
+python tools/storage_hardening_check.py
+python tools/job_hardening_check.py
+python tools/production_hardening_check.py
+python tools/shutdown_probe.py
 ```
 
 The automated gate is non-destructive and does not restart the production system. Manual production checks are covered by the operator runbook.

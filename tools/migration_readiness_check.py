@@ -27,8 +27,8 @@ EXPECTED = [
     "core/plugins/manager.py",
     "core/services",
     "tools/astra_platform.py",
-    "tools/phase16_audit.py",
-    "tests/test_phase16_gate.py",
+    "tools/plugin_architecture_check.py",
+    "tests/test_plugin_contracts.py",
     "DISASTER_RECOVERY.md",
     "PRODUCTION_BOUNDARY.md",
 ]

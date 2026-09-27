@@ -141,7 +141,7 @@ Review the release commit/tag, create a verified DB backup, then:
 git pull --ff-only origin main
 ./venv/bin/python -m pytest -q
 ./venv/bin/python -m compileall -q core plugins tools
-./venv/bin/python tools/production_acceptance_gate.py
+./venv/bin/python tools/release_acceptance.py
 ```
 
 Only after the gate passes should production be restarted.
@@ -191,7 +191,7 @@ backup/recovery path known
 ```
 
 
-## Post-Phase-10 operator control surface
+## Product maturity operator control surface
 
 Additional owner-facing controls:
 

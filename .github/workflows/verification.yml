@@ -36,4 +36,4 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt -r requirements-dev.txt
       - name: Production acceptance gate
-        run: python tools/production_acceptance_gate.py
+        run: python tools/release_acceptance.py

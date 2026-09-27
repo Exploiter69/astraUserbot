@@ -47,7 +47,7 @@ Do not use `git reset --hard` as a normal upgrade operation.
 ## 4. Run the release gate before restart
 
 ```bash
-./venv/bin/python tools/production_acceptance_gate.py
+./venv/bin/python tools/release_acceptance.py
 ```
 
 A failure blocks production restart. Diagnose and fix the release candidate rather than bypassing the failing gate.

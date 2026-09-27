@@ -1,6 +1,6 @@
-# Post-Phase-10 Maturity Acceptance
+# Product maturity Maturity Acceptance
 
-This document is the acceptance ledger for the post-Phase-10 Gates A–H implementation program.
+This document is the acceptance ledger for the product maturity Gates A–H implementation program.
 
 ## Current implementation checkpoint
 
@@ -294,7 +294,7 @@ Final closure requires:
 
 The repository now contains a static A–H audit:
 
-`python tools/post_phase10_maturity_audit.py`
+`python tools/product_maturity_check.py`
 
 The remaining Dataset/Hugging Face lineage track is intentionally separate and remains blocked until its account-census and lineage prerequisites are completed.
 
@@ -303,11 +303,11 @@ The remaining Dataset/Hugging Face lineage track is intentionally separate and r
 From a clean checkout:
 
 ```bash
-python tools/post_phase10_maturity_audit.py
+python tools/product_maturity_check.py
 ruff check .
 ruff format --check .
 python -m compileall -q .
-python -m pytest -q tests/test_post_phase10_maturity.py tests/test_phase10_15_gate.py tests/test_runtime_services.py tests/test_phase16_gate.py
+python -m pytest -q tests/test_product_maturity.py tests/test_platform_contracts.py tests/test_runtime_services.py tests/test_plugin_contracts.py
 python -m pytest -q
 ```
 
