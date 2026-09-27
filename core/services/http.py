@@ -117,8 +117,7 @@ class HttpService:
 
         for attempt in range(attempts + 1):
             try:
-                async with host_limit:
-                    async with session.request(
+                async with host_limit, session.request(
                         method.upper(),
                         url,
                         headers=headers,
