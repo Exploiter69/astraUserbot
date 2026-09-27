@@ -14,8 +14,6 @@ AstraUserbot began as a broad feature-rich userbot. The engineering program extr
 
 The active post-1.0 feature program is defined in **`ROADMAP.md`**. It is the working roadmap for Telegram Core 2.0, product/UX expansion, AI 2.0, durable automation, IntelGraph/IOC intelligence, media intelligence, cases, security intelligence, public-code intelligence and the plugin ecosystem.
 
-**`ROADMAP_COMPETITIVE_ADDENDUM.md`** extends that roadmap with the continuous competitor matrix, Command Bus/command contracts, command discovery, unified search, entity inspection, explicit correlation engine, plugin compatibility API and Astra Control Plane.
-
 ## Core principles
 
 1. Telegram remains the transport layer.
@@ -77,7 +75,6 @@ Quarantine is intentional. Do not remove it merely because an AI command is unav
 | Document | Purpose |
 |---|---|
 | `ROADMAP.md` | Active Astra 2.x feature and implementation roadmap |
-| `ROADMAP_COMPETITIVE_ADDENDUM.md` | Competitive-completeness extensions and revised dependencies |
 | `ARCHITECTURE.md` | Canonical architecture and production invariants |
 | `DATA_MODEL.md` | Data ownership and persistence |
 | `JOB_MODEL.md` | Durable job lifecycle and recovery semantics |
@@ -95,6 +92,8 @@ Quarantine is intentional. Do not remove it merely because an AI command is unav
 | `DISASTER_RECOVERY.md` | Backup, restore and recovery procedure |
 | `FAILURE_MODE_MATRIX.md` | Failure detection and response |
 | `RELEASE_NOTES_v1.0.0.md` | v1.0.0 release summary |
+| `RELEASE_NOTES_v1.0.1.md` | v1.0.1 release summary |
+| `docs/POST_PHASE10_ACCEPTANCE.md` | Post-Phase-10 maturity acceptance ledger |
 
 Audit and verification implementations live under `tools/`; tests live under `tests/`. Historical phase/readiness and one-time release documents are intentionally not kept in the repository root.
 
