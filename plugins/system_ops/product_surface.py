@@ -16,9 +16,7 @@ from helpers.hud import render
 PRODUCT_PATTERN = rf"^{re.escape(config.PREFIX)}(inspect|correlate)(?:\s+(.*))?$"
 PLUGIN_PATTERN = rf"^{re.escape(config.PREFIX)}plugin(?:\s+(search|enable|disable|reload|health|install))?(?:\s+(.*))?$"
 AI_PATTERN = rf"^{re.escape(config.PREFIX)}aiux(?:\s+(summarize|explain|search|evidence|case|timeline|media))?(?:\s+(.*))?$"
-CONTROL_PATTERN = (
-    rf"^{re.escape(config.PREFIX)}(config|restart)(?:\s+(.*))?$"
-)
+CONTROL_PATTERN = rf"^\{re.escape(config.PREFIX)}(config|restart)(?:\s+(.*))?$"
 
 
 def _ctx():
