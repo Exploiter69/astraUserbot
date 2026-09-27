@@ -149,29 +149,11 @@ class PostPhase10ContractTests(unittest.TestCase):
         self.assertIn(".help <command-or-category>", help_text)
 
     def test_legacy_command_surface_is_a_hard_compatibility_baseline(self):
-        legacy = {
-            "ai", "aidiag", "aijob", "aria", "ask", "autopost", "code", "compress",
-            "explain", "extract", "ff", "ocr", "rclone", "reverse", "rewrite", "rip",
-            "round", "ss", "summarize", "transcribe", "translate", "archive", "autorule",
-            "autostatus", "backup", "intel", "case", "ct", "domainintel", "gitintel",
-            "idn", "linkintel", "mediaintel", "mediasim", "reputation", "secrisk",
-            "tgintel", "userintel", "ban", "lockdown", "modreport", "mute", "pin",
-            "unban", "unmute", "unpin", "warn", "warnings", "dns", "headers", "ip",
-            "mediaflow", "osint", "portscan", "qdel", "qget", "qlist", "qnote",
-            "speedtest", "bookmark", "bookmarks", "delremind", "filter", "remind",
-            "reminders", "tdel", "template", "tget", "tlist", "unbookmark", "allow",
-            "approve", "arch", "block", "clone", "delnote_sec", "disallow",
-            "disapprove", "getnote", "hash", "idbackup", "listallowed", "listdisallowed",
-            "logger", "mirror", "passgen", "pmpermit", "read", "revert", "savenote",
-            "savevo", "setlogger", "track", "unblock", "vault", "afk", "cache",
-            "cancel", "cleancache", "demote", "diagnostics", "doctor", "eval", "flags",
-            "ghost", "health", "help", "job", "jobs", "kickme", "mock", "ops", "owo",
-            "ping", "plugins", "promote", "purge", "purgeme", "reindex", "retry",
-            "search", "shrug", "slow", "spam", "stats", "status", "sysinfo", "tasks",
-            "testall", "tgcap", "tgsync", "update", "zombies", "bulkdel", "chatdiag",
-            "entity", "id", "inspect", "link", "msg", "ref", "reply", "b64", "head",
-            "jsonfmt", "rss", "sha256", "timestamp", "urlencode", "uuid",
-        }
+        legacy = set(
+            """\
+ai aidiag aijob aria ask autopost code compress explain extract ff ocr rclone reverse rewrite rip round ss summarize transcribe translate archive autorule autostatus backup intel case ct domainintel gitintel idn linkintel mediaintel mediasim reputation secrisk tgintel userintel ban lockdown modreport mute pin unban unmute unpin warn warnings dns headers ip mediaflow osint portscan qdel qget qlist qnote speedtest bookmark bookmarks delremind filter remind reminders tdel template tget tlist unbookmark allow approve arch block clone delnote_sec disallow disapprove getnote hash idbackup listallowed listdisallowed logger mirror passgen pmpermit read revert savenote savevo setlogger track unblock vault afk cache cancel cleancache demote diagnostics doctor eval flags ghost health help job jobs kickme mock ops owo ping plugins promote purge purgeme reindex retry search shrug slow spam stats status sysinfo tasks testall tgcap tgsync update zombies bulkdel chatdiag entity id inspect link msg ref reply b64 head jsonfmt rss sha256 timestamp urlencode uuid\
+            """.split()
+        )
         self.assertEqual(len(legacy), 150)
         root = Path(__file__).resolve().parents[1]
         source = "\n".join(
