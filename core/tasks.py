@@ -106,7 +106,7 @@ class TaskSupervisor:
             )
             record.state = TaskState.FAILED
             record.error_code = error.code
-            logger.error(
+            logger.exception(
                 "Supervised task failed id=%s name=%s owner=%s code=%s",
                 record.task_id,
                 record.name,
