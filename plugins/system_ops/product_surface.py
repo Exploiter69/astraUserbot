@@ -131,7 +131,7 @@ async def inspect_target(target: str) -> list[str]:
     if target.startswith("message:"):
         message_id = target.split(":", 1)[1].strip()
         results = await ctx.get("search").search(message_id, limit=5, sources={"message", "archive_message"})
-        rows += [f"Type: MESSAGE", f"Message reference: {message_id}"]
+        rows += ["Type: MESSAGE", f"Message reference: {message_id}"]
         rows.extend(f"Evidence: [{item.source}] {item.title} · {item.snippet}" for item in results)
         rows.append("Unknown: message search results are observations, not permission grants.")
         return rows
@@ -139,7 +139,7 @@ async def inspect_target(target: str) -> list[str]:
     if target.startswith("media:"):
         media_ref = target.split(":", 1)[1].strip()
         results = await ctx.get("search").search(media_ref, limit=5, sources={"media"})
-        rows += [f"Type: MEDIA", f"Media reference: {media_ref}"]
+        rows += ["Type: MEDIA", f"Media reference: {media_ref}"]
         rows.extend(f"Evidence: {item.title} · {item.snippet}" for item in results)
         rows.append("Unknown: media evidence is derived and bounded.")
         return rows
@@ -152,7 +152,7 @@ async def inspect_target(target: str) -> list[str]:
         case = await ctx.get("cases").get(case_id)
         if not case:
             raise CommandError("Case not found.")
-        rows += [f"Type: CASE", f"State: {case['status']}", f"Title: {case['title']}", f"Summary: {case['summary'] or '—'}"]
+        rows += ["Type: CASE", f"State: {case['status']}", f"Title: {case['title']}", f"Summary: {case['summary'] or '—'}"]
         rows.append("Evidence state: OBSERVED/DURABLE CASE RECORD")
         return rows
 
@@ -163,7 +163,7 @@ async def inspect_target(target: str) -> list[str]:
             (name, name),
         )
         if row:
-            rows += [f"Type: PLUGIN", f"Name: {row[0]}", f"Module: {row[1]}", f"State: {row[2]}"]
+            rows += ["Type: PLUGIN", f"Name: {row[0]}", f"Module: {row[1]}", f"State: {row[2]}"]
         else:
             rows += ["Type: PLUGIN", "Observed fact: plugin metadata is not persisted in the canonical platform database."]
             rows.append("Unknown: live plugin lifecycle details require the plugin observatory.")
@@ -174,7 +174,7 @@ async def inspect_target(target: str) -> list[str]:
         if not matches:
             raise CommandError("Command not found.")
         meta = command_metadata(matches[0])
-        rows += [f"Type: COMMAND", f"Category: {meta['category']}", f"Plugin: {meta['plugin'] or 'legacy'}", f"Permission: {meta['permission']}", f"Operation: {meta['operation_class']}", f"Usage: {meta['usage']}"]
+        rows += ["Type: COMMAND", f"Category: {meta['category']}", f"Plugin: {meta['plugin'] or 'legacy'}", f"Permission: {meta['permission']}", f"Operation: {meta['operation_class']}", f"Usage: {meta['usage']}"]
         rows.append(f"Examples: {' | '.join(meta['examples'])}")
         return rows
 
@@ -439,7 +439,7 @@ async def handle_control(event):
             raise CommandError("Unable to resolve repository/upstream state.")
         rows = [f"HEAD: {head.stdout.strip()[:12]}", f"Upstream: {remote.stdout.strip()[:12]}", "Working tree: CLEAN"]
         if mode == "apply":
-            pull = await asyncio.to_thread(run_git, ["pull", "--ff-only"])
+            pull = await subprocess_service.run(["git", "pull", "--ff-only"], cwd=root, timeout=20)
             if pull.returncode != 0:
                 raise CommandError("Fast-forward update failed; no destructive fallback was attempted.")
             rows += ["Update: APPLIED", "Restart required if code changed."]
