@@ -31,7 +31,7 @@ class JobEngine(_JobEngine):
             task.result()
         except asyncio.CancelledError:
             return
-        except Exception:
+        except Exception:  # noqa: BLE001
             return
 
     async def close(self) -> None:
