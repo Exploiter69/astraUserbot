@@ -209,7 +209,7 @@ async def _doctor_report(event) -> dict:
     report["network"] = await _network_checks(event.client)
     report["session"] = {
         "configured": bool(config.SESSION_NAME),
-        "path_exists": (root / "data" / config.SESSION_NAME).exists(),
+        "path_exists": (root / "data" / config.SESSION_NAME).exists() or (root / "data" / f"{config.SESSION_NAME}.session").exists(),
     }
     report["cache"] = {"files": sum(1 for p in cache.iterdir() if p.is_file())}
     log_files = [p for p in logs.iterdir() if p.is_file()]
