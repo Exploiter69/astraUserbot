@@ -199,13 +199,13 @@ async def _deliver_due_reminders(sender, *, now: float | None = None) -> int:
         except asyncio.CancelledError:
             raise
         except Exception:
-            logger.warning("Reminder delivery failed id=%s chat_id=%s; will retry", rid, chat_id, exc_info=True)
+            logger.exception("Reminder delivery failed id=%s chat_id=%s; will retry", rid, chat_id)
             continue
         try:
             await DB.execute("UPDATE reminders SET delivered=1 WHERE id=? AND delivered=0", (rid,))
             delivered += 1
         except Exception:
-            logger.error("Reminder delivery record failed id=%s; it may be retried", rid, exc_info=True)
+            logger.exception("Reminder delivery record failed id=%s; it may be retried", rid)
     return delivered
 
 
@@ -217,5 +217,5 @@ async def _reminder_worker(sender):
         except asyncio.CancelledError:
             raise
         except Exception:
-            logger.error("Reminder worker iteration failed; continuing", exc_info=True)
+            logger.exception("Reminder worker iteration failed; continuing")
         await asyncio.sleep(2)
