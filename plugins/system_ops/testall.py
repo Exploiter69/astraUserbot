@@ -175,7 +175,7 @@ async def _safe_smoke(client) -> list[dict]:
             try:
                 await asyncio.wait_for(handler(fake), timeout=12)
                 results.append({"command": name, "ok": True, "phase": "direct", "module": module_name, "handler": handler_name, "elapsed_ms": round((time.perf_counter() - started) * 1000, 1), "output_bytes": len(fake.output.encode("utf-8"))})
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - direct diagnostic probe records failures as data
                 results.append({"command": name, "ok": False, "phase": "direct", "module": module_name, "handler": handler_name, "elapsed_ms": round((time.perf_counter() - started) * 1000, 1), "error": f"{type(exc).__name__}: {_safe_text(str(exc), 500)}"})
     return results
 
