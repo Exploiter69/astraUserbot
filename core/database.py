@@ -7,7 +7,7 @@ import os
 import sqlite3
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import aiosqlite
 
@@ -31,7 +31,7 @@ class Database:
     BACKUP_TIMEOUT_SECONDS = 30.0
     MAX_BACKUP_BYTES = 2 * 1024 * 1024 * 1024
 
-    _instances: dict[str, "Database"] = {}
+    _instances: ClassVar[dict[str, "Database"]] = {}
 
     def __init__(self, name: str):
         self.name = name
@@ -204,6 +204,6 @@ class Database:
             try:
                 task.result()
             except Exception:
-                pass
+                logger.exception("Database shutdown task failed")
         for task in pending:
             task.cancel()
