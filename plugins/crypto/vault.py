@@ -1,6 +1,7 @@
 import re
 import os
 import base64
+from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
@@ -70,7 +71,7 @@ async def handle_crypto(event):
         try:
             plaintext = await run_in_thread(_decrypt, pwd, row[0], row[1], row[2])
             await event.edit(render("CRYPTO VAULT: DECRYPTED", [f"Tag: {tag}", "---", plaintext]))
-        except (ValueError, TypeError):
+        except (InvalidTag, UnicodeDecodeError, ValueError, TypeError):
             raise CommandError("Decryption failed. Authentication tag mismatch (wrong passphrase).")
 
     elif cmd == "delnote_sec":
