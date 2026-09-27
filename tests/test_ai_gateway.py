@@ -180,11 +180,10 @@ class AIGatewayTests(unittest.IsolatedAsyncioTestCase):
     async def test_transcription_capability_is_enforced(self):
         service, _ = self.make_service()
         service._providers["no-transcribe"] = GeminiProvider(object(), "secret")
-        with tempfile.NamedTemporaryFile(suffix=".ogg") as handle:
+        with tempfile.NamedTemporaryFile(suffix=".ogg") as handle, self.assertRaises(ConfigurationError):
             handle.write(b"audio")
             handle.flush()
-            with self.assertRaises(ConfigurationError):
-                await service.transcribe(handle.name, provider="no-transcribe")
+            await service.transcribe(handle.name, provider="no-transcribe")
 
     async def test_transcription_is_bounded_and_provider_neutral(self):
         service, fake = self.make_service()
