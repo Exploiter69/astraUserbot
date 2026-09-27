@@ -206,7 +206,7 @@ class Database:
         for task in done:
             try:
                 task.result()
-            except Exception:
+            except Exception:  # noqa: BLE001
                 logger.exception("Database shutdown task failed")
         for task in pending:
             task.cancel()
