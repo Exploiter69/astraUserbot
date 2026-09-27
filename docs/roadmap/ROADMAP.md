@@ -3200,7 +3200,7 @@ H → Astra Control Plane / Operator UX
 ↓ remaining intelligence/media work
 ↓ release/operations hardening
 
-The implementation baseline and acceptance record for the post-Phase-10 maturity program are recorded in `docs/POST_PHASE10_ACCEPTANCE.md`.
+The implementation baseline and acceptance record for the post-Phase-10 maturity program are recorded in `docs/acceptance/POST_PHASE10_ACCEPTANCE.md`.
 
 ### Current implementation additions
 

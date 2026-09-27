@@ -123,7 +123,7 @@ Create a verified backup using the platform command, not `cp` against a live WAL
 python -m tools.astra_platform backup data/backups/platform_$(date -u +%Y%m%dT%H%M%SZ).db
 ```
 
-After backup, preserve the artifact outside the active working database path and verify it according to `DISASTER_RECOVERY.md`.
+After backup, preserve the artifact outside the active working database path and verify it according to `docs/operations/DISASTER_RECOVERY.md`.
 
 ## 10. Upgrade
 

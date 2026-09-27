@@ -241,9 +241,9 @@ The release system is documented in:
 - `PRODUCTION_ACCEPTANCE.md` — automated and manual production gate;
 - `OPERATIONS_RUNBOOK.md` — day-to-day operation;
 - `UPGRADE_PROCEDURE.md` — controlled upgrade/rollback;
-- `DISASTER_RECOVERY.md` — backup/restore/recovery;
-- `FAILURE_MODE_MATRIX.md` — failure classification and first response;
-- `COMPATIBILITY.md` — version and migration policy.
+- `docs/operations/DISASTER_RECOVERY.md` — backup/restore/recovery;
+- `docs/operations/FAILURE_MODE_MATRIX.md` — failure classification and first response;
+- `docs/architecture/COMPATIBILITY.md` — version and migration policy.
 
 The current release version is recorded in `VERSION`. A Git tag is created only after acceptance passes.
 

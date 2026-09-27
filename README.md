@@ -93,7 +93,7 @@ Quarantine is intentional. Do not remove it merely because an AI command is unav
 | `FAILURE_MODE_MATRIX.md` | Failure detection and response |
 | `RELEASE_NOTES_v1.0.0.md` | v1.0.0 release summary |
 | `RELEASE_NOTES_v1.0.1.md` | v1.0.1 release summary |
-| `docs/POST_PHASE10_ACCEPTANCE.md` | Post-Phase-10 maturity acceptance ledger |
+| `docs/acceptance/POST_PHASE10_ACCEPTANCE.md` | Post-Phase-10 maturity acceptance ledger |
 
 Audit and verification implementations live under `tools/`; tests live under `tests/`. Historical phase/readiness and one-time release documents are intentionally not kept in the repository root.
 

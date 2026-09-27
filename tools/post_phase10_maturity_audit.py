@@ -12,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 REQUIRED_FILES = (
-    "ROADMAP.md",
+    "docs/roadmap/ROADMAP.md",
     "docs/POST_PHASE10_ACCEPTANCE.md",
     "docs/UNIFIED_SEARCH.md",
     "docs/ENTITY_INSPECTOR.md",
