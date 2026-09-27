@@ -36,7 +36,7 @@ class SearchService:
     MAX_QUERY = 256
     MAX_RESULTS = 50
     MAX_DOCUMENT_BYTES = 512 * 1024
-    TEXT_SUFFIXES = {".md", ".txt", ".rst", ".json"}
+    TEXT_SUFFIXES: ClassVar[frozenset[str]] = frozenset({".md", ".txt", ".rst", ".json"})
     CURSOR_VERSION = 1
 
     def __init__(self, storage: StorageService, project_root: str | Path) -> None:
