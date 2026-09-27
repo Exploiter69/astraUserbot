@@ -62,7 +62,7 @@ async def _cmd(command: list[str], timeout: int = 5) -> tuple[bool, str]:
         result = await subprocess.run(command, timeout=timeout, max_output_bytes=64 * 1024)
         text = (result.stdout.strip() or result.stderr.strip()).strip()
         return result.returncode == 0, _redact(text[-1000:])
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - diagnostics report the failure instead of aborting the suite
         return False, f"{type(exc).__name__}: {_redact(str(exc))}"
 
 
@@ -74,14 +74,14 @@ async def _network_checks(client) -> list[dict]:
             await client.connect()
         me = await client.get_me()
         checks.append({"name": "Telegram MTProto", "ok": me is not None, "detail": "connected + identity lookup"})
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - diagnostics must report probe failures
         checks.append({"name": "Telegram MTProto", "ok": False, "detail": f"{type(exc).__name__}: {_redact(str(exc))}"})
 
     for host in ("api.telegram.org", "1.1.1.1"):
         try:
             await asyncio.to_thread(socket.gethostbyname, host)
             checks.append({"name": f"DNS {host}", "ok": True, "detail": "resolved"})
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - diagnostics must report probe failures
             checks.append({"name": f"DNS {host}", "ok": False, "detail": type(exc).__name__})
 
     context = get_application_context()
@@ -91,7 +91,7 @@ async def _network_checks(client) -> list[dict]:
         http = context.get("http")
         response = await http.get("https://www.google.com/generate_204", timeout=5, response_limit=1024)
         checks.append({"name": "HTTPS", "ok": response.status < 500, "detail": f"HTTP {response.status}"})
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - diagnostics must report probe failures
         checks.append({"name": "HTTPS", "ok": False, "detail": f"{type(exc).__name__}: {_redact(str(exc))}"})
 
     checks.append({"name": "Network probe time", "ok": True, "detail": f"{time.perf_counter() - started:.2f}s"})
