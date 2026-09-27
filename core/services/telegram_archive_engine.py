@@ -188,7 +188,7 @@ class TelegramArchiveService:
                     raise
                 except (ResourceError, OSError, ValueError) as exc:
                     metadata.update({"media_status": "SKIPPED_LIMIT_OR_STORAGE", "media_error": type(exc).__name__})
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001 - media processing must not abort message indexing
                     metadata.update({"media_status": "FAILED", "media_error": type(exc).__name__})
         elif media is not None:
             metadata["media_status"] = "METADATA_ONLY"
