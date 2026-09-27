@@ -90,7 +90,7 @@ class GroqProvider(_HTTPProvider):
             audio_bytes = await asyncio.to_thread(path.read_bytes)
             payload.add_field("file", audio_bytes, filename=path.name)
             payload.add_field("model", model)
-                response = await self.http.post(
+            response = await self.http.post(
                     f"{self.base_url}/audio/transcriptions",
                     headers={"Authorization": f"Bearer {self.api_key}"},
                     data=payload,
