@@ -51,7 +51,7 @@ def command_audit() -> dict[str, object]:
             continue
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"))
-        except Exception as exc:
+        except SyntaxError as exc:
             parse_errors.append({"file": str(path.relative_to(ROOT)), "error": str(exc)})
             continue
 
