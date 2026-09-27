@@ -209,7 +209,7 @@ class TelegramStateCache:
         entity = await resolver()
         try:
             await self.remember_entity(lookup, entity)
-        except Exception:
+        except Exception:  # noqa: BLE001 - entity cache persistence is best-effort
             pass
         return entity
 
