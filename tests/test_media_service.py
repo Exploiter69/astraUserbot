@@ -160,9 +160,8 @@ class MediaServiceTests(unittest.IsolatedAsyncioTestCase):
             source = job.resolve("input.mp4")
             source.write_bytes(b"source")
             service.run_isolated = AsyncMock(return_value=SubprocessResult(0, "duration=11.0\nsize=6\n", ""))
-            with patch.object(shutil, "which", return_value="/usr/bin/ffprobe"):
-                with self.assertRaises(ResourceError):
-                    await service.verify_media(source, workspace=job)
+            with patch.object(shutil, "which", return_value="/usr/bin/ffprobe"), self.assertRaises(ResourceError):
+                await service.verify_media(source, workspace=job)
             await service.cleanup(job)
 
     async def test_malformed_media_is_rejected(self):
@@ -173,9 +172,8 @@ class MediaServiceTests(unittest.IsolatedAsyncioTestCase):
             source = job.resolve("broken.mp4")
             source.write_bytes(b"not-media")
             service.run_isolated = AsyncMock(return_value=SubprocessResult(1, "", "Invalid data"))
-            with patch.object(shutil, "which", return_value="/usr/bin/ffprobe"):
-                with self.assertRaises(CommandError):
-                    await service.verify_media(source, workspace=job)
+            with patch.object(shutil, "which", return_value="/usr/bin/ffprobe"), self.assertRaises(CommandError):
+                await service.verify_media(source, workspace=job)
             await service.cleanup(job)
 
     async def test_download_discovers_only_completed_artifacts_and_verifies_media(self):
@@ -246,9 +244,8 @@ class MediaServiceTests(unittest.IsolatedAsyncioTestCase):
             workspace = WorkspaceService(tmp)
             service = MediaService(workspace, SubprocessService(), min_free_bytes=1)
             job = await service.create_workspace()
-            with patch.object(shutil, "disk_usage", return_value=shutil._ntuple_diskusage(100, 99, 0)):
-                with self.assertRaises(ResourceError):
-                    await service.run(["tool"], workspace=job)
+            with patch.object(shutil, "disk_usage", return_value=shutil._ntuple_diskusage(100, 99, 0)), self.assertRaises(ResourceError):
+                await service.run(["tool"], workspace=job)
             await service.cleanup(job)
 
     async def test_rclone_policy_rejects_unsafe_operations(self):
