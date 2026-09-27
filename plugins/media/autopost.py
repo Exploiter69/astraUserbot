@@ -139,7 +139,7 @@ async def autopost_worker():
         try:
             target = _input_peer(chat_id, peer_type, access_hash)
             await _client.send_message(target, message)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - one failed destination must not stop the worker
             logger.error(
                 "Autopost failed for post=%s chat=%s peer_type=%s: %s",
                 post_id,
