@@ -34,7 +34,7 @@ class Database:
     BACKUP_TIMEOUT_SECONDS = 30.0
     MAX_BACKUP_BYTES = 2 * 1024 * 1024 * 1024
 
-    _instances: ClassVar[dict[str, "Database"]] = {}
+    _instances: ClassVar[dict[str, Database]] = {}
 
     def __init__(self, name: str):
         self.name = name
@@ -206,7 +206,7 @@ class Database:
         for task in done:
             try:
                 task.result()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 logger.exception("Database shutdown task failed")
         for task in pending:
             task.cancel()
