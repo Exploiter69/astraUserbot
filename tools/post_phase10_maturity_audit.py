@@ -70,7 +70,7 @@ REQUIRED_TEXT = {
         "inspect|correlate",
         "plugin",
         "aiux",
-        "doctor|config|update|restart",
+        "config|restart",
         "observed/derived/possible/unknown",
     ),
     "helpers/ux.py": (
