@@ -8,11 +8,9 @@ from __future__ import annotations
 
 import ast
 import json
-import os
 import shutil
 import subprocess
 from pathlib import Path
-
 
 ROOT = Path(__file__).resolve().parents[1]
 BASELINE = "64538b1"
@@ -79,8 +77,7 @@ def current_plugins() -> set[str]:
     return {
         str(path.relative_to(ROOT))
         for path in (ROOT / "plugins").rglob("*.py")
-        if path.name != "__init__.py"
-        and not path.name.startswith("_")
+        if path.name != "__init__.py" and not path.name.startswith("_")
     }
 
 
@@ -138,7 +135,9 @@ def runtime_processes() -> list[str]:
     )
     rows = []
     for line in result.stdout.splitlines():
-        if ("AstraUserbot" in line or "astra.py" in line or "main.py" in line) and "phase17_migration_audit.py" not in line:
+        if (
+            "AstraUserbot" in line or "astra.py" in line or "main.py" in line
+        ) and "phase17_migration_audit.py" not in line:
             rows.append(line.strip())
     return rows
 

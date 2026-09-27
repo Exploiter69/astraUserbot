@@ -52,7 +52,9 @@ def command_audit() -> dict[str, object]:
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"))
         except SyntaxError as exc:
-            parse_errors.append({"file": str(path.relative_to(ROOT)), "error": str(exc)})
+            parse_errors.append(
+                {"file": str(path.relative_to(ROOT)), "error": str(exc)}
+            )
             continue
 
         for node in ast.walk(tree):
@@ -60,19 +62,33 @@ def command_audit() -> dict[str, object]:
                 continue
             if isinstance(node.func, ast.Name) and node.func.id == "register_cmd":
                 registrations += 1
-                permission = next((kw.value for kw in node.keywords if kw.arg == "permission"), None)
+                permission = next(
+                    (kw.value for kw in node.keywords if kw.arg == "permission"), None
+                )
                 if permission is None:
                     continue
-                if isinstance(permission, ast.Constant) and isinstance(permission.value, str):
+                if isinstance(permission, ast.Constant) and isinstance(
+                    permission.value, str
+                ):
                     if permission.value not in ALLOWED_PERMISSIONS:
-                        invalid_permissions.append({"file": str(path.relative_to(ROOT)), "permission": permission.value})
+                        invalid_permissions.append(
+                            {
+                                "file": str(path.relative_to(ROOT)),
+                                "permission": permission.value,
+                            }
+                        )
                 else:
                     missing_permission_metadata.append(str(path.relative_to(ROOT)))
-            elif isinstance(node.func, ast.Attribute) and node.func.attr == "add_event_handler":
-                direct_command_handlers.append({
-                    "file": str(path.relative_to(ROOT)),
-                    "line": str(node.lineno),
-                })
+            elif (
+                isinstance(node.func, ast.Attribute)
+                and node.func.attr == "add_event_handler"
+            ):
+                direct_command_handlers.append(
+                    {
+                        "file": str(path.relative_to(ROOT)),
+                        "line": str(node.lineno),
+                    }
+                )
 
     return {
         "registry_registrations": registrations,
@@ -90,7 +106,9 @@ def resource_contract() -> dict[str, object]:
 
     service_text = {
         "http": (ROOT / "core/services/http.py").read_text(encoding="utf-8"),
-        "subprocess": (ROOT / "core/services/subprocess.py").read_text(encoding="utf-8"),
+        "subprocess": (ROOT / "core/services/subprocess.py").read_text(
+            encoding="utf-8"
+        ),
         "media": (ROOT / "core/services/media.py").read_text(encoding="utf-8"),
         "workspace": (ROOT / "core/services/workspace.py").read_text(encoding="utf-8"),
         "cache": (ROOT / "core/services/cache.py").read_text(encoding="utf-8"),
@@ -111,18 +129,20 @@ def resource_contract() -> dict[str, object]:
     for name, tokens in required_tokens.items():
         checks[name] = all(token in combined for token in tokens)
 
-    details.update({
-        "http_default_response_bytes": 4 * 1024 * 1024,
-        "subprocess_default_output_bytes": 1 * 1024 * 1024,
-        "media_max_input_bytes": 512 * 1024 * 1024,
-        "media_max_output_bytes": 512 * 1024 * 1024,
-        "media_max_workspace_bytes": 768 * 1024 * 1024,
-        "workspace_max_file_bytes": 512 * 1024 * 1024,
-        "cache_max_value_bytes": 2 * 1024 * 1024,
-        "cache_max_artifact_bytes_per_item": 512 * 1024 * 1024,
-        "job_max_payload_bytes": 1 * 1024 * 1024,
-        "job_max_result_bytes": 2 * 1024 * 1024,
-    })
+    details.update(
+        {
+            "http_default_response_bytes": 4 * 1024 * 1024,
+            "subprocess_default_output_bytes": 1 * 1024 * 1024,
+            "media_max_input_bytes": 512 * 1024 * 1024,
+            "media_max_output_bytes": 512 * 1024 * 1024,
+            "media_max_workspace_bytes": 768 * 1024 * 1024,
+            "workspace_max_file_bytes": 512 * 1024 * 1024,
+            "cache_max_value_bytes": 2 * 1024 * 1024,
+            "cache_max_artifact_bytes_per_item": 512 * 1024 * 1024,
+            "job_max_payload_bytes": 1 * 1024 * 1024,
+            "job_max_result_bytes": 2 * 1024 * 1024,
+        }
+    )
     return {"checks": checks, "details": details}
 
 
@@ -135,16 +155,28 @@ def shutdown_audit() -> dict[str, object]:
     bootstrap = (ROOT / "core/bootstrap.py").read_text(encoding="utf-8")
     main_source = (ROOT / "main.py").read_text(encoding="utf-8")
 
-    legacy_unbounded_gather = "await asyncio.gather(*self._active_tasks.values(), return_exceptions=True)" in legacy_jobs
-    bounded_active_wait = "asyncio.wait(" in bounded_jobs and "SHUTDOWN_BUDGET_SECONDS" in bounded_jobs
-    bounded_worker_wait = "asyncio.wait_for(" in bounded_jobs and "WORKER_CANCEL_BUDGET_SECONDS" in bounded_jobs
-    production_job_path = "from core.services.bounded_jobs import JobEngine" in services_init
+    legacy_unbounded_gather = (
+        "await asyncio.gather(*self._active_tasks.values(), return_exceptions=True)"
+        in legacy_jobs
+    )
+    bounded_active_wait = (
+        "asyncio.wait(" in bounded_jobs and "SHUTDOWN_BUDGET_SECONDS" in bounded_jobs
+    )
+    bounded_worker_wait = (
+        "asyncio.wait_for(" in bounded_jobs
+        and "WORKER_CANCEL_BUDGET_SECONDS" in bounded_jobs
+    )
+    production_job_path = (
+        "from core.services.bounded_jobs import JobEngine" in services_init
+    )
     plugin_shutdown_bounded = (
         "_SHUTDOWN_BUDGET_SECONDS" in manager
         and "asyncio.wait" in manager
         and "_bounded_unload" in manager
     )
-    context_jobs_registered = 'self.register("jobs", JobEngine(' in context and production_job_path
+    context_jobs_registered = (
+        'self.register("jobs", JobEngine(' in context and production_job_path
+    )
 
     return {
         "bootstrap_closes_legacy_database": "await Database.close_all()" in bootstrap,
@@ -153,10 +185,13 @@ def shutdown_audit() -> dict[str, object]:
         # only the legacy implementation; production uses the bounded subclass.
         "job_close_has_unbounded_gather": legacy_unbounded_gather,
         "legacy_job_close_is_compatibility_only": production_job_path,
-        "production_job_close_is_bounded": production_job_path and bounded_active_wait and bounded_worker_wait,
+        "production_job_close_is_bounded": production_job_path
+        and bounded_active_wait
+        and bounded_worker_wait,
         "plugin_manager_shutdown_bounded": plugin_shutdown_bounded,
         "runtime_gate_required": True,
-        "signal_shutdown_routes_full_runtime": "bootstrap.install_signal_handlers(loop, client, graceful_shutdown)" in main_source,
+        "signal_shutdown_routes_full_runtime": "bootstrap.install_signal_handlers(loop, client, graceful_shutdown)"
+        in main_source,
     }
 
 
@@ -184,13 +219,15 @@ def main() -> int:
     failures.extend(commands["parse_errors"])
     failures.extend(name for name, ok in resources["checks"].items() if not ok)
     failures.extend(
-        key for key in (
+        key
+        for key in (
             "context_closes_jobs_as_service",
             "production_job_close_is_bounded",
             "plugin_manager_shutdown_bounded",
             "runtime_gate_required",
             "signal_shutdown_routes_full_runtime",
-        ) if not shutdown[key]
+        )
+        if not shutdown[key]
     )
     if failures:
         print("PHASE18_AUDIT_FAIL")

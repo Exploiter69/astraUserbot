@@ -36,4 +36,4 @@ def get_session() -> aiohttp.ClientSession:
 
 async def close_session() -> None:
     """Compatibility no-op; ApplicationContext owns HTTP session shutdown."""
-    return None
+    return

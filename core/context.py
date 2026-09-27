@@ -18,9 +18,9 @@ from core.services import (
     MediaIntelService,
     MediaService,
     PublicIntelService,
-    SecurityIntelService,
-    SecretStore,
     SearchService,
+    SecretStore,
+    SecurityIntelService,
     StorageService,
     SubprocessService,
     TelegramArchiveService,
@@ -41,7 +41,7 @@ from core.tasks import TaskSupervisor
 
 logger = logging.getLogger("astra.context")
 T = TypeVar("T")
-_application_context: "ApplicationContext | None" = None
+_application_context: ApplicationContext | None = None
 
 
 class ManagedService(Protocol):
@@ -64,22 +64,66 @@ class ApplicationContext:
         self.register("http", HttpService())
         self.register("subprocess", SubprocessService())
         self.register("telegram_state", TelegramStateCache(self.get("storage")))
-        self.register("telegram", TelegramFacade(client, recorder=TelegramOperationRecorder(self.get("storage")), state_cache=self.get("telegram_state")))
-        self.register("telegram_event_journal", TelegramEventJournal(self.get("storage")))
+        self.register(
+            "telegram",
+            TelegramFacade(
+                client,
+                recorder=TelegramOperationRecorder(self.get("storage")),
+                state_cache=self.get("telegram_state"),
+            ),
+        )
+        self.register(
+            "telegram_event_journal", TelegramEventJournal(self.get("storage"))
+        )
         self.register("telegram_events", TelegramEventCollector(client))
-        self.register("telegram_event_projections", TelegramEventProjections(self.get("storage"), self.get("telegram_event_journal")))
-        self.register("telegram_event_replay", TelegramEventReplay(self.get("storage"), self.get("telegram_event_journal"), self.get("telegram_event_projections")))
+        self.register(
+            "telegram_event_projections",
+            TelegramEventProjections(
+                self.get("storage"), self.get("telegram_event_journal")
+            ),
+        )
+        self.register(
+            "telegram_event_replay",
+            TelegramEventReplay(
+                self.get("storage"),
+                self.get("telegram_event_journal"),
+                self.get("telegram_event_projections"),
+            ),
+        )
         self.get("telegram_events").add_sink(self.get("telegram_event_journal").append)
         self.get("telegram_events").add_sink(self._project_event)
         self.register("intelgraph", IntelGraph(self.get("storage")))
-        self.register("intel_correlation", IntelCorrelationEngine(self.get("intelgraph")))
-        self.register("public_intel", PublicIntelService(self.get("intelgraph"), self.get("http"), self.get("telegram")))
-        self.register("security_intel", SecurityIntelService(self.get("http"), self.get("public_intel")))
+        self.register(
+            "intel_correlation", IntelCorrelationEngine(self.get("intelgraph"))
+        )
+        self.register(
+            "public_intel",
+            PublicIntelService(
+                self.get("intelgraph"), self.get("http"), self.get("telegram")
+            ),
+        )
+        self.register(
+            "security_intel",
+            SecurityIntelService(self.get("http"), self.get("public_intel")),
+        )
         self.register("workspace", WorkspaceService(self.project_root))
         self.register("isolation", IsolationService())
-        self.register("media", MediaService(self.get("workspace"), self.get("subprocess"), self.get("isolation")))
+        self.register(
+            "media",
+            MediaService(
+                self.get("workspace"), self.get("subprocess"), self.get("isolation")
+            ),
+        )
         self.register("jobs", JobEngine(self.get("storage")))
-        self.register("automation", AutomationEngine(self.get("storage"), self.get("jobs"), self.get("telegram"), owner_id=config.OWNER_ID))
+        self.register(
+            "automation",
+            AutomationEngine(
+                self.get("storage"),
+                self.get("jobs"),
+                self.get("telegram"),
+                owner_id=config.OWNER_ID,
+            ),
+        )
         self.get("telegram_events").add_sink(self.get("automation").trigger)
         self.get("intelgraph").add_observation_sink(self.get("automation").trigger)
         self.register("secrets", SecretStore())
@@ -96,7 +140,12 @@ class ApplicationContext:
                 self.project_root,
             ),
         )
-        self.register("media_intel", MediaIntelService(self.get("media"), self.get("intelgraph"), self.get("ai")))
+        self.register(
+            "media_intel",
+            MediaIntelService(
+                self.get("media"), self.get("intelgraph"), self.get("ai")
+            ),
+        )
         self.register("cases", CaseService(self.get("intelgraph")))
         self.register("metrics", MetricsService(self.project_root))
         self.register("flags", FeatureFlagService(self.get("storage")))
@@ -153,7 +202,11 @@ class ApplicationContext:
         self._started.clear()
 
     def snapshot(self) -> dict[str, Any]:
-        return {"state": "CLOSED" if self._closed else "RUNNING", "services": ",".join(self.services), "task_count": len(self.tasks.active())}
+        return {
+            "state": "CLOSED" if self._closed else "RUNNING",
+            "services": ",".join(self.services),
+            "task_count": len(self.tasks.active()),
+        }
 
 
 def set_application_context(context: ApplicationContext | None) -> None:

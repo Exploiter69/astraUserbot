@@ -2,14 +2,15 @@ import json
 import re
 from urllib.parse import quote
 
-from core.context import get_application_context
-from core.registry import register_cmd
-from core.errors import CommandError
-from helpers.hud import render
 from config import config
+from core.context import get_application_context
+from core.errors import CommandError
+from core.registry import register_cmd
+from helpers.hud import render
 
 PATTERN = rf"^{re.escape(config.PREFIX)}ip(?:\s+(\S+))?$"
 _MAX_TARGET = 253
+
 
 async def setup(client):
     register_cmd(
@@ -17,8 +18,9 @@ async def setup(client):
         pattern=PATTERN,
         handler=handle_ip,
         category="network_osint",
-        description="Lookup IP/Host geolocation & ASN info. Usage: .ip [ip/domain]"
+        description="Lookup IP/Host geolocation & ASN info. Usage: .ip [ip/domain]",
     )
+
 
 async def handle_ip(event):
     target = (event.pattern_match.group(1) or "").strip()
@@ -59,11 +61,9 @@ async def handle_ip(event):
         "---",
         f"ISP: {data.get('isp')}",
         f"Org: {data.get('org')}",
-        f"ASN: {data.get('as')}"
+        f"ASN: {data.get('as')}",
     ]
 
-    await event.edit(render(
-        title="IP GEOLOCATION",
-        rows=rows[:20],
-        footer="network_osint | ip"
-    ))
+    await event.edit(
+        render(title="IP GEOLOCATION", rows=rows[:20], footer="network_osint | ip")
+    )

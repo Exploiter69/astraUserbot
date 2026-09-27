@@ -101,7 +101,9 @@ class ResourceError(AstraError):
     """Raised when a resource limit prevents an operation."""
 
     code = ErrorCode.RESOURCE
-    default_message = "The operation could not run because a resource limit was reached."
+    default_message = (
+        "The operation could not run because a resource limit was reached."
+    )
     retryable = True
 
 

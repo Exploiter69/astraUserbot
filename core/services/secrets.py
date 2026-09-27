@@ -32,9 +32,13 @@ def _derive_key(master_key: str, salt: bytes) -> bytes:
 class SecretStore:
     """Persist secrets encrypted at rest using AES-256-GCM."""
 
-    def __init__(self, db: Database | None = None, master_key: str | None = None) -> None:
+    def __init__(
+        self, db: Database | None = None, master_key: str | None = None
+    ) -> None:
         self.db = db or Database.get("vault")
-        self.master_key = master_key if master_key is not None else os.getenv("ASTRA_VAULT_KEY", "")
+        self.master_key = (
+            master_key if master_key is not None else os.getenv("ASTRA_VAULT_KEY", "")
+        )
         self._started = False
 
     async def start(self) -> None:
@@ -75,7 +79,7 @@ class SecretStore:
         if not encoded.startswith(_PREFIX):
             raise SecretStoreError("Secret uses an unsupported storage format")
         try:
-            payload = base64.urlsafe_b64decode(encoded[len(_PREFIX):].encode("ascii"))
+            payload = base64.urlsafe_b64decode(encoded[len(_PREFIX) :].encode("ascii"))
             salt, nonce, ciphertext = payload[:16], payload[16:28], payload[28:]
             key = _derive_key(self.master_key, salt)
             return AESGCM(key).decrypt(nonce, ciphertext, None).decode("utf-8")
@@ -102,7 +106,9 @@ class SecretStore:
 
         # Legacy entries were base64-obfuscated rather than encrypted.
         try:
-            plaintext = base64.b64decode(encoded.encode("ascii"), validate=True).decode("utf-8")
+            plaintext = base64.b64decode(encoded.encode("ascii"), validate=True).decode(
+                "utf-8"
+            )
         except Exception as exc:
             raise SecretStoreError("Legacy secret could not be decoded") from exc
         await self.set(key, plaintext)

@@ -1,5 +1,4 @@
 import unittest
-from types import SimpleNamespace
 
 from helpers.reply import get_text_and_media
 

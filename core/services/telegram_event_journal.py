@@ -45,7 +45,9 @@ class TelegramEventJournal:
             "payload": event.payload,
             "schema_version": event.schema_version,
         }
-        encoded = json.dumps(canonical, sort_keys=True, separators=(",", ":"), default=str).encode()
+        encoded = json.dumps(
+            canonical, sort_keys=True, separators=(",", ":"), default=str
+        ).encode()
         return hashlib.sha256(encoded).hexdigest()
 
     async def append(self, event: TelegramEvent) -> bool:
@@ -53,7 +55,9 @@ class TelegramEventJournal:
         if not self._started:
             raise RuntimeError("TelegramEventJournal is not started")
         fingerprint = self.fingerprint(event)
-        payload = json.dumps(event.payload, sort_keys=True, separators=(",", ":"), default=str)
+        payload = json.dumps(
+            event.payload, sort_keys=True, separators=(",", ":"), default=str
+        )
         now = time.time()
         try:
             await self.storage.execute(
@@ -63,18 +67,32 @@ class TelegramEventJournal:
                  entity_id, payload_json, schema_version, processing_state, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?)
                 """,
-                (event.event_id, fingerprint, event.event_type, event.observed_at, event.source_peer,
-                 event.message_id, event.entity_id, payload, event.schema_version, now),
+                (
+                    event.event_id,
+                    fingerprint,
+                    event.event_type,
+                    event.observed_at,
+                    event.source_peer,
+                    event.message_id,
+                    event.entity_id,
+                    payload,
+                    event.schema_version,
+                    now,
+                ),
             )
         except Exception as exc:
-            if "UNIQUE constraint failed: telegram_event_journal.fingerprint" in str(exc):
+            if "UNIQUE constraint failed: telegram_event_journal.fingerprint" in str(
+                exc
+            ):
                 return False
             raise
         await self._prune()
         return True
 
     async def get(self, event_id: str) -> dict[str, Any] | None:
-        row = await self.storage.fetchone("SELECT * FROM telegram_event_journal WHERE event_id=?", (event_id,))
+        row = await self.storage.fetchone(
+            "SELECT * FROM telegram_event_journal WHERE event_id=?", (event_id,)
+        )
         return dict(row) if row else None
 
     async def list_pending(self, *, limit: int = 100) -> list[dict[str, Any]]:
@@ -120,7 +138,9 @@ class TelegramEventJournal:
         return cursor.rowcount == 1
 
     async def _prune(self) -> None:
-        row = await self.storage.fetchone("SELECT COUNT(*) AS count FROM telegram_event_journal")
+        row = await self.storage.fetchone(
+            "SELECT COUNT(*) AS count FROM telegram_event_journal"
+        )
         count = int(row["count"]) if row else 0
         if count <= self.MAX_EVENTS:
             return

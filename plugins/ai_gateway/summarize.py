@@ -32,14 +32,18 @@ async def handle_summarize(event):
         raise CommandError("AI service is unavailable.")
     service = context.get("ai")
 
-    await event.edit(render(
-        title="AI SUMMARIZATION",
-        rows=["Analyzing text..."],
-        footer="ai | summarize",
-    ))
+    await event.edit(
+        render(
+            title="AI SUMMARIZATION",
+            rows=["Analyzing text..."],
+            footer="ai | summarize",
+        )
+    )
     response = await service.summarize(text_to_summarize)
-    await event.edit(render(
-        title="SUMMARY",
-        rows=["---"] + response.text.split("\n"),
-        footer=f"ai | summarize | {response.provider}",
-    ))
+    await event.edit(
+        render(
+            title="SUMMARY",
+            rows=["---"] + response.text.split("\n"),
+            footer=f"ai | summarize | {response.provider}",
+        )
+    )

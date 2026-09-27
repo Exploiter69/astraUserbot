@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import ast
 import json
-import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -47,17 +46,21 @@ def build_registry() -> list[dict]:
         relative = path.relative_to(ROOT).with_suffix("")
         module = ".".join(relative.parts)
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        rows.append({
-            "module": module,
-            "name": str(_literal(tree, "plugin_name", module))[:MAX_FIELD],
-            "version": str(_literal(tree, "plugin_version", "legacy"))[:64],
-            "api_version": int(_literal(tree, "plugin_api_version", API_VERSION)),
-            "description": str(_literal(tree, "plugin_description", ""))[:512],
-            "dependencies": _strings(_literal(tree, "dependencies", [])),
-            "optional_dependencies": _strings(_literal(tree, "optional_dependencies", [])),
-            "capabilities": _strings(_literal(tree, "capabilities", [])),
-            "critical": bool(_literal(tree, "critical", False)),
-        })
+        rows.append(
+            {
+                "module": module,
+                "name": str(_literal(tree, "plugin_name", module))[:MAX_FIELD],
+                "version": str(_literal(tree, "plugin_version", "legacy"))[:64],
+                "api_version": int(_literal(tree, "plugin_api_version", API_VERSION)),
+                "description": str(_literal(tree, "plugin_description", ""))[:512],
+                "dependencies": _strings(_literal(tree, "dependencies", [])),
+                "optional_dependencies": _strings(
+                    _literal(tree, "optional_dependencies", [])
+                ),
+                "capabilities": _strings(_literal(tree, "capabilities", [])),
+                "critical": bool(_literal(tree, "critical", False)),
+            }
+        )
     return rows
 
 

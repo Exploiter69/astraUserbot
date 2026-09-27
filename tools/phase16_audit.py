@@ -63,9 +63,7 @@ def main() -> int:
             if forbidden in imports or any(
                 item.startswith(forbidden + ".") for item in imports
             ):
-                violations.append(
-                    f"{name}: forbidden boundary import: {forbidden}"
-                )
+                violations.append(f"{name}: forbidden boundary import: {forbidden}")
 
     print("=== PHASE 16 PLUGIN AUDIT ===")
     print(f"active_plugins: {len(active)}")

@@ -13,9 +13,10 @@ from typing import Any
 
 import aiosqlite
 
-
 MIGRATIONS: tuple[tuple[int, str], ...] = (
-    (1, """
+    (
+        1,
+        """
     CREATE TABLE IF NOT EXISTS plugins (name TEXT PRIMARY KEY, module TEXT NOT NULL, state TEXT NOT NULL, updated_at REAL NOT NULL);
     CREATE TABLE IF NOT EXISTS commands (pattern TEXT PRIMARY KEY, plugin_name TEXT, aliases_json TEXT NOT NULL DEFAULT '[]', metadata_json TEXT NOT NULL DEFAULT '{}', updated_at REAL NOT NULL, FOREIGN KEY(plugin_name) REFERENCES plugins(name) ON DELETE SET NULL);
     CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, type TEXT NOT NULL, state TEXT NOT NULL, payload_json TEXT NOT NULL, result_json TEXT, error_code TEXT, error_message TEXT, owner TEXT, parent_id TEXT, idempotency_key TEXT UNIQUE, resource_class TEXT NOT NULL DEFAULT 'default', priority INTEGER NOT NULL DEFAULT 0, progress REAL NOT NULL DEFAULT 0, created_at REAL NOT NULL, updated_at REAL NOT NULL, available_at REAL NOT NULL, started_at REAL, completed_at REAL, max_attempts INTEGER NOT NULL DEFAULT 3, attempt_count INTEGER NOT NULL DEFAULT 0, verify_required INTEGER NOT NULL DEFAULT 0, FOREIGN KEY(parent_id) REFERENCES jobs(id) ON DELETE SET NULL);
@@ -26,21 +27,30 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
     CREATE TABLE IF NOT EXISTS leases (job_id TEXT PRIMARY KEY, worker_id TEXT NOT NULL, leased_at REAL NOT NULL, heartbeat_at REAL NOT NULL, expires_at REAL NOT NULL, FOREIGN KEY(job_id) REFERENCES jobs(id) ON DELETE CASCADE);
     CREATE TABLE IF NOT EXISTS audit_events (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, subject_id TEXT, payload_json TEXT NOT NULL DEFAULT '{}', created_at REAL NOT NULL);
     CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_events(created_at);
-    """),
-    (2, """
+    """,
+    ),
+    (
+        2,
+        """
     CREATE TABLE IF NOT EXISTS feature_flags (name TEXT PRIMARY KEY, enabled INTEGER NOT NULL, metadata_json TEXT NOT NULL DEFAULT '{}', updated_at REAL NOT NULL);
     CREATE TABLE IF NOT EXISTS search_documents (id TEXT PRIMARY KEY, source TEXT NOT NULL, ref TEXT NOT NULL, title TEXT NOT NULL, content TEXT NOT NULL, updated_at REAL NOT NULL);
     CREATE INDEX IF NOT EXISTS idx_search_documents_source ON search_documents(source);
     CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts5(id UNINDEXED, title, content, tokenize='unicode61');
-    """),
-    (3, """
+    """,
+    ),
+    (
+        3,
+        """
     ALTER TABLE leases ADD COLUMN attempt INTEGER NOT NULL DEFAULT 0;
     UPDATE leases SET attempt=(SELECT attempt_count FROM jobs WHERE jobs.id=leases.job_id);
     CREATE INDEX IF NOT EXISTS idx_leases_expiry ON leases(expires_at);
     CREATE INDEX IF NOT EXISTS idx_job_attempts_job_attempt ON job_attempts(job_id, attempt);
     CREATE INDEX IF NOT EXISTS idx_job_events_job_created ON job_events(job_id, created_at);
-    """),
-    (4, """
+    """,
+    ),
+    (
+        4,
+        """
     CREATE TABLE IF NOT EXISTS telegram_operations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         operation_id TEXT NOT NULL,
@@ -64,8 +74,11 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
     CREATE INDEX IF NOT EXISTS idx_telegram_operations_method ON telegram_operations(method, timestamp DESC);
     CREATE INDEX IF NOT EXISTS idx_telegram_operations_peer ON telegram_operations(peer_id, timestamp DESC);
     CREATE INDEX IF NOT EXISTS idx_telegram_operations_result ON telegram_operations(result_classification, timestamp DESC);
-    """),
-    (5, """
+    """,
+    ),
+    (
+        5,
+        """
     CREATE TABLE IF NOT EXISTS telegram_entities (
         lookup_key TEXT PRIMARY KEY,
         entity_id INTEGER,
@@ -93,8 +106,11 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
     );
     CREATE INDEX IF NOT EXISTS idx_telegram_dialogs_sync ON telegram_dialogs(last_sync_at DESC);
     CREATE INDEX IF NOT EXISTS idx_telegram_dialogs_username ON telegram_dialogs(username);
-    """),
-    (6, """
+    """,
+    ),
+    (
+        6,
+        """
     CREATE TABLE IF NOT EXISTS telegram_latest_messages (
         message_id INTEGER NOT NULL,
         source_peer TEXT,
@@ -127,8 +143,11 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
     );
     CREATE INDEX IF NOT EXISTS idx_tg_timeline_peer_time ON telegram_timeline(source_peer, observed_at DESC);
     CREATE INDEX IF NOT EXISTS idx_tg_timeline_entity_time ON telegram_timeline(entity_id, observed_at DESC);
-    """),
-    (7, """
+    """,
+    ),
+    (
+        7,
+        """
     CREATE TABLE IF NOT EXISTS intel_sources (
         source_id TEXT PRIMARY KEY,
         source_family TEXT NOT NULL,
@@ -188,8 +207,11 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
     );
     CREATE INDEX IF NOT EXISTS idx_intel_rel_from ON intel_relationships(from_entity_id, relationship_type);
     CREATE INDEX IF NOT EXISTS idx_intel_rel_to ON intel_relationships(to_entity_id, relationship_type);
-    """),
-    (8, """
+    """,
+    ),
+    (
+        8,
+        """
     CREATE TABLE IF NOT EXISTS telegram_replay_runs (
         run_id TEXT PRIMARY KEY,
         projection TEXT NOT NULL,
@@ -201,8 +223,11 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
         last_error TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_telegram_replay_state ON telegram_replay_runs(state, updated_at DESC);
-    """),
-    (9, """
+    """,
+    ),
+    (
+        9,
+        """
     CREATE TABLE IF NOT EXISTS telegram_event_journal (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         event_id TEXT NOT NULL UNIQUE,
@@ -223,7 +248,8 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
     CREATE INDEX IF NOT EXISTS idx_telegram_event_type_time ON telegram_event_journal(event_type, observed_at DESC);
     CREATE INDEX IF NOT EXISTS idx_telegram_event_peer_time ON telegram_event_journal(source_peer, observed_at DESC);
     CREATE INDEX IF NOT EXISTS idx_telegram_event_state_time ON telegram_event_journal(processing_state, created_at);
-    """),
+    """,
+    ),
 )
 
 
@@ -256,11 +282,15 @@ class StorageService:
             await self.conn.execute("PRAGMA synchronous=NORMAL")
             await self.conn.execute("PRAGMA foreign_keys=ON")
             await self.conn.execute(f"PRAGMA busy_timeout={self.BUSY_TIMEOUT_MS}")
-            await self.conn.execute("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, checksum TEXT NOT NULL, applied_at REAL NOT NULL)")
+            await self.conn.execute(
+                "CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, checksum TEXT NOT NULL, applied_at REAL NOT NULL)"
+            )
             await self.conn.commit()
             await self._migrate()
             if not await self.integrity_check():
-                raise StorageError("Platform database integrity check failed after startup")
+                raise StorageError(
+                    "Platform database integrity check failed after startup"
+                )
             self._started = True
         except StorageError:
             conn, self.conn = self.conn, None
@@ -271,7 +301,9 @@ class StorageService:
             conn, self.conn = self.conn, None
             if conn is not None:
                 await conn.close()
-            raise StorageError(f"Unable to initialize platform database: {exc}") from exc
+            raise StorageError(
+                f"Unable to initialize platform database: {exc}"
+            ) from exc
 
     async def _migrate(self) -> None:
         assert self.conn is not None
@@ -279,16 +311,23 @@ class StorageService:
             checksum = hashlib.sha256(sql.encode()).hexdigest()
             try:
                 await self.conn.execute("BEGIN IMMEDIATE")
-                async with self.conn.execute("SELECT checksum FROM schema_migrations WHERE version=?", (version,)) as cursor:
+                async with self.conn.execute(
+                    "SELECT checksum FROM schema_migrations WHERE version=?", (version,)
+                ) as cursor:
                     row = await cursor.fetchone()
                 if row is not None:
                     if row[0] != checksum:
                         raise StorageError(f"Migration checksum mismatch: {version}")
                     await self.conn.commit()
                     continue
-                for statement in (part.strip() for part in sql.split(";") if part.strip()):
+                for statement in (
+                    part.strip() for part in sql.split(";") if part.strip()
+                ):
                     await self.conn.execute(statement)
-                await self.conn.execute("INSERT INTO schema_migrations(version, checksum, applied_at) VALUES (?, ?, ?)", (version, checksum, time.time()))
+                await self.conn.execute(
+                    "INSERT INTO schema_migrations(version, checksum, applied_at) VALUES (?, ?, ?)",
+                    (version, checksum, time.time()),
+                )
                 await self.conn.commit()
             except Exception:
                 await self.conn.rollback()
@@ -306,7 +345,9 @@ class StorageService:
                 await self.conn.rollback()
                 raise StorageError(f"Database write failed: {exc}") from exc
 
-    async def fetchone(self, sql: str, params: tuple[Any, ...] = ()) -> sqlite3.Row | None:
+    async def fetchone(
+        self, sql: str, params: tuple[Any, ...] = ()
+    ) -> sqlite3.Row | None:
         if self.conn is None:
             raise StorageError("StorageService is not started")
         async with self.lock:
@@ -316,7 +357,9 @@ class StorageService:
             except sqlite3.Error as exc:
                 raise StorageError(f"Database read failed: {exc}") from exc
 
-    async def fetchall(self, sql: str, params: tuple[Any, ...] = ()) -> list[sqlite3.Row]:
+    async def fetchall(
+        self, sql: str, params: tuple[Any, ...] = ()
+    ) -> list[sqlite3.Row]:
         if self.conn is None:
             raise StorageError("StorageService is not started")
         async with self.lock:
@@ -349,10 +392,23 @@ class StorageService:
     async def fts_consistency(self) -> dict[str, int | bool]:
         documents = await self.fetchone("SELECT COUNT(*) FROM search_documents")
         fts_rows = await self.fetchone("SELECT COUNT(*) FROM search_fts")
-        orphan_fts = await self.fetchone("SELECT COUNT(*) FROM search_fts f LEFT JOIN search_documents d ON d.id=f.id WHERE d.id IS NULL")
-        missing_fts = await self.fetchone("SELECT COUNT(*) FROM search_documents d LEFT JOIN search_fts f ON f.id=d.id WHERE f.id IS NULL")
-        result = {"documents": int(documents[0]) if documents else 0, "fts_rows": int(fts_rows[0]) if fts_rows else 0, "orphan_fts": int(orphan_fts[0]) if orphan_fts else 0, "missing_fts": int(missing_fts[0]) if missing_fts else 0}
-        result["consistent"] = result["orphan_fts"] == 0 and result["missing_fts"] == 0 and result["documents"] == result["fts_rows"]
+        orphan_fts = await self.fetchone(
+            "SELECT COUNT(*) FROM search_fts f LEFT JOIN search_documents d ON d.id=f.id WHERE d.id IS NULL"
+        )
+        missing_fts = await self.fetchone(
+            "SELECT COUNT(*) FROM search_documents d LEFT JOIN search_fts f ON f.id=d.id WHERE f.id IS NULL"
+        )
+        result = {
+            "documents": int(documents[0]) if documents else 0,
+            "fts_rows": int(fts_rows[0]) if fts_rows else 0,
+            "orphan_fts": int(orphan_fts[0]) if orphan_fts else 0,
+            "missing_fts": int(missing_fts[0]) if missing_fts else 0,
+        }
+        result["consistent"] = (
+            result["orphan_fts"] == 0
+            and result["missing_fts"] == 0
+            and result["documents"] == result["fts_rows"]
+        )
         return result
 
     async def database_size(self) -> int:
@@ -389,13 +445,18 @@ class StorageService:
         temp_path: Path | None = None
         async with self.lock:
             try:
-                fd, raw_temp = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=target.parent)
+                fd, raw_temp = tempfile.mkstemp(
+                    prefix=f".{target.name}.", suffix=".tmp", dir=target.parent
+                )
                 os.close(fd)
                 temp_path = Path(raw_temp)
                 target_conn = sqlite3.connect(temp_path)
                 try:
                     await self.conn.commit()
-                    await asyncio.wait_for(self.conn.backup(target_conn), timeout=self.BACKUP_TIMEOUT_SECONDS)
+                    await asyncio.wait_for(
+                        self.conn.backup(target_conn),
+                        timeout=self.BACKUP_TIMEOUT_SECONDS,
+                    )
                     target_conn.commit()
                     check = target_conn.execute("PRAGMA integrity_check").fetchone()
                     if not check or str(check[0]).lower() != "ok":
@@ -428,7 +489,9 @@ class StorageService:
             if not check or str(check[0]).lower() != "ok":
                 raise StorageError("Refusing restore from an integrity-failed backup")
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            fd, raw_temp = tempfile.mkstemp(prefix=f".{self.path.name}.", suffix=".restore", dir=self.path.parent)
+            fd, raw_temp = tempfile.mkstemp(
+                prefix=f".{self.path.name}.", suffix=".restore", dir=self.path.parent
+            )
             os.close(fd)
             temp = Path(raw_temp)
             try:

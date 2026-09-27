@@ -97,7 +97,11 @@ class IsolationSecurityTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 result = await service.run(
-                    ["python3", "-c", "import os; print(os.environ.get('ASTRA_API_HASH', 'MISSING')); print(os.path.exists('/home')); print(os.path.exists('/workspace'))"],
+                    [
+                        "python3",
+                        "-c",
+                        "import os; print(os.environ.get('ASTRA_API_HASH', 'MISSING')); print(os.path.exists('/home')); print(os.path.exists('/workspace'))",
+                    ],
                     workspace=root,
                     timeout=10,
                 )

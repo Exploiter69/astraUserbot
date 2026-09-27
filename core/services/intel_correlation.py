@@ -51,11 +51,14 @@ class IntelCorrelationEngine:
         )
         contradictions = [item for item in observations if item[1] == "CONTRADICTED"]
         supporting = [
-            item for item in observations
+            item
+            for item in observations
             if item[1] in {"OBSERVED", "DERIVED", "CORRELATED", "INFERRED"}
         ]
         if relationship_state not in EVIDENCE_STATES:
-            raise ValueError(f"unsupported relationship evidence state: {relationship_state}")
+            raise ValueError(
+                f"unsupported relationship evidence state: {relationship_state}"
+            )
 
         reasons: list[str] = []
         if observation_id:
@@ -63,7 +66,9 @@ class IntelCorrelationEngine:
         if supporting:
             reasons.append(f"{len(supporting)} supporting observation(s) are available")
         if contradictions:
-            reasons.append(f"{len(contradictions)} contradictory observation(s) are present")
+            reasons.append(
+                f"{len(contradictions)} contradictory observation(s) are present"
+            )
 
         if contradictions:
             state = "CONTRADICTED"
@@ -88,7 +93,9 @@ class IntelCorrelationEngine:
             contradiction_count=len(contradictions),
         )
 
-    async def assess_entity(self, entity_id: str, *, limit: int = 50) -> list[CorrelationAssessment]:
+    async def assess_entity(
+        self, entity_id: str, *, limit: int = 50
+    ) -> list[CorrelationAssessment]:
         """Assess bounded adjacent relationships for an entity."""
         bounded = max(1, min(int(limit), self.graph.MAX_QUERY_ROWS))
         rows = await self.graph.storage.fetchall(

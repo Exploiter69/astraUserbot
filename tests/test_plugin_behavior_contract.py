@@ -4,11 +4,19 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN_ROOT = ROOT / "plugins"
-QUARANTINED = {"plugins.ai.ask", "plugins.ai.groq_client", "plugins.ai.summarize", "plugins.ai.transcribe"}
+QUARANTINED = {
+    "plugins.ai.ask",
+    "plugins.ai.groq_client",
+    "plugins.ai.summarize",
+    "plugins.ai.transcribe",
+}
 SKIP = {"__pycache__", ".git", ".venv", "venv", "env", ".pytest_cache"}
 ALLOWED_DIRECT_EVENTS = {
-    Path("plugins/security/account_archiver.py"), Path("plugins/security/acl.py"),
-    Path("plugins/security/logger.py"), Path("plugins/security/pmguard.py"), Path("plugins/system/afk.py"),
+    Path("plugins/security/account_archiver.py"),
+    Path("plugins/security/acl.py"),
+    Path("plugins/security/logger.py"),
+    Path("plugins/security/pmguard.py"),
+    Path("plugins/system/afk.py"),
     Path("plugins/productivity.py"),
 }
 
@@ -28,7 +36,15 @@ class PluginBehaviorContractTests(unittest.TestCase):
             ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
 
     def test_active_plugins_do_not_bypass_shared_network_or_subprocess_boundaries(self):
-        forbidden = {"requests", "httpx", "urllib.request", "subprocess", "aiohttp", "helpers.shell", "helpers.net"}
+        forbidden = {
+            "requests",
+            "httpx",
+            "urllib.request",
+            "subprocess",
+            "aiohttp",
+            "helpers.shell",
+            "helpers.net",
+        }
         for path in active_files():
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             for node in ast.walk(tree):
@@ -38,7 +54,14 @@ class PluginBehaviorContractTests(unittest.TestCase):
                     names = {node.module or ""}
                 else:
                     continue
-                self.assertFalse(any(name in forbidden or any(name.startswith(item + ".") for item in forbidden) for name in names), f"{path.relative_to(ROOT)} bypasses shared boundary: {names}")
+                self.assertFalse(
+                    any(
+                        name in forbidden
+                        or any(name.startswith(item + ".") for item in forbidden)
+                        for name in names
+                    ),
+                    f"{path.relative_to(ROOT)} bypasses shared boundary: {names}",
+                )
 
     def test_direct_incoming_handlers_are_explicitly_allowlisted(self):
         for path in active_files():
@@ -48,17 +71,30 @@ class PluginBehaviorContractTests(unittest.TestCase):
                     isinstance(node, ast.Call)
                     and isinstance(node.func, ast.Attribute)
                     and node.func.attr == "NewMessage"
-                    and any(kw.arg == "incoming" and isinstance(kw.value, ast.Constant) and kw.value.value is True for kw in node.keywords)
+                    and any(
+                        kw.arg == "incoming"
+                        and isinstance(kw.value, ast.Constant)
+                        and kw.value.value is True
+                        for kw in node.keywords
+                    )
                 ):
                     self.assertIn(path.relative_to(ROOT), ALLOWED_DIRECT_EVENTS)
 
     def test_media_downloads_cross_shared_media_service(self):
-        targets = [ROOT / "plugins/security/ephemeral.py", ROOT / "plugins/media/ocr.py", ROOT / "plugins/ai_gateway/transcribe.py"]
+        targets = [
+            ROOT / "plugins/security/ephemeral.py",
+            ROOT / "plugins/media/ocr.py",
+            ROOT / "plugins/ai_gateway/transcribe.py",
+        ]
         for path in targets:
             text = path.read_text(encoding="utf-8")
             self.assertIn("download_telegram_media", text, path.name)
-            self.assertNotIn("event.client.download_media(media, file=", text, path.name)
-            self.assertNotIn("event.client.download_media(reply.media, file=", text, path.name)
+            self.assertNotIn(
+                "event.client.download_media(media, file=", text, path.name
+            )
+            self.assertNotIn(
+                "event.client.download_media(reply.media, file=", text, path.name
+            )
 
     def test_doctor_network_dns_is_off_event_loop(self):
         text = (ROOT / "plugins/system_ops/doctor.py").read_text(encoding="utf-8")
@@ -69,8 +105,13 @@ class PluginBehaviorContractTests(unittest.TestCase):
         self.assertIn("(clone|revert|idbackup)", text)
         self.assertNotIn("(clone|revert|backup)", text)
         self.assertIn("uuid.uuid4().hex", text)
-        self.assertIn("Upload first so a failed upload cannot destroy the current profile photo.", text)
-        self.assertIn("Saved profile photo is outside the managed identity cache.", text)
+        self.assertIn(
+            "Upload first so a failed upload cannot destroy the current profile photo.",
+            text,
+        )
+        self.assertIn(
+            "Saved profile photo is outside the managed identity cache.", text
+        )
 
     def test_pmguard_throttle_is_bounded_and_state_updates_are_serialized(self):
         text = (ROOT / "plugins/security/pmguard.py").read_text(encoding="utf-8")

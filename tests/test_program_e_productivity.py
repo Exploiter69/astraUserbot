@@ -1,6 +1,5 @@
-from pathlib import Path
 import ast
-
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -11,7 +10,13 @@ def _source(name: str) -> str:
 
 def test_productivity_plugin_has_durable_feature_surface():
     tree = ast.parse(_source("plugins/productivity.py"))
-    registrations = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "register_cmd"]
+    registrations = [
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Name)
+        and n.func.id == "register_cmd"
+    ]
     assert len(registrations) >= 10
     text = _source("plugins/productivity.py")
     for token in ("reminders", "bookmarks", "templates", "delremind", "unbookmark"):

@@ -13,8 +13,9 @@ import re
 import time
 import uuid
 from collections import deque
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Iterable, List, Optional
+from typing import Any
 
 from telethon import events
 
@@ -60,7 +61,9 @@ class CommandRegistration:
     owner_version: str = "legacy"
     usage: str = ""
     event_builder: Any = field(default=None, compare=False, repr=False)
-    wrapper: Callable[..., Any] = field(default=lambda event: None, compare=False, repr=False)
+    wrapper: Callable[..., Any] = field(
+        default=lambda event: None, compare=False, repr=False
+    )
 
     def unregister(self, client: Any) -> None:
         """Remove this registration from the Telethon client and registry."""
@@ -72,22 +75,26 @@ class CommandRegistration:
                 _COMMAND_OWNERS.pop(command, None)
 
 
-COMMANDS: Dict[str, Dict[str, Any]] = {}
-_REGISTRATIONS: Dict[str, CommandRegistration] = {}
-_COMMAND_OWNERS: Dict[str, str] = {}
+COMMANDS: dict[str, dict[str, Any]] = {}
+_REGISTRATIONS: dict[str, CommandRegistration] = {}
+_COMMAND_OWNERS: dict[str, str] = {}
 _RECENT_COMMANDS: deque[str] = deque(maxlen=50)
 
 
-def _command_names(pattern: str, aliases: Optional[Iterable[str]] = None) -> tuple[str, ...]:
+def _command_names(
+    pattern: str, aliases: Iterable[str] | None = None
+) -> tuple[str, ...]:
     """Return conservative command-name fingerprints for collision detection."""
     names: list[str] = []
     escaped_prefix = re.escape(config.PREFIX)
     prefix_match = re.search(rf"(?:\^)?{escaped_prefix}", pattern)
     if prefix_match:
-        remainder = pattern[prefix_match.end():].lstrip()
+        remainder = pattern[prefix_match.end() :].lstrip()
         group = re.match(r"\(([^()]+)\)", remainder)
         if group:
-            names.extend(part.strip() for part in group.group(1).split("|") if part.strip())
+            names.extend(
+                part.strip() for part in group.group(1).split("|") if part.strip()
+            )
         else:
             literal = re.match(r"([A-Za-z0-9_:-]+)", remainder)
             if literal:
@@ -117,18 +124,18 @@ def register_cmd(
     handler: Callable,
     category: str = "system",
     description: str = "No description provided.",
-    aliases: Optional[List[str]] = None,
+    aliases: list[str] | None = None,
     permission: str = "owner",
     operation_class: str | None = None,
-    required_capabilities: Optional[List[str]] = None,
-    examples: Optional[List[str]] = None,
+    required_capabilities: list[str] | None = None,
+    examples: list[str] | None = None,
     compatibility: str = "1.0",
     network: bool | None = None,
     durable_job: bool | None = None,
     destructive: bool | None = None,
     confirmation_required: bool | None = None,
     resource_class: str = "default",
-    argument_schema: Optional[Dict[str, Any]] = None,
+    argument_schema: dict[str, Any] | None = None,
     priority: int = 100,
     timeout_seconds: float = 30.0,
     cancellation_supported: bool | None = None,
@@ -140,11 +147,20 @@ def register_cmd(
     if not pattern or not callable(handler):
         raise CommandRegistrationError("pattern and callable handler are required")
     if not isinstance(priority, int) or not 0 <= priority <= 1000:
-        raise CommandRegistrationError("Command priority must be an integer from 0 to 1000.")
-    if not isinstance(timeout_seconds, (int, float)) or not 0 < float(timeout_seconds) <= 3600:
-        raise CommandRegistrationError("Command timeout must be greater than 0 and at most 3600 seconds.")
+        raise CommandRegistrationError(
+            "Command priority must be an integer from 0 to 1000."
+        )
+    if (
+        not isinstance(timeout_seconds, (int, float))
+        or not 0 < float(timeout_seconds) <= 3600
+    ):
+        raise CommandRegistrationError(
+            "Command timeout must be greater than 0 and at most 3600 seconds."
+        )
     if argument_schema is not None and not isinstance(argument_schema, dict):
-        raise CommandRegistrationError("Command argument_schema must be a JSON-safe mapping.")
+        raise CommandRegistrationError(
+            "Command argument_schema must be a JSON-safe mapping."
+        )
 
     names = _command_names(pattern, aliases)
     collisions: list[str] = []
@@ -152,11 +168,17 @@ def register_cmd(
         collisions.append(f"pattern {pattern!r}")
     collisions.extend(f"command {name!r}" for name in names if name in _COMMAND_OWNERS)
     if collisions:
-        existing_ids = {_COMMAND_OWNERS[name] for name in names if name in _COMMAND_OWNERS}
+        existing_ids = {
+            _COMMAND_OWNERS[name] for name in names if name in _COMMAND_OWNERS
+        }
         if pattern in COMMANDS:
             existing_ids.add(str(COMMANDS[pattern].get("registration_id", "unknown")))
         owners = sorted(
-            {_REGISTRATIONS[item].owner or "unknown" for item in existing_ids if item in _REGISTRATIONS}
+            {
+                _REGISTRATIONS[item].owner or "unknown"
+                for item in existing_ids
+                if item in _REGISTRATIONS
+            }
         )
         owner_text = ", ".join(owners) if owners else "existing registration"
         raise CommandRegistrationError(
@@ -165,7 +187,11 @@ def register_cmd(
 
     owner = PluginManager.current_plugin()
     manager = PluginManager.current_manager()
-    owner_record = manager.records.get(owner) if manager is not None and owner is not None else None
+    owner_record = (
+        manager.records.get(owner)
+        if manager is not None and owner is not None
+        else None
+    )
     owner_version = getattr(owner_record, "version", "legacy")
     registration_id = uuid.uuid4().hex
     event_builder = events.NewMessage(outgoing=True, pattern=pattern)
@@ -180,6 +206,7 @@ def register_cmd(
         try:
             # Runtime import avoids a core.registry <-> core.context import cycle.
             from core.context import get_application_context
+
             context = get_application_context()
             if context is not None:
                 metrics = context.get("metrics")
@@ -227,25 +254,58 @@ def register_cmd(
             else:
                 rows = ["An unexpected error occurred.", f"Reference: {correlation_id}"]
                 title = "COMMAND FAILED"
-            await event.edit(render(
-                title=title,
-                rows=rows,
-                footer=f"{elapsed:.2f}s | {category}" + (
-                    f" | {correlation_id}" if isinstance(exc, CommandError) else ""
-                ),
-            ))
+            await event.edit(
+                render(
+                    title=title,
+                    rows=rows,
+                    footer=f"{elapsed:.2f}s | {category}"
+                    + (f" | {correlation_id}" if isinstance(exc, CommandError) else ""),
+                )
+            )
 
     primary_name = names[0] if names else "command"
     description_lower = description.lower()
     op_text = operation_class.upper() if operation_class else ""
     if not op_text:
-        if any(token in primary_name for token in ("delete", "remove", "purge", "wipe", "clear")) or any(token in description_lower for token in ("delete", "purge", "wipe")):
+        if any(
+            token in primary_name
+            for token in ("delete", "remove", "purge", "wipe", "clear")
+        ) or any(token in description_lower for token in ("delete", "purge", "wipe")):
             op_text = "DESTRUCTIVE"
-        elif category in {"jobs", "job"} or any(token in primary_name for token in ("job", "task", "retry", "cancel")):
+        elif category in {"jobs", "job"} or any(
+            token in primary_name for token in ("job", "task", "retry", "cancel")
+        ):
             op_text = "JOB"
-        elif any(token in primary_name for token in ("send", "edit", "rename", "block", "unblock", "ban", "unban", "enable", "disable", "restart", "update", "close")):
+        elif any(
+            token in primary_name
+            for token in (
+                "send",
+                "edit",
+                "rename",
+                "block",
+                "unblock",
+                "ban",
+                "unban",
+                "enable",
+                "disable",
+                "restart",
+                "update",
+                "close",
+            )
+        ):
             op_text = "MUTATION"
-        elif any(token in description_lower for token in ("network", "http", "public-source", "telegram", "url", "remote", "provider")):
+        elif any(
+            token in description_lower
+            for token in (
+                "network",
+                "http",
+                "public-source",
+                "telegram",
+                "url",
+                "remote",
+                "provider",
+            )
+        ):
             op_text = "NETWORK"
         else:
             op_text = "READ"
@@ -253,17 +313,32 @@ def register_cmd(
         raise CommandRegistrationError(f"Unsupported operation class: {op_text}")
     if not compatibility or len(compatibility) > 32:
         raise CommandRegistrationError("Command compatibility metadata is invalid.")
-    destructive_value = bool(destructive) if destructive is not None else op_text == "DESTRUCTIVE"
-    confirmation_value = bool(confirmation_required) if confirmation_required is not None else destructive_value
+    destructive_value = (
+        bool(destructive) if destructive is not None else op_text == "DESTRUCTIVE"
+    )
+    confirmation_value = (
+        bool(confirmation_required)
+        if confirmation_required is not None
+        else destructive_value
+    )
     network_value = bool(network) if network is not None else op_text == "NETWORK"
     durable_value = bool(durable_job) if durable_job is not None else op_text == "JOB"
     example_values = tuple(examples or (f"{config.PREFIX}{primary_name}",))
     capability_values = tuple(required_capabilities or ())
     argument_schema_value = dict(argument_schema or {})
-    cancellation_value = bool(cancellation_supported) if cancellation_supported is not None else False
-    durable_execution_value = bool(durable_execution_supported) if durable_execution_supported is not None else durable_value
+    cancellation_value = (
+        bool(cancellation_supported) if cancellation_supported is not None else False
+    )
+    durable_execution_value = (
+        bool(durable_execution_supported)
+        if durable_execution_supported is not None
+        else durable_value
+    )
     usage_value = usage or example_values[0]
-    source_ref_value = source_ref or f"{getattr(handler, '__module__', 'unknown')}:{getattr(handler, '__name__', 'handler')}"
+    source_ref_value = (
+        source_ref
+        or f"{getattr(handler, '__module__', 'unknown')}:{getattr(handler, '__name__', 'handler')}"
+    )
 
     registration = CommandRegistration(
         registration_id=registration_id,
@@ -354,6 +429,7 @@ def clear_registrations(client: Any) -> None:
     for registration in list(_REGISTRATIONS.values()):
         registration.unregister(client)
 
+
 def command_metadata(registration: CommandRegistration) -> dict[str, Any]:
     """Return the stable, JSON-safe command contract."""
     return {
@@ -384,6 +460,7 @@ def command_metadata(registration: CommandRegistration) -> dict[str, Any]:
         "owner_version": registration.owner_version,
     }
 
+
 def find_registrations(query: str) -> list[CommandRegistration]:
     """Bounded deterministic command discovery over the live registry."""
     needle = str(query).strip().lstrip(config.PREFIX).lower()
@@ -392,7 +469,14 @@ def find_registrations(query: str) -> list[CommandRegistration]:
     scored: list[tuple[int, CommandRegistration]] = []
     for registration in list_registrations():
         names = _command_names(registration.pattern, registration.aliases)
-        haystack = " ".join((registration.category, registration.description, registration.owner or "", *names)).lower()
+        haystack = " ".join(
+            (
+                registration.category,
+                registration.description,
+                registration.owner or "",
+                *names,
+            )
+        ).lower()
         if needle in names:
             score = 100
         elif any(name.startswith(needle) for name in names):
@@ -402,7 +486,11 @@ def find_registrations(query: str) -> list[CommandRegistration]:
         else:
             continue
         scored.append((score, registration))
-    return [item[1] for item in sorted(scored, key=lambda pair: (-pair[0], pair[1].pattern))[:25]]
+    return [
+        item[1]
+        for item in sorted(scored, key=lambda pair: (-pair[0], pair[1].pattern))[:25]
+    ]
+
 
 def registry_snapshot() -> list[dict[str, Any]]:
     return [command_metadata(item) for item in list_registrations()]

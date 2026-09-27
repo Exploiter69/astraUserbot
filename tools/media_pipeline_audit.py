@@ -66,15 +66,23 @@ def check_static_contracts() -> None:
 
     for path in CONSUMERS:
         text = source(path)
-        assert "create_workspace(" in text, f"{path} does not allocate a MediaService workspace"
-        assert "cleanup(workspace)" in text, f"{path} does not clean its media workspace"
+        assert "create_workspace(" in text, (
+            f"{path} does not allocate a MediaService workspace"
+        )
+        assert "cleanup(workspace)" in text, (
+            f"{path} does not clean its media workspace"
+        )
         assert "finally:" in text, f"{path} lacks finally-based cleanup"
-        assert "helpers.shell" not in text, f"{path} bypasses the shared subprocess boundary"
+        assert "helpers.shell" not in text, (
+            f"{path} bypasses the shared subprocess boundary"
+        )
         assert "create_subprocess" not in text, f"{path} creates subprocesses directly"
 
     for path in DOWNLOAD_CONSUMERS:
         text = source(path)
-        assert "download_telegram_media(" in text, f"{path} bypasses the centralized Telegram media download guard"
+        assert "download_telegram_media(" in text, (
+            f"{path} bypasses the centralized Telegram media download guard"
+        )
 
     assert "run_ffmpeg(" in source("plugins/media/ffmpeg.py")
     assert "run_ffmpeg(" in source("plugins/advanced/mediaflow.py")
@@ -108,8 +116,12 @@ def make_wav(path: Path, duration: float = 0.25) -> None:
 
 
 async def actual_pipeline() -> None:
-    if not all(shutil.which(binary) for binary in ("bwrap", "prlimit", "ffmpeg", "ffprobe")):
-        raise RuntimeError("bwrap, prlimit, ffmpeg, and ffprobe are required for the media pipeline gate")
+    if not all(
+        shutil.which(binary) for binary in ("bwrap", "prlimit", "ffmpeg", "ffprobe")
+    ):
+        raise RuntimeError(
+            "bwrap, prlimit, ffmpeg, and ffprobe are required for the media pipeline gate"
+        )
 
     with tempfile.TemporaryDirectory(prefix="astra-media-audit-") as tmp:
         root = Path(tmp)
@@ -158,14 +170,18 @@ async def actual_pipeline() -> None:
         except ResourceError:
             pass
         else:
-            raise AssertionError("Telegram media preflight accepted an oversized object")
+            raise AssertionError(
+                "Telegram media preflight accepted an oversized object"
+            )
         progress = service.telegram_download_progress()
         try:
             progress(8 * 1024 * 1024 + 1, 8 * 1024 * 1024 + 1)
         except ResourceError:
             pass
         else:
-            raise AssertionError("Telegram download progress guard accepted oversized input")
+            raise AssertionError(
+                "Telegram download progress guard accepted oversized input"
+            )
         print("telegram_download_bounds: PASS")
 
         duration_service = MediaService(
@@ -183,7 +199,9 @@ async def actual_pipeline() -> None:
             duration_source = duration_job.resolve("long.wav")
             make_wav(duration_source, 0.25)
             try:
-                await duration_service.verify_media(duration_source, workspace=duration_job)
+                await duration_service.verify_media(
+                    duration_source, workspace=duration_job
+                )
             except ResourceError:
                 pass
             else:
@@ -240,7 +258,9 @@ async def actual_pipeline() -> None:
                 except ResourceError:
                     pass
                 else:
-                    raise AssertionError("disk guard did not reject exhausted filesystem")
+                    raise AssertionError(
+                        "disk guard did not reject exhausted filesystem"
+                    )
             finally:
                 shutil.disk_usage = original_disk_usage
         finally:

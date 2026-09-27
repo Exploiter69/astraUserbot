@@ -31,7 +31,11 @@ async def handle(event):
             raise CommandError("Usage: .tgsync [peer] [limit]") from exc
     else:
         reply = await event.get_reply_message()
-        target = reply.chat if reply is not None and getattr(reply, "chat", None) is not None else event.chat_id
+        target = (
+            reply.chat
+            if reply is not None and getattr(reply, "chat", None) is not None
+            else event.chat_id
+        )
         limit = 100
 
     limit = max(1, min(limit, 100))
@@ -53,8 +57,20 @@ async def handle(event):
     if cursor is not None:
         rows.append(f"Last sync     {cursor.last_synced_at:.0f}")
     rows += ["", "BOUNDED · RESUMABLE · OBSERVATION SYNC"]
-    await event.edit(render("TELEGRAM // INCREMENTAL SYNC", rows, footer="system_ops | tgsync | bounded state"))
+    await event.edit(
+        render(
+            "TELEGRAM // INCREMENTAL SYNC",
+            rows,
+            footer="system_ops | tgsync | bounded state",
+        )
+    )
 
 
 async def setup(client):
-    register_cmd(client, PATTERN, handle, "system_ops", "Run bounded resumable Telegram message synchronization from the durable cursor.")
+    register_cmd(
+        client,
+        PATTERN,
+        handle,
+        "system_ops",
+        "Run bounded resumable Telegram message synchronization from the durable cursor.",
+    )

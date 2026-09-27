@@ -1,24 +1,30 @@
-import re
-import random
-from core.registry import register_cmd
-from helpers.hud import render
-from config import config
 import asyncio
+import re
+
+from config import config
+from core.registry import register_cmd
 
 PATTERN = rf"^{re.escape(config.PREFIX)}(mock|owo|ghost|spam|shrug)(?:\s+(.*))?$"
 
+
 async def setup(client):
-    register_cmd(client, PATTERN, handle_textfx, "fun", "Text effects and chat automation.")
+    register_cmd(
+        client, PATTERN, handle_textfx, "fun", "Text effects and chat automation."
+    )
+
 
 async def handle_textfx(event):
     cmd = event.pattern_match.group(1).lower()
     arg = event.pattern_match.group(2) or ""
-    
+
     if cmd == "mock":
         res = "".join(c.upper() if i % 2 == 0 else c.lower() for i, c in enumerate(arg))
         await event.edit(res)
     elif cmd == "owo":
-        res = arg.replace("r", "w").replace("l", "w").replace("R", "W").replace("L", "W") + " uwu"
+        res = (
+            arg.replace("r", "w").replace("l", "w").replace("R", "W").replace("L", "W")
+            + " uwu"
+        )
         await event.edit(res)
     elif cmd == "shrug":
         await event.edit(f"{arg} ¯\\_(ツ)_/¯")

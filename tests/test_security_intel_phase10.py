@@ -19,13 +19,34 @@ class FakeHttp:
     async def post(self, url, **kwargs):
         self.calls.append((url, kwargs))
         if "urlhaus" in url:
-            return FakeResponse(200, {"query_status": "ok", "url_status": "online", "threat": "malware"})
-        return FakeResponse(200, {"query_status": "ok", "data": [{"signature": "test-family", "first_seen": "2026-01-01", "file_type": "ELF"}]})
+            return FakeResponse(
+                200, {"query_status": "ok", "url_status": "online", "threat": "malware"}
+            )
+        return FakeResponse(
+            200,
+            {
+                "query_status": "ok",
+                "data": [
+                    {
+                        "signature": "test-family",
+                        "first_seen": "2026-01-01",
+                        "file_type": "ELF",
+                    }
+                ],
+            },
+        )
 
 
 class FakePublicIntel:
     async def link_intel(self, target):
-        return {"rows": ["Redirect hops: 3", "  1. https://a.example", "  2. https://b.example", "  3. https://c.example"]}
+        return {
+            "rows": [
+                "Redirect hops: 3",
+                "  1. https://a.example",
+                "  2. https://b.example",
+                "  3. https://c.example",
+            ]
+        }
 
 
 class SecurityIntelPhase10Tests(unittest.IsolatedAsyncioTestCase):

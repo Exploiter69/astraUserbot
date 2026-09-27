@@ -2,7 +2,6 @@ import ast
 import unittest
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN_ROOT = ROOT / "plugins"
 QUARANTINED = {
@@ -37,7 +36,15 @@ class PluginBehaviorContractTests(unittest.TestCase):
             ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
 
     def test_active_plugins_do_not_bypass_shared_network_or_subprocess_boundaries(self):
-        forbidden_imports = {"requests", "httpx", "urllib.request", "subprocess", "aiohttp", "helpers.shell", "helpers.net"}
+        forbidden_imports = {
+            "requests",
+            "httpx",
+            "urllib.request",
+            "subprocess",
+            "aiohttp",
+            "helpers.shell",
+            "helpers.net",
+        }
         for path in active_files():
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             for node in ast.walk(tree):
@@ -48,7 +55,13 @@ class PluginBehaviorContractTests(unittest.TestCase):
                 else:
                     continue
                 self.assertTrue(
-                    not any(name in forbidden_imports or any(name.startswith(item + ".") for item in forbidden_imports) for name in names),
+                    not any(
+                        name in forbidden_imports
+                        or any(
+                            name.startswith(item + ".") for item in forbidden_imports
+                        )
+                        for name in names
+                    ),
                     f"{path.relative_to(ROOT)} bypasses a shared boundary: {names}",
                 )
 
@@ -56,7 +69,9 @@ class PluginBehaviorContractTests(unittest.TestCase):
         for path in active_files():
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             for node in ast.walk(tree):
-                if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+                if not isinstance(node, ast.Call) or not isinstance(
+                    node.func, ast.Attribute
+                ):
                     continue
                 if node.func.attr != "add_event_handler":
                     continue
@@ -73,8 +88,12 @@ class PluginBehaviorContractTests(unittest.TestCase):
         for path in targets:
             text = path.read_text(encoding="utf-8")
             self.assertIn("download_telegram_media", text, path.name)
-            self.assertNotIn("event.client.download_media(media, file=", text, path.name)
-            self.assertNotIn("event.client.download_media(reply.media, file=", text, path.name)
+            self.assertNotIn(
+                "event.client.download_media(media, file=", text, path.name
+            )
+            self.assertNotIn(
+                "event.client.download_media(reply.media, file=", text, path.name
+            )
 
     def test_doctor_network_dns_is_off_event_loop(self):
         text = (ROOT / "plugins/system_ops/doctor.py").read_text(encoding="utf-8")
@@ -83,8 +102,13 @@ class PluginBehaviorContractTests(unittest.TestCase):
     def test_identity_uses_unique_photo_snapshots_and_failure_safe_restore(self):
         text = (ROOT / "plugins/stealth/identity.py").read_text(encoding="utf-8")
         self.assertIn("uuid.uuid4().hex", text)
-        self.assertIn("Upload first so a failed upload cannot destroy the current profile photo.", text)
-        self.assertIn("Saved profile photo is outside the managed identity cache.", text)
+        self.assertIn(
+            "Upload first so a failed upload cannot destroy the current profile photo.",
+            text,
+        )
+        self.assertIn(
+            "Saved profile photo is outside the managed identity cache.", text
+        )
 
     def test_plugin_behavior_audit_exists_and_is_ast_only(self):
         text = (ROOT / "tools/plugin_behavior_audit.py").read_text(encoding="utf-8")

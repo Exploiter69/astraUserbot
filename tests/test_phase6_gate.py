@@ -7,7 +7,8 @@ from core.services.secrets import SecretStore
 from plugins.admin_ops import advanced_admin
 from plugins.media import aria2, ffmpeg, rclone
 from plugins.media_ops import speech, stream
-from plugins.security import account_archiver, acl, logger as logger_plugin, pmguard
+from plugins.security import account_archiver, acl, pmguard
+from plugins.security import logger as logger_plugin
 from plugins.system import afk
 from plugins.system import eval as eval_plugin
 
@@ -82,13 +83,27 @@ class Phase6GateTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotRegex(pmguard.PATTERN, r"block\|unblock")
 
     async def test_advertised_admin_commands_are_registered(self):
-        for command in ("purge", "purgeme", "zombies", "promote", "demote", "slow", "kickme"):
+        for command in (
+            "purge",
+            "purgeme",
+            "zombies",
+            "promote",
+            "demote",
+            "slow",
+            "kickme",
+        ):
             self.assertIn(command, advanced_admin.PATTERN)
 
     async def test_eval_serializes_global_stdout_capture(self):
-        first = FakeEvent('print("first"); await asyncio.sleep(0.02); print("first-end")')
-        second = FakeEvent('print("second"); await asyncio.sleep(0.02); print("second-end")')
-        await asyncio.gather(eval_plugin.handle_eval(first), eval_plugin.handle_eval(second))
+        first = FakeEvent(
+            'print("first"); await asyncio.sleep(0.02); print("first-end")'
+        )
+        second = FakeEvent(
+            'print("second"); await asyncio.sleep(0.02); print("second-end")'
+        )
+        await asyncio.gather(
+            eval_plugin.handle_eval(first), eval_plugin.handle_eval(second)
+        )
         self.assertEqual(len(first.responses), 1)
         self.assertEqual(len(second.responses), 1)
         self.assertIn("first", first.responses[0])

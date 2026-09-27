@@ -37,19 +37,23 @@ def plugin_database_inventory() -> list[dict[str, object]]:
             if isinstance(node.func, ast.Attribute) and node.func.attr == "init_schema":
                 schemas += 1
         for name in sorted(names):
-            records.append({
-                "database": name,
-                "plugin": str(path.relative_to(ROOT)),
-                "schema_initializers": schemas,
-            })
+            records.append(
+                {
+                    "database": name,
+                    "plugin": str(path.relative_to(ROOT)),
+                    "schema_initializers": schemas,
+                }
+            )
     return records
 
 
 def migration_audit() -> dict[str, object]:
     source = (ROOT / "core/services/storage.py").read_text(encoding="utf-8")
     return {
-        "numbered_migrations": "MIGRATIONS:" in source and "tuple[tuple[int, str]" in source,
-        "migration_checksum": "hashlib.sha256" in source and "Migration checksum mismatch" in source,
+        "numbered_migrations": "MIGRATIONS:" in source
+        and "tuple[tuple[int, str]" in source,
+        "migration_checksum": "hashlib.sha256" in source
+        and "Migration checksum mismatch" in source,
         "migration_lock": "BEGIN IMMEDIATE" in source,
         "migration_rollback": "await self.conn.rollback()" in source,
         "foreign_keys": "PRAGMA foreign_keys=ON" in source,
@@ -65,9 +69,11 @@ def transaction_audit() -> dict[str, object]:
     database = (ROOT / "core/database.py").read_text(encoding="utf-8")
     return {
         "platform_transaction_api": "async def transaction(" in storage,
-        "platform_transaction_rollback": "Database transaction failed" in storage and "await self.conn.rollback()" in storage,
+        "platform_transaction_rollback": "Database transaction failed" in storage
+        and "await self.conn.rollback()" in storage,
         "plugin_transaction_api": "async def transaction(" in database,
-        "plugin_transaction_rollback": "Database transaction failed" in database and "await self.conn.rollback()" in database,
+        "plugin_transaction_rollback": "Database transaction failed" in database
+        and "await self.conn.rollback()" in database,
         "plugin_database_size": "async def database_size" in database,
     }
 
@@ -80,7 +86,8 @@ def backup_audit() -> dict[str, object]:
         "platform_backup_integrity": "Backup integrity check failed" in storage,
         "platform_atomic_publish": "os.replace(temp_path, target)" in storage,
         "platform_restore": "async def restore(" in storage,
-        "restore_integrity_gate": "Refusing restore from an integrity-failed backup" in storage,
+        "restore_integrity_gate": "Refusing restore from an integrity-failed backup"
+        in storage,
         "plugin_sqlite_backup": "self.conn.backup(target_conn)" in database,
         "plugin_backup_integrity": "Backup integrity check failed" in database,
         "plugin_atomic_publish": "os.replace(temp, target)" in database,
@@ -93,7 +100,8 @@ def search_audit() -> dict[str, object]:
     return {
         "fts5": "CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts5" in storage,
         "transactional_upsert": "await self.storage.transaction" in search,
-        "rebuildable": "async def rebuild" in search and "await self.remove_source" in search,
+        "rebuildable": "async def rebuild" in search
+        and "await self.remove_source" in search,
         "consistency_check": "async def fts_consistency" in storage,
         "bounded_query": "MAX_QUERY" in search and "MAX_RESULTS" in search,
         "bounded_document": "MAX_DOCUMENT_BYTES" in search,
@@ -108,7 +116,8 @@ def retention_audit() -> dict[str, object]:
         # Storage audit verifies that the JobEngine exposes an explicit bounded
         # retention policy and cleanup path, without duplicating that audit's
         # implementation contract.
-        "job_retention_delegated": "DEFAULT_RETENTION_SECONDS" in jobs and "async def cleanup" in jobs,
+        "job_retention_delegated": "DEFAULT_RETENTION_SECONDS" in jobs
+        and "async def cleanup" in jobs,
         "uncertain_preserved": "JobState.UNCERTAIN" in jobs and "UNCERTAIN" in jobs,
         "lease_aware_cleanup": "leases" in jobs and "DELETE FROM jobs" in jobs,
         "plugin_database_size_bound": "MAX_BACKUP_BYTES" in database,

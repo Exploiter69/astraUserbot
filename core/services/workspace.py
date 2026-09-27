@@ -44,7 +44,11 @@ class WorkspaceService:
         max_file_bytes: int = 512 * 1024 * 1024,
     ) -> None:
         self.project_root = Path(project_root).resolve()
-        self.root = (self.project_root / "data" / "workspaces").resolve() if workspace_dir is None else Path(workspace_dir).resolve()
+        self.root = (
+            (self.project_root / "data" / "workspaces").resolve()
+            if workspace_dir is None
+            else Path(workspace_dir).resolve()
+        )
         self.max_file_bytes = int(max_file_bytes)
         if self.max_file_bytes <= 0:
             raise ValueError("max_file_bytes must be positive")

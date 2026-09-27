@@ -2,7 +2,6 @@ import ast
 import unittest
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -35,7 +34,9 @@ class Phase9MediaInvestigationGateTests(unittest.TestCase):
         self.assertIn("def report", source)
 
     def test_phase9_commands_are_declared(self):
-        source = (ROOT / "plugins/intelligence/media_cases.py").read_text(encoding="utf-8")
+        source = (ROOT / "plugins/intelligence/media_cases.py").read_text(
+            encoding="utf-8"
+        )
         for command in ("mediaintel", "mediasim", "case"):
             self.assertIn(command, source)
         self.assertIn("bounded", source.lower())

@@ -1,11 +1,11 @@
 import asyncio
 import re
 
-from core.context import get_application_context
-from core.registry import register_cmd
-from core.errors import CommandError
-from helpers.hud import render
 from config import config
+from core.context import get_application_context
+from core.errors import CommandError
+from core.registry import register_cmd
+from helpers.hud import render
 
 PATTERN = rf"^{re.escape(config.PREFIX)}osint(?:\s+(\S+))?$"
 _USERNAME = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
@@ -17,8 +17,9 @@ PLATFORMS = {
     "Reddit": "https://www.reddit.com/user/{}",
     "Telegram": "https://t.me/{}",
     "TikTok": "https://www.tiktok.com/@{}",
-    "Steam": "https://steamcommunity.com/id/{}"
+    "Steam": "https://steamcommunity.com/id/{}",
 }
+
 
 async def setup(client):
     register_cmd(
@@ -26,10 +27,13 @@ async def setup(client):
         pattern=PATTERN,
         handler=handle_osint,
         category="advanced",
-        description="Scan username across public social platforms. Usage: .osint <username>"
+        description="Scan username across public social platforms. Usage: .osint <username>",
     )
 
-async def _check_profile(http, name: str, platform: str, url_template: str) -> tuple[str, bool]:
+
+async def _check_profile(
+    http, name: str, platform: str, url_template: str
+) -> tuple[str, bool]:
     url = url_template.format(name)
     headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"}
     try:
@@ -48,18 +52,26 @@ async def _check_profile(http, name: str, platform: str, url_template: str) -> t
             return platform, False
         if platform == "Telegram" and not final_url.lower().startswith("https://t.me/"):
             return platform, False
-        if platform == "GitHub" and final_url.lower() in {"https://github.com", "https://github.com/login"}:
+        if platform == "GitHub" and final_url.lower() in {
+            "https://github.com",
+            "https://github.com/login",
+        }:
             return platform, False
         return platform, final_url.lower() == requested_url.lower()
     except Exception:  # noqa: BLE001 - public endpoint failures are a negative probe result
         return platform, False
 
+
 async def handle_osint(event):
     username = event.pattern_match.group(1)
     if not username:
-        raise CommandError("Please provide a username to scan. Usage: .osint <username>")
+        raise CommandError(
+            "Please provide a username to scan. Usage: .osint <username>"
+        )
     if not _USERNAME.fullmatch(username):
-        raise CommandError("Username must be 1-64 characters using letters, numbers, '.', '_' or '-'.")
+        raise CommandError(
+            "Username must be 1-64 characters using letters, numbers, '.', '_' or '-'."
+        )
 
     context = get_application_context()
     if context is None:
@@ -68,13 +80,18 @@ async def handle_osint(event):
     if http is None:
         raise CommandError("HTTP service is unavailable.")
 
-    await event.edit(render(
-        title="OSINT RECON",
-        rows=[f"Target: {username}", "Scanning public platforms..."],
-        footer="advanced | osint"
-    ))
+    await event.edit(
+        render(
+            title="OSINT RECON",
+            rows=[f"Target: {username}", "Scanning public platforms..."],
+            footer="advanced | osint",
+        )
+    )
 
-    tasks = [_check_profile(http, username, platform, template) for platform, template in PLATFORMS.items()]
+    tasks = [
+        _check_profile(http, username, platform, template)
+        for platform, template in PLATFORMS.items()
+    ]
     results = await asyncio.gather(*tasks)
 
     rows = [f"Target: `{username}`", "---"]
@@ -88,8 +105,6 @@ async def handle_osint(event):
     rows.append("---")
     rows.append(f"Summary: {hits}/{len(PLATFORMS)} matches found")
 
-    await event.edit(render(
-        title="OSINT RESULTS",
-        rows=rows,
-        footer="advanced | osint"
-    ))
+    await event.edit(
+        render(title="OSINT RESULTS", rows=rows, footer="advanced | osint")
+    )

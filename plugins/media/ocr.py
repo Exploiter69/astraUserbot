@@ -1,16 +1,17 @@
+import logging
 import re
 import shutil
-import logging
 
+from config import config
 from core.context import get_application_context
-from core.registry import register_cmd
 from core.errors import CommandError
+from core.registry import register_cmd
 from helpers.hud import render
 from helpers.reply import get_text_and_media
-from config import config
 
 logger = logging.getLogger(__name__)
 PATTERN = rf"^{re.escape(config.PREFIX)}ocr$"
+
 
 async def setup(client):
     if not shutil.which("tesseract"):
@@ -22,8 +23,9 @@ async def setup(client):
         pattern=PATTERN,
         handler=handle_ocr,
         category="media",
-        description="Extract text from a replied image using isolated Tesseract OCR."
+        description="Extract text from a replied image using isolated Tesseract OCR.",
     )
+
 
 async def handle_ocr(event):
     _, media = await get_text_and_media(event)
@@ -38,7 +40,9 @@ async def handle_ocr(event):
     if media_service is None or workspace_service is None:
         raise CommandError("Required runtime services are unavailable.")
 
-    await event.edit(render(title="OCR", rows=["Downloading image..."], footer="media | ocr"))
+    await event.edit(
+        render(title="OCR", rows=["Downloading image..."], footer="media | ocr")
+    )
     workspace = await media_service.create_workspace("ocr")
     try:
         downloaded_path = await media_service.download_telegram_media(
@@ -49,21 +53,41 @@ async def handle_ocr(event):
         if not downloaded_path:
             raise CommandError("Failed to download media.")
         artifact = media_service.artifact(workspace, downloaded_path)
-        await event.edit(render(title="OCR", rows=["Running isolated Tesseract (bounded)..."], footer="media | ocr"))
+        await event.edit(
+            render(
+                title="OCR",
+                rows=["Running isolated Tesseract (bounded)..."],
+                footer="media | ocr",
+            )
+        )
         result = await media_service.run_isolated(
-            ["tesseract", "/workspace/" + artifact.path.relative_to(workspace.path).as_posix(), "stdout", "-l", "eng"],
+            [
+                "tesseract",
+                "/workspace/" + artifact.path.relative_to(workspace.path).as_posix(),
+                "stdout",
+                "-l",
+                "eng",
+            ],
             workspace=workspace,
             timeout=60,
             max_output_bytes=512 * 1024,
         )
         if result.returncode != 0:
-            raise CommandError("Tesseract failed: " + (result.stderr.strip() or "Unknown error"))
+            raise CommandError(
+                "Tesseract failed: " + (result.stderr.strip() or "Unknown error")
+            )
 
-        text = result.stdout.strip() if result.stdout.strip() else "No text detected in image."
-        await event.edit(render(
-            title="OCR RESULT",
-            rows=["---"] + text.splitlines(),
-            footer="media | ocr"
-        ))
+        text = (
+            result.stdout.strip()
+            if result.stdout.strip()
+            else "No text detected in image."
+        )
+        await event.edit(
+            render(
+                title="OCR RESULT",
+                rows=["---"] + text.splitlines(),
+                footer="media | ocr",
+            )
+        )
     finally:
         await media_service.cleanup(workspace)

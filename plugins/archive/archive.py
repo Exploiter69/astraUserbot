@@ -60,15 +60,23 @@ async def handle_archive(event):
     mode = parts[0].lower()
 
     if mode == "search":
-        query = args[len(parts[0]):].strip()
+        query = args[len(parts[0]) :].strip()
         if not query:
             raise CommandError("Archive search requires a query.")
         results = await archive.search_archive(query, limit=MAX_DISPLAY_RESULTS)
         if not results:
-            await event.edit(render("ARCHIVE SEARCH", ["No archived messages matched."], footer="archive | search"))
+            await event.edit(
+                render(
+                    "ARCHIVE SEARCH",
+                    ["No archived messages matched."],
+                    footer="archive | search",
+                )
+            )
             return
         rows = [f"{item['title']}: {item['snippet']}" for item in results]
-        await event.edit(render("ARCHIVE SEARCH", rows, footer=f"archive | {len(results)} result(s)"))
+        await event.edit(
+            render("ARCHIVE SEARCH", rows, footer=f"archive | {len(results)} result(s)")
+        )
         return
 
     if mode not in {"chat", "channel", "since", "media"}:
@@ -86,7 +94,9 @@ async def handle_archive(event):
             limit = _limit(parts[1])
     else:
         if len(parts) not in {2, 3}:
-            raise CommandError("Usage: `.archive since <message_id> [limit]` in the current chat.")
+            raise CommandError(
+                "Usage: `.archive since <message_id> [limit]` in the current chat."
+            )
         try:
             min_message_id = int(parts[1])
         except ValueError as exc:
@@ -96,7 +106,13 @@ async def handle_archive(event):
         if len(parts) == 3:
             limit = _limit(parts[2])
 
-    await event.edit(render("ARCHIVE", [f"Queueing {mode} archive for `{peer}`..."], footer="archive | durable job"))
+    await event.edit(
+        render(
+            "ARCHIVE",
+            [f"Queueing {mode} archive for `{peer}`..."],
+            footer="archive | durable job",
+        )
+    )
     job = await archive.enqueue(
         peer,
         limit=limit,

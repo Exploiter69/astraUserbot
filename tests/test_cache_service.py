@@ -1,6 +1,5 @@
 import asyncio
 import tempfile
-import time
 import unittest
 from pathlib import Path
 
@@ -28,7 +27,14 @@ class CacheServiceTests(unittest.IsolatedAsyncioTestCase):
         self.tmp.cleanup()
 
     async def test_json_value_round_trip_and_metadata(self) -> None:
-        await self.service.set("http", "item", {"answer": 42}, ttl=60, source="test", content_type="application/json")
+        await self.service.set(
+            "http",
+            "item",
+            {"answer": 42},
+            ttl=60,
+            source="test",
+            content_type="application/json",
+        )
         entry = await self.service.get("http", "item")
         self.assertIsNotNone(entry)
         assert entry is not None
@@ -43,7 +49,9 @@ class CacheServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(first.value if first else None, {"n": 1})
         await self.service.close()
 
-        restarted = CacheService(self.tmp.name, max_l1_entries=1, max_l1_bytes=128, max_value_bytes=128)
+        restarted = CacheService(
+            self.tmp.name, max_l1_entries=1, max_l1_bytes=128, max_value_bytes=128
+        )
         await restarted.start()
         entry = await restarted.get("a", "two")
         self.assertEqual(entry.value if entry else None, {"n": 2})
@@ -60,8 +68,12 @@ class CacheServiceTests(unittest.IsolatedAsyncioTestCase):
         await self.service.set("n1", "same", "v1", version="1")
         await self.service.set("n1", "same", "v2", version="2")
         await self.service.set("n2", "same", "other", version="1")
-        self.assertEqual((await self.service.get("n1", "same", version="1")).value, "v1")
-        self.assertEqual((await self.service.get("n1", "same", version="2")).value, "v2")
+        self.assertEqual(
+            (await self.service.get("n1", "same", version="1")).value, "v1"
+        )
+        self.assertEqual(
+            (await self.service.get("n1", "same", version="2")).value, "v2"
+        )
         self.assertEqual((await self.service.get("n2", "same")).value, "other")
         await self.service.invalidate_namespace("n1")
         self.assertIsNone(await self.service.get("n1", "same", version="1"))
@@ -87,16 +99,20 @@ class CacheServiceTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0.02)
             return {"value": 7}
 
-        entries = await asyncio.gather(*[
-            self.service.get_or_set("stampede", "key", factory, ttl=60)
-            for _ in range(8)
-        ])
+        entries = await asyncio.gather(
+            *[
+                self.service.get_or_set("stampede", "key", factory, ttl=60)
+                for _ in range(8)
+            ]
+        )
         self.assertEqual(calls, 1)
         self.assertTrue(all(entry.value == {"value": 7} for entry in entries))
 
     async def test_artifact_round_trip_and_metadata(self) -> None:
         payload = b"binary-payload"
-        artifact = await self.service.put_artifact("media", "clip", payload, content_type="video/test", ttl=60)
+        artifact = await self.service.put_artifact(
+            "media", "clip", payload, content_type="video/test", ttl=60
+        )
         self.assertTrue(artifact.path.is_file())
         self.assertEqual(artifact.size, len(payload))
         self.assertEqual(await self.service.read_artifact("media", "clip"), payload)
@@ -116,7 +132,9 @@ class CacheServiceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_artifact_path_metadata_is_contained(self) -> None:
         artifact = await self.service.put_artifact("safe", "key", b"x")
-        self.assertTrue(Path(artifact.path).resolve().is_relative_to(self.service.artifact_root))
+        self.assertTrue(
+            Path(artifact.path).resolve().is_relative_to(self.service.artifact_root)
+        )
 
     async def test_clear_removes_values_and_artifacts(self) -> None:
         await self.service.set("clear", "value", 1)

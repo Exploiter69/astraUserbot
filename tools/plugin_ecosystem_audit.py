@@ -18,13 +18,19 @@ if str(ROOT) not in sys.path:
 from core.plugins.contract import PLUGIN_API_VERSION
 from core.plugins.manager import PluginManager
 
-
 QUARANTINED = frozenset(PluginManager._QUARANTINED_MODULES)
 EXCLUDED = {"__init__.py"}
 CAPABILITY_NAMES = {
-    "telegram.read", "telegram.write", "telegram.moderate",
-    "filesystem.read", "filesystem.write", "subprocess.execute",
-    "network.request", "media.process", "ai.inference", "account.control",
+    "telegram.read",
+    "telegram.write",
+    "telegram.moderate",
+    "filesystem.read",
+    "filesystem.write",
+    "subprocess.execute",
+    "network.request",
+    "media.process",
+    "ai.inference",
+    "account.control",
     "security.manage",
 }
 
@@ -44,7 +50,11 @@ def literal_value(node: ast.AST | None):
 
 def audit_file(path: Path) -> dict[str, object]:
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    functions = {node.name: node for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    functions = {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
     assignments: dict[str, ast.AST] = {}
     for node in tree.body:
         if isinstance(node, ast.Assign):
@@ -61,13 +71,15 @@ def audit_file(path: Path) -> dict[str, object]:
     capabilities = literal_value(assignments.get("capabilities"))
     api_version = literal_value(assignments.get("plugin_api_version"))
     registrations = [
-        node for node in ast.walk(tree)
+        node
+        for node in ast.walk(tree)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Name)
         and node.func.id == "register_cmd"
     ]
     direct_handlers = [
-        node for node in ast.walk(tree)
+        node
+        for node in ast.walk(tree)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
         and node.func.attr == "add_event_handler"
@@ -75,22 +87,35 @@ def audit_file(path: Path) -> dict[str, object]:
 
     dependency_ok = dependencies is None or (
         isinstance(dependencies, (tuple, list, str))
-        and (not isinstance(dependencies, (tuple, list)) or all(isinstance(item, str) for item in dependencies))
+        and (
+            not isinstance(dependencies, (tuple, list))
+            or all(isinstance(item, str) for item in dependencies)
+        )
     )
     optional_ok = optional is None or (
         isinstance(optional, (tuple, list, str))
-        and (not isinstance(optional, (tuple, list)) or all(isinstance(item, str) for item in optional))
+        and (
+            not isinstance(optional, (tuple, list))
+            or all(isinstance(item, str) for item in optional)
+        )
     )
     capability_ok = capabilities is None or (
         isinstance(capabilities, (tuple, list, str))
-        and (not isinstance(capabilities, (tuple, list)) or all(isinstance(item, str) for item in capabilities))
-        and (not isinstance(capabilities, (tuple, list)) or set(capabilities) <= CAPABILITY_NAMES)
+        and (
+            not isinstance(capabilities, (tuple, list))
+            or all(isinstance(item, str) for item in capabilities)
+        )
+        and (
+            not isinstance(capabilities, (tuple, list))
+            or set(capabilities) <= CAPABILITY_NAMES
+        )
     )
     return {
         "name": module_name(path),
         "setup": setup is not None,
         "setup_async": isinstance(setup, ast.AsyncFunctionDef),
-        "shutdown": shutdown is None or isinstance(shutdown, (ast.FunctionDef, ast.AsyncFunctionDef)),
+        "shutdown": shutdown is None
+        or isinstance(shutdown, (ast.FunctionDef, ast.AsyncFunctionDef)),
         "dependencies": dependency_ok,
         "optional_dependencies": optional_ok,
         "capabilities": capability_ok,
@@ -103,21 +128,30 @@ def audit_file(path: Path) -> dict[str, object]:
 def main() -> int:
     print("=== PLUGIN ECOSYSTEM QUALITY AUDIT ===")
     files = sorted(
-        path for path in (ROOT / "plugins").rglob("*.py")
-        if path.name not in EXCLUDED
+        path for path in (ROOT / "plugins").rglob("*.py") if path.name not in EXCLUDED
     )
     active = [path for path in files if module_name(path) not in QUARANTINED]
-    quarantined_present = sorted(module_name(path) for path in files if module_name(path) in QUARANTINED)
+    quarantined_present = sorted(
+        module_name(path) for path in files if module_name(path) in QUARANTINED
+    )
     results = [audit_file(path) for path in active]
 
     checks = {
-        "deterministic_discovery": len({item["name"] for item in results}) == len(results),
+        "deterministic_discovery": len({item["name"] for item in results})
+        == len(results),
         "standard_setup_contract": all(bool(item["setup"]) for item in results),
         "lifecycle_contract": all(bool(item["shutdown"]) for item in results),
-        "dependency_declarations_valid": all(bool(item["dependencies"]) and bool(item["optional_dependencies"]) for item in results),
-        "capability_declarations_valid": all(bool(item["capabilities"]) for item in results),
+        "dependency_declarations_valid": all(
+            bool(item["dependencies"]) and bool(item["optional_dependencies"])
+            for item in results
+        ),
+        "capability_declarations_valid": all(
+            bool(item["capabilities"]) for item in results
+        ),
         "api_contract_compatible": all(bool(item["api_version"]) for item in results),
-        "command_registration_boundary": all(item["registrations"] >= 0 for item in results),
+        "command_registration_boundary": all(
+            item["registrations"] >= 0 for item in results
+        ),
         "quarantine_boundary": set(quarantined_present) == QUARANTINED,
     }
     for key, value in checks.items():
@@ -125,11 +159,15 @@ def main() -> int:
 
     print(f"active_plugins: {len(active)}")
     print(f"quarantined_plugins: {len(quarantined_present)}")
-    print(f"command_registrations_declared: {sum(int(item['registrations']) for item in results)}")
+    print(
+        f"command_registrations_declared: {sum(int(item['registrations']) for item in results)}"
+    )
     direct = sum(int(item["direct_event_handlers"]) for item in results)
     print(f"direct_event_handler_sites: {direct}")
     for item in results:
-        print(f"PLUGIN {item['name']} · setup={'YES' if item['setup'] else 'NO'} · shutdown={'YES' if item['shutdown'] else 'NO'} · commands={item['registrations']}")
+        print(
+            f"PLUGIN {item['name']} · setup={'YES' if item['setup'] else 'NO'} · shutdown={'YES' if item['shutdown'] else 'NO'} · commands={item['registrations']}"
+        )
 
     if all(checks.values()):
         print("PLUGIN_ECOSYSTEM_QUALITY_AUDIT_PASS")

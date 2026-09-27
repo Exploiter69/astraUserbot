@@ -12,7 +12,6 @@ connect to Telegram or touch the configured production service.
 
 from __future__ import annotations
 
-import asyncio
 import os
 import subprocess
 import sys
@@ -73,11 +72,13 @@ def main() -> int:
     env.pop("API_HASH", None)
     env.pop("ASTRA_OWNER_ID", None)
     env.pop("OWNER_ID", None)
-    env.update({
-        "ASTRA_API_ID": "1",
-        "ASTRA_API_HASH": "probe",
-        "ASTRA_OWNER_ID": "1",
-    })
+    env.update(
+        {
+            "ASTRA_API_ID": "1",
+            "ASTRA_API_HASH": "probe",
+            "ASTRA_OWNER_ID": "1",
+        }
+    )
     try:
         result = subprocess.run(
             [sys.executable, "-c", _CHILD],

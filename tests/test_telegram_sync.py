@@ -13,14 +13,28 @@ class FakeTelegram:
     def __init__(self) -> None:
         self.calls: list[dict[str, object]] = []
         self.fail = False
-        self.messages = [SimpleNamespace(id=101), SimpleNamespace(id=102), SimpleNamespace(id=103)]
+        self.messages = [
+            SimpleNamespace(id=101),
+            SimpleNamespace(id=102),
+            SimpleNamespace(id=103),
+        ]
 
     async def _call(self, method, peer, *, operation_class, priority, **kwargs):
-        self.calls.append({"method": method, "peer": peer, "operation_class": operation_class, "priority": priority, **kwargs})
+        self.calls.append(
+            {
+                "method": method,
+                "peer": peer,
+                "operation_class": operation_class,
+                "priority": priority,
+                **kwargs,
+            }
+        )
         if self.fail:
             raise RuntimeError("temporary failure")
         min_id = int(kwargs.get("min_id", 0))
-        return [message for message in self.messages if message.id > min_id][: int(kwargs["limit"])]
+        return [message for message in self.messages if message.id > min_id][
+            : int(kwargs["limit"])
+        ]
 
 
 class TelegramIncrementalSyncTests(unittest.IsolatedAsyncioTestCase):

@@ -47,11 +47,16 @@ class FakeHttp:
     async def get(self, url, **kwargs):
         self.requests.append(("GET", url, kwargs))
         if "github.com" in url:
-            return FakeResponse(200, '[{"name":"repo","html_url":"https://github.com/example/repo"}]')
+            return FakeResponse(
+                200, '[{"name":"repo","html_url":"https://github.com/example/repo"}]'
+            )
         if "gitlab.com/api/v4/users" in url:
             return FakeResponse(200, '[{"id":42,"username":"example"}]')
         if "gitlab.com/api/v4/users/42/projects" in url:
-            return FakeResponse(200, '[{"name":"project","web_url":"https://gitlab.com/example/project"}]')
+            return FakeResponse(
+                200,
+                '[{"name":"project","web_url":"https://gitlab.com/example/project"}]',
+            )
         if "reddit.com" in url:
             return FakeResponse(200, '{"data":{"name":"example"}}')
         return FakeResponse(404, "{}")
@@ -80,7 +85,9 @@ class FakeClient:
         self.handlers.append((handler, event_builder))
 
     def remove_event_handler(self, handler, event_builder):
-        self.handlers = [item for item in self.handlers if item != (handler, event_builder)]
+        self.handlers = [
+            item for item in self.handlers if item != (handler, event_builder)
+        ]
 
 
 class PublicIntelTests(unittest.IsolatedAsyncioTestCase):
@@ -98,25 +105,46 @@ class PublicIntelTests(unittest.IsolatedAsyncioTestCase):
         self.assertLessEqual(len(result["findings"]), 3)
         self.assertEqual(len(self.graph.sources), 1)
         self.assertTrue(self.graph.observations)
-        self.assertTrue(all(item[1]["source_family"] == "public_profile" for item in self.graph.observations))
+        self.assertTrue(
+            all(
+                item[1]["source_family"] == "public_profile"
+                for item in self.graph.observations
+            )
+        )
 
     async def test_telegram_intel_records_bio_url_without_identity_inference(self):
         result = await self.service.telegram_intel("@Example")
         self.assertIn("@example", result["rows"][0])
-        self.assertTrue(any(item[1]["entity_type"] == "URL" for item in self.graph.entities))
-        self.assertTrue(all(item["relationship_type"] == "LINKS_TO" for item in self.graph.relationships))
+        self.assertTrue(
+            any(item[1]["entity_type"] == "URL" for item in self.graph.entities)
+        )
+        self.assertTrue(
+            all(
+                item["relationship_type"] == "LINKS_TO"
+                for item in self.graph.relationships
+            )
+        )
 
     async def test_link_intel_stops_at_bounded_redirect_chain(self):
         result = await self.service.link_intel("https://example.test/start")
         self.assertIn("Redirect hops: 1", result["rows"])
-        self.assertTrue(any(item[1]["entity_type"] == "DOMAIN" for item in self.graph.entities))
+        self.assertTrue(
+            any(item[1]["entity_type"] == "DOMAIN" for item in self.graph.entities)
+        )
 
     async def test_command_registration_contains_all_phase_8_surfaces(self):
         client = FakeClient()
         await public_sources.setup(client)
         self.assertEqual(len(list_registrations()), 1)
         pattern = list_registrations()[0].pattern
-        for name in ("tgintel", "userintel", "domainintel", "ct", "linkintel", "gitintel"):
+        for name in (
+            "tgintel",
+            "userintel",
+            "domainintel",
+            "ct",
+            "linkintel",
+            "gitintel",
+        ):
             self.assertIn(name, pattern)
         clear_registrations(client)
         self.assertEqual(client.handlers, [])

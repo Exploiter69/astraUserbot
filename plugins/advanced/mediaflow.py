@@ -1,15 +1,17 @@
 import re
 import shutil
 
-from core.context import get_application_context
-from core.registry import register_cmd
-from core.errors import CommandError
-from helpers.hud import render
-from helpers.reply import get_text_and_media
-from helpers.progress import ProgressCallback
 from config import config
+from core.context import get_application_context
+from core.errors import CommandError
+from core.registry import register_cmd
+from helpers.hud import render
+from helpers.progress import ProgressCallback
+from helpers.reply import get_text_and_media
 
-PATTERN = rf"^{re.escape(config.PREFIX)}mediaflow(?:\s+(compress|extract|square|mute))?$"
+PATTERN = (
+    rf"^{re.escape(config.PREFIX)}mediaflow(?:\s+(compress|extract|square|mute))?$"
+)
 
 
 async def setup(client):
@@ -37,25 +39,49 @@ async def handle_mediaflow(event):
     workspace = await service.create_workspace("mediaflow")
 
     try:
-        in_file = await service.download_telegram_media(event.client.download_media, media, workspace=workspace)
+        in_file = await service.download_telegram_media(
+            event.client.download_media, media, workspace=workspace
+        )
         if not in_file:
             raise CommandError("Failed to download media file.")
         source = service.validate_input(in_file)
 
-        await event.edit(render(
-            title="MEDIAFLOW",
-            rows=[f"Mode: {mode.upper()}", "Processing via FFmpeg..."],
-            footer="advanced | mediaflow"
-        ))
+        await event.edit(
+            render(
+                title="MEDIAFLOW",
+                rows=[f"Mode: {mode.upper()}", "Processing via FFmpeg..."],
+                footer="advanced | mediaflow",
+            )
+        )
 
         if mode == "compress":
-            options = ["-c:v", "libx264", "-crf", "26", "-preset", "fast", "-c:a", "aac", "-b:a", "128k"]
+            options = [
+                "-c:v",
+                "libx264",
+                "-crf",
+                "26",
+                "-preset",
+                "fast",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "128k",
+            ]
             output_name = "output.mp4"
         elif mode == "extract":
             options = ["-vn", "-c:a", "libmp3lame", "-b:a", "320k"]
             output_name = "output.mp3"
         elif mode == "square":
-            options = ["-vf", r"crop=w=min(in_w\,in_h):h=min(in_w\,in_h)", "-c:v", "libx264", "-crf", "23", "-c:a", "copy"]
+            options = [
+                "-vf",
+                r"crop=w=min(in_w\,in_h):h=min(in_w\,in_h)",
+                "-c:v",
+                "libx264",
+                "-crf",
+                "23",
+                "-c:a",
+                "copy",
+            ]
             output_name = "output.mp4"
         elif mode == "mute":
             options = ["-c:v", "libx264", "-crf", "23", "-preset", "fast", "-an"]
@@ -77,7 +103,7 @@ async def handle_mediaflow(event):
             event.chat_id,
             file=artifact.path,
             progress_callback=up_prog,
-            reply_to=event.reply_to_msg_id
+            reply_to=event.reply_to_msg_id,
         )
         await event.delete()
     finally:

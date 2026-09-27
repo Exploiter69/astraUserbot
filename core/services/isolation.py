@@ -64,11 +64,15 @@ class IsolationService:
         self._started = False
 
     def assess(self) -> IsolationAssessment:
-        return IsolationAssessment(bool(self._bwrap and self._prlimit), self._backend, self._reason)
+        return IsolationAssessment(
+            bool(self._bwrap and self._prlimit), self._backend, self._reason
+        )
 
     def require_explicit_backend(self) -> None:
         if not self._bwrap or not self._prlimit:
-            raise IsolationUnavailable("Bubblewrap with prlimit is required for this isolated workload but is unavailable.")
+            raise IsolationUnavailable(
+                "Bubblewrap with prlimit is required for this isolated workload but is unavailable."
+            )
 
     @staticmethod
     def _child_limits(memory_bytes: int, file_bytes: int, nofile: int) -> None:
@@ -92,7 +96,12 @@ class IsolationService:
         args = ["--ro-bind", "/usr", "/usr"]
         if os.path.exists("/etc"):
             args.extend(["--ro-bind", "/etc", "/etc"])
-        for link, target in (("/bin", "usr/bin"), ("/sbin", "usr/sbin"), ("/lib", "usr/lib"), ("/lib64", "usr/lib64")):
+        for link, target in (
+            ("/bin", "usr/bin"),
+            ("/sbin", "usr/sbin"),
+            ("/lib", "usr/lib"),
+            ("/lib64", "usr/lib64"),
+        ):
             if os.path.islink(link) and os.path.exists(link):
                 args.extend(["--symlink", target, link])
         return args
@@ -135,19 +144,36 @@ class IsolationService:
             "--unshare-all",
             "--unshare-user",
             "--disable-userns",
-            "--cap-drop", "ALL",
+            "--cap-drop",
+            "ALL",
             "--clearenv",
             *self._bind_ro_args(),
-            "--dev", "/dev",
-            "--proc", "/proc",
-            "--tmpfs", "/tmp",
-            "--bind", str(root), "/workspace",
-            "--chdir", "/workspace",
-            "--setenv", "PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-            "--setenv", "HOME", "/tmp",
-            "--setenv", "LANG", "C",
-            "--setenv", "LC_ALL", "C",
-            "--setenv", "TMPDIR", "/tmp",
+            "--dev",
+            "/dev",
+            "--proc",
+            "/proc",
+            "--tmpfs",
+            "/tmp",
+            "--bind",
+            str(root),
+            "/workspace",
+            "--chdir",
+            "/workspace",
+            "--setenv",
+            "PATH",
+            "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            "--setenv",
+            "HOME",
+            "/tmp",
+            "--setenv",
+            "LANG",
+            "C",
+            "--setenv",
+            "LC_ALL",
+            "C",
+            "--setenv",
+            "TMPDIR",
+            "/tmp",
             "--",
             *payload,
         ]
@@ -192,7 +218,9 @@ class IsolationService:
                 process.kill()
                 await process.wait()
                 await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
-                raise TimeoutError(f"Isolated subprocess timed out after {timeout:g}s") from exc
+                raise TimeoutError(
+                    f"Isolated subprocess timed out after {timeout:g}s"
+                ) from exc
             except asyncio.CancelledError:
                 if process.returncode is None:
                     process.kill()

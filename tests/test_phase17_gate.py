@@ -6,7 +6,6 @@ import importlib.util
 import unittest
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -23,11 +22,7 @@ def load_audit():
 class Phase17GateTests(unittest.TestCase):
     def test_required_migration_surface_exists(self):
         audit = load_audit()
-        missing = [
-            name
-            for name, ok in audit.check_expected_files().items()
-            if not ok
-        ]
+        missing = [name for name, ok in audit.check_expected_files().items() if not ok]
         self.assertEqual([], missing)
 
     def test_active_plugin_boundaries_are_clean(self):

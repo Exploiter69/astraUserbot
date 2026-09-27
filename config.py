@@ -4,6 +4,7 @@ from pathlib import Path
 
 try:
     from dotenv import load_dotenv
+
     load_dotenv(Path(__file__).resolve().with_name(".env"), override=False)
 except ImportError:
     pass
@@ -33,7 +34,9 @@ def _required_text(name: str, *aliases: str) -> str:
 class Config:
     API_ID: int = _required_int("ASTRA_API_ID", "API_ID")
     API_HASH: str = _required_text("ASTRA_API_HASH", "API_HASH")
-    SESSION_NAME: str = os.environ.get("ASTRA_SESSION_NAME", os.environ.get("SESSION_NAME", "astra_session"))
+    SESSION_NAME: str = os.environ.get(
+        "ASTRA_SESSION_NAME", os.environ.get("SESSION_NAME", "astra_session")
+    )
     PREFIX: str = os.environ.get("ASTRA_PREFIX", os.environ.get("PREFIX", "."))
     OWNER_ID: int = _required_int("ASTRA_OWNER_ID", "OWNER_ID")
     GROQ_API_KEY: str = os.environ.get("GROQ_API_KEY", "")

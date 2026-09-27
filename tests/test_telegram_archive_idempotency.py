@@ -26,7 +26,9 @@ async def test_archive_enqueue_reuses_active_job_but_not_terminal_job(tmp_path: 
     search = SearchService(storage, tmp_path)
     await search.start()
     jobs = JobEngine(storage)
-    service = TelegramArchiveService(storage, FakeTelegram(), search, FakeMedia(), jobs, tmp_path)
+    service = TelegramArchiveService(
+        storage, FakeTelegram(), search, FakeMedia(), jobs, tmp_path
+    )
     await service.start()
 
     first = await service.enqueue("123", limit=5, owner="owner")

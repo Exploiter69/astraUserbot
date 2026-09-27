@@ -52,14 +52,26 @@ class TelegramOperationRecorder:
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    operation_id, float(started_at), str(method), peer_id,
-                    str(operation_class), request_hash, str(result_classification),
+                    operation_id,
+                    float(started_at),
+                    str(method),
+                    peer_id,
+                    str(operation_class),
+                    request_hash,
+                    str(result_classification),
                     max(0.0, float(latency_ms)),
-                    None if flood_wait_seconds is None else max(0.0, float(flood_wait_seconds)),
-                    None if slow_mode_seconds is None else max(0.0, float(slow_mode_seconds)),
-                    1 if peer_flood else 0, error_class, max(0, int(retry_count)),
+                    None
+                    if flood_wait_seconds is None
+                    else max(0.0, float(flood_wait_seconds)),
+                    None
+                    if slow_mode_seconds is None
+                    else max(0.0, float(slow_mode_seconds)),
+                    1 if peer_flood else 0,
+                    error_class,
+                    max(0, int(retry_count)),
                     None if payload_size is None else max(0, int(payload_size)),
-                    job_id, source,
+                    job_id,
+                    source,
                 ),
             )
             await self.storage.execute(

@@ -31,7 +31,10 @@ class PluginObservatoryTests(unittest.TestCase):
             {"name": "plugins.system_ops.platform", "state": "RUNNING"},
             {"name": "plugins.system_ops.help", "state": "RUNNING"},
         ]
-        self.assertEqual(_find_plugin(records, "system_ops.platform")["name"], "plugins.system_ops.platform")
+        self.assertEqual(
+            _find_plugin(records, "system_ops.platform")["name"],
+            "plugins.system_ops.platform",
+        )
         with self.assertRaisesRegex(CommandError, "ambiguous"):
             _find_plugin(records, "system_ops")
 
@@ -57,13 +60,20 @@ class PluginObservatoryTests(unittest.TestCase):
             FakeRegistration("plugins.beta", ".b"),
             FakeRegistration(None, ".legacy"),
         ]
-        with patch("plugins.system_ops.platform.list_registrations", return_value=registrations):
-            self.assertEqual(_plugin_command_map(), {"plugins.alpha": 2, "plugins.beta": 1})
+        with patch(
+            "plugins.system_ops.platform.list_registrations", return_value=registrations
+        ):
+            self.assertEqual(
+                _plugin_command_map(), {"plugins.alpha": 2, "plugins.beta": 1}
+            )
 
     def test_detail_uses_friendly_command_names(self):
         record = {
-            "name": "plugins.alpha", "state": "RUNNING", "critical": True,
-            "dependencies": ["plugins.base"], "error": None,
+            "name": "plugins.alpha",
+            "state": "RUNNING",
+            "critical": True,
+            "dependencies": ["plugins.base"],
+            "error": None,
         }
         with patch(
             "plugins.system_ops.platform.list_registrations",

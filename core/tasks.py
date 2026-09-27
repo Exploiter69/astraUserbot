@@ -7,9 +7,10 @@ import logging
 import time
 import uuid
 from collections import deque
+from collections.abc import Awaitable
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Awaitable
+from typing import Any
 
 from core.errors import ErrorCode, as_astra_error
 

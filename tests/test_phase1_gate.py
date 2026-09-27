@@ -12,7 +12,7 @@ from pathlib import Path
 from core.errors import AstraError, ErrorCode, as_astra_error, user_message
 from core.plugins.manager import PluginManager, PluginState
 from core.registry import COMMANDS, clear_registrations, list_registrations
-from core.tasks import TaskSupervisor, TaskState
+from core.tasks import TaskState, TaskSupervisor
 
 
 class FakeDB:
@@ -55,7 +55,9 @@ class Phase1GateTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_real_block_unblock_has_single_owner(self) -> None:
         client = FakeClient()
-        manager = PluginManager(client, Path(__file__).resolve().parent.parent / "plugins")
+        manager = PluginManager(
+            client, Path(__file__).resolve().parent.parent / "plugins"
+        )
         client.plugin_manager = manager
         manager.discover()
 
@@ -103,7 +105,9 @@ class Phase1GateTests(unittest.IsolatedAsyncioTestCase):
             try:
                 manager = PluginManager(FakeClient(), package)
                 records = manager.discover()
-                self.assertEqual([record.name for record in records], [f"{module_name}.bad"])
+                self.assertEqual(
+                    [record.name for record in records], [f"{module_name}.bad"]
+                )
                 await manager.load_all()
                 record = manager.get(f"{module_name}.bad")
                 self.assertEqual(record.state, PluginState.FAILED_SETUP)
@@ -144,7 +148,9 @@ class Phase1GateTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_plugin_shutdown_removes_owned_registrations(self) -> None:
         client = FakeClient()
-        manager = PluginManager(client, Path(__file__).resolve().parent.parent / "plugins")
+        manager = PluginManager(
+            client, Path(__file__).resolve().parent.parent / "plugins"
+        )
         client.plugin_manager = manager
         manager.discover()
 
@@ -160,4 +166,6 @@ class Phase1GateTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(list_registrations()), 1)
         await manager.shutdown()
         self.assertEqual(len(list_registrations()), 0)
-        self.assertEqual(manager.get("plugins.security.acl").state, PluginState.UNLOADED)
+        self.assertEqual(
+            manager.get("plugins.security.acl").state, PluginState.UNLOADED
+        )

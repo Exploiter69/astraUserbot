@@ -5,11 +5,11 @@ import sqlite3
 import tempfile
 from pathlib import Path
 
+from config import config
 from core.context import get_application_context
 from core.errors import CommandError
 from core.registry import register_cmd
 from helpers.hud import render
-from config import config
 
 PATTERN = rf"^{re.escape(config.PREFIX)}backup(?:\s+(.*))?$"
 
@@ -102,9 +102,7 @@ async def handle_backup(event):
             raise CommandError("Rclone backup execution failed.") from exc
 
         if result.returncode != 0:
-            raise CommandError(
-                f"Rclone backup failed (code {result.returncode})."
-            )
+            raise CommandError(f"Rclone backup failed (code {result.returncode}).")
 
     await event.edit(
         render(

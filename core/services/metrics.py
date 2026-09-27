@@ -55,12 +55,15 @@ class MetricsService:
 
     def timer(self, name: str):
         service = self
+
         class _Timer:
             def __enter__(self):
                 self.started = time.perf_counter()
                 return self
+
             def __exit__(self, exc_type, exc, tb):
                 service.observe(name, time.perf_counter() - self.started)
+
         return _Timer()
 
     def snapshot(self) -> MetricSnapshot:
@@ -74,8 +77,9 @@ class MetricsService:
                 timings[name] = {
                     "count": float(len(ordered)),
                     "avg_ms": sum(ordered) / len(ordered) * 1000,
-                    "p50_ms": ordered[(len(ordered)-1)//2] * 1000,
-                    "p95_ms": ordered[min(len(ordered)-1, int(len(ordered)*0.95))] * 1000,
+                    "p50_ms": ordered[(len(ordered) - 1) // 2] * 1000,
+                    "p95_ms": ordered[min(len(ordered) - 1, int(len(ordered) * 0.95))]
+                    * 1000,
                     "max_ms": ordered[-1] * 1000,
                 }
             return MetricSnapshot(counters, timings, self.resources())

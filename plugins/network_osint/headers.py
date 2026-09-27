@@ -1,12 +1,13 @@
 import re
 
-from core.context import get_application_context
-from core.registry import register_cmd
-from core.errors import CommandError
-from helpers.hud import render
 from config import config
+from core.context import get_application_context
+from core.errors import CommandError
+from core.registry import register_cmd
+from helpers.hud import render
 
 PATTERN = rf"^{re.escape(config.PREFIX)}headers(?:\s+(\S+))?$"
+
 
 async def setup(client):
     register_cmd(
@@ -14,8 +15,9 @@ async def setup(client):
         pattern=PATTERN,
         handler=handle_headers,
         category="network_osint",
-        description="Inspect HTTP response headers. Usage: .headers <url>"
+        description="Inspect HTTP response headers. Usage: .headers <url>",
     )
+
 
 async def handle_headers(event):
     url = event.pattern_match.group(1)
@@ -35,17 +37,15 @@ async def handle_headers(event):
         status_code = response.status
         headers_dict = dict(response.headers)
         if status_code in {400, 403, 405, 406, 501}:
-            response = await http.get(url, allow_redirects=True, response_limit=64 * 1024)
+            response = await http.get(
+                url, allow_redirects=True, response_limit=64 * 1024
+            )
             status_code = response.status
             headers_dict = dict(response.headers)
     except Exception as exc:
         raise CommandError("Failed to reach the requested URL.") from exc
 
-    rows = [
-        f"Target: {response.url}",
-        f"Status: {status_code}",
-        "---"
-    ]
+    rows = [f"Target: {response.url}", f"Status: {status_code}", "---"]
 
     priority_headers = [
         "server",
@@ -56,7 +56,7 @@ async def handle_headers(event):
         "x-frame-options",
         "x-xss-protection",
         "x-content-type-options",
-        "cf-ray"
+        "cf-ray",
     ]
 
     added = set()
@@ -73,8 +73,6 @@ async def handle_headers(event):
             rows.append(f"{h_k}: {val}")
             added.add(h_k.lower())
 
-    await event.edit(render(
-        title="HTTP HEADERS",
-        rows=rows,
-        footer="network_osint | headers"
-    ))
+    await event.edit(
+        render(title="HTTP HEADERS", rows=rows, footer="network_osint | headers")
+    )

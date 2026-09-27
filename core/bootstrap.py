@@ -1,8 +1,8 @@
 import asyncio
 import logging
 import signal
-from collections.abc import Coroutine
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable, Coroutine
+from typing import Any
 
 from core.database import Database
 from core.tasks import TaskSupervisor

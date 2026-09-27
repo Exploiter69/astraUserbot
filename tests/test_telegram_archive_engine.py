@@ -58,7 +58,22 @@ class FakeJobs:
 async def seed_job(storage: StorageService, job_id: str, payload: dict) -> None:
     await storage.execute(
         "INSERT INTO jobs(id,type,state,payload_json,owner,parent_id,idempotency_key,resource_class,priority,created_at,updated_at,available_at,max_attempts,verify_required) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-        (job_id, TelegramArchiveJobModel.JOB_TYPE, "QUEUED", __import__("json").dumps(payload), None, None, None, "telegram_archive", 0, 0.0, 0.0, 0.0, 3, 0),
+        (
+            job_id,
+            TelegramArchiveJobModel.JOB_TYPE,
+            "QUEUED",
+            __import__("json").dumps(payload),
+            None,
+            None,
+            None,
+            "telegram_archive",
+            0,
+            0.0,
+            0.0,
+            0.0,
+            3,
+            0,
+        ),
     )
 
 
@@ -70,7 +85,9 @@ async def test_archive_worker_is_bounded_resumable_and_searchable(tmp_path: Path
     await search.start()
     telegram = FakeTelegram()
     jobs = FakeJobs()
-    service = TelegramArchiveService(storage, telegram, search, FakeMedia(), jobs, tmp_path)
+    service = TelegramArchiveService(
+        storage, telegram, search, FakeMedia(), jobs, tmp_path
+    )
     await service.start()
 
     payload = {"peer": "123", "limit": 101, "min_message_id": 0, "include_media": False}
@@ -82,7 +99,9 @@ async def test_archive_worker_is_bounded_resumable_and_searchable(tmp_path: Path
     assert len(telegram.calls) == 2
     assert telegram.calls[0] == ("123", 100, None)
     assert telegram.calls[1] == ("123", 1, 1)
-    row = await storage.fetchone("SELECT COUNT(*) FROM search_documents WHERE source='archive_message'")
+    row = await storage.fetchone(
+        "SELECT COUNT(*) FROM search_documents WHERE source='archive_message'"
+    )
     assert row is not None
     assert int(row[0]) == 101
 
@@ -90,7 +109,9 @@ async def test_archive_worker_is_bounded_resumable_and_searchable(tmp_path: Path
     assert len(results) == 1
     assert results[0]["ref"] == "123:4"
 
-    cursor = await storage.fetchone("SELECT payload_json FROM job_events WHERE job_id='archive-job' AND event_type='ARCHIVE_CURSOR' ORDER BY id DESC LIMIT 1")
+    cursor = await storage.fetchone(
+        "SELECT payload_json FROM job_events WHERE job_id='archive-job' AND event_type='ARCHIVE_CURSOR' ORDER BY id DESC LIMIT 1"
+    )
     assert cursor is not None
     assert '"completed":true' in str(cursor[0])
     assert jobs.progress[-1] == 1.0
@@ -109,12 +130,15 @@ async def test_archive_worker_resume_uses_durable_archived_count(tmp_path: Path)
     class ResumeTelegram:
         def __init__(self):
             self.calls = []
+
         async def get_messages(self, peer, *, limit, max_id=None):
             self.calls.append((peer, limit, max_id))
             return [FakeMessage(2, "message 2"), FakeMessage(1, "message 1")]
 
     telegram = ResumeTelegram()
-    service = TelegramArchiveService(storage, telegram, search, FakeMedia(), jobs, tmp_path)
+    service = TelegramArchiveService(
+        storage, telegram, search, FakeMedia(), jobs, tmp_path
+    )
     await service.start()
     payload = {"peer": "123", "limit": 5, "min_message_id": 0, "include_media": False}
     await seed_job(storage, "resume-job", payload)
@@ -140,7 +164,9 @@ async def test_archive_worker_classifies_fetch_failures_as_retryable(tmp_path: P
         async def get_messages(self, *_args, **_kwargs):
             raise RuntimeError("temporary transport failure")
 
-    service = TelegramArchiveService(storage, FailingTelegram(), search, FakeMedia(), jobs, tmp_path)
+    service = TelegramArchiveService(
+        storage, FailingTelegram(), search, FakeMedia(), jobs, tmp_path
+    )
     await service.start()
     payload = {"peer": "123", "limit": 1, "min_message_id": 0, "include_media": False}
     await seed_job(storage, "failure-job", payload)
@@ -166,16 +192,20 @@ async def test_archive_media_is_content_addressed(tmp_path: Path):
 
     class Media:
         max_input_bytes = 1024 * 1024
+
         def validate_telegram_media(self, _media):
             return None
+
         async def create_workspace(self, _name):
             path = tmp_path / "workspace"
             path.mkdir(exist_ok=True)
             return Workspace(path)
+
         async def download_telegram_media(self, _callback, _media, *, workspace):
             target = workspace.path / "photo.jpg"
             target.write_bytes(b"archive-bytes")
             return str(target)
+
         async def cleanup(self, _workspace):
             return None
 
@@ -184,11 +214,15 @@ async def test_archive_media_is_content_addressed(tmp_path: Path):
             raise AssertionError("fake media adapter should own the download")
 
     jobs = FakeJobs()
-    service = TelegramArchiveService(storage, Telegram(), search, Media(), jobs, tmp_path)
+    service = TelegramArchiveService(
+        storage, Telegram(), search, Media(), jobs, tmp_path
+    )
     await service.start()
     message = FakeMessage(1, "with media", media=object())
     request = type("Request", (), {"peer": "123", "include_media": True})()
-    metadata = await service._archive_message(request, message, job_id="media-job", media_bytes_used=0, media_count=0)
+    metadata = await service._archive_message(
+        request, message, job_id="media-job", media_bytes_used=0, media_count=0
+    )
 
     assert metadata["media_status"] == "ARCHIVED"
     assert len(metadata["media_sha256"]) == 64

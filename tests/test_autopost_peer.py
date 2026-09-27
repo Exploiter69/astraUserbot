@@ -2,7 +2,7 @@ import asyncio
 
 from telethon import types
 
-import plugins.media.autopost as autopost
+from plugins.media import autopost
 
 
 def test_autopost_persists_user_peer_access_hash():

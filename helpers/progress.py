@@ -1,5 +1,5 @@
 import time
-import asyncio
+
 
 class ProgressCallback:
     def __init__(self, event, action: str = "Processing", edit_interval: float = 3.5):
@@ -13,11 +13,18 @@ class ProgressCallback:
         if (now - self.last_edit) >= self.edit_interval:
             percent = (current / total) * 100 if total else 0
             from helpers.hud import render
+
             try:
-                await self.event.edit(render(
-                    title="PROGRESS",
-                    rows=[f"Task: {self.action}", f"Progress: {percent:.1f}%", f"Size: {current}/{total}"]
-                ))
+                await self.event.edit(
+                    render(
+                        title="PROGRESS",
+                        rows=[
+                            f"Task: {self.action}",
+                            f"Progress: {percent:.1f}%",
+                            f"Size: {current}/{total}",
+                        ],
+                    )
+                )
                 self.last_edit = now
             except Exception:  # noqa: BLE001, S110 - Telethon edit failures are intentionally non-fatal
                 pass  # Ignore FloodWait or MessageNotModified during progress edit

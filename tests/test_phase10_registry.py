@@ -14,7 +14,11 @@ class Phase10RegistryTests(unittest.TestCase):
 
     def test_registry_contains_security_plugin_capabilities(self):
         rows = build_registry()
-        item = next(row for row in rows if row["module"] == "plugins.intelligence.security_intel")
+        item = next(
+            row
+            for row in rows
+            if row["module"] == "plugins.intelligence.security_intel"
+        )
         self.assertIn("network.request", item["capabilities"])
         self.assertEqual(item["api_version"], 1)
 

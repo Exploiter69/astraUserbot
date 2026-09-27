@@ -45,7 +45,13 @@ def main() -> int:
     registry_tree = parse(registry)
     plugin_meta = module_assignments(plugin_tree)
 
-    required_methods = {"analyze_idn", "assess_url", "reputation_urlhaus", "reputation_hash", "inspect"}
+    required_methods = {
+        "analyze_idn",
+        "assess_url",
+        "reputation_urlhaus",
+        "reputation_hash",
+        "inspect",
+    }
     methods = {
         node.name
         for node in service_tree.body
@@ -55,9 +61,24 @@ def main() -> int:
     }
     missing_methods = sorted(required_methods - methods)
 
-    has_commands = all(name in plugin_meta for name in ("plugin_name", "plugin_version", "plugin_api_version", "capabilities"))
-    has_setup = any(isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "setup" for node in plugin_tree.body)
-    registry_has_ast = any(isinstance(node, ast.Call) and getattr(node.func, "attr", "") == "parse" for node in ast.walk(registry_tree))
+    has_commands = all(
+        name in plugin_meta
+        for name in (
+            "plugin_name",
+            "plugin_version",
+            "plugin_api_version",
+            "capabilities",
+        )
+    )
+    has_setup = any(
+        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == "setup"
+        for node in plugin_tree.body
+    )
+    registry_has_ast = any(
+        isinstance(node, ast.Call) and getattr(node.func, "attr", "") == "parse"
+        for node in ast.walk(registry_tree)
+    )
 
     payload = {
         "security_service": "PASS" if not missing_methods else "FAIL",
@@ -67,9 +88,15 @@ def main() -> int:
         "competitor_matrix": "PASS" if matrix.exists() else "FAIL",
         "missing_methods": missing_methods,
     }
-    ok = all(value == "PASS" for key, value in payload.items() if key != "missing_methods")
+    ok = all(
+        value == "PASS" for key, value in payload.items() if key != "missing_methods"
+    )
     print(json.dumps(payload, indent=2, sort_keys=True))
-    print("PHASE10_SECURITY_ECOSYSTEM_AUDIT_PASS" if ok else "PHASE10_SECURITY_ECOSYSTEM_AUDIT_FAIL")
+    print(
+        "PHASE10_SECURITY_ECOSYSTEM_AUDIT_PASS"
+        if ok
+        else "PHASE10_SECURITY_ECOSYSTEM_AUDIT_FAIL"
+    )
     return 0 if ok else 1
 
 

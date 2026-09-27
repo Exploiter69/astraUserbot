@@ -2,7 +2,13 @@ import unittest
 from types import SimpleNamespace
 
 from helpers.hud import render
-from helpers.ux import confirmation_buttons, job_buttons, progress_bar, render_job, render_jobs
+from helpers.ux import (
+    confirmation_buttons,
+    job_buttons,
+    progress_bar,
+    render_job,
+    render_jobs,
+)
 
 
 class TelegramUxTests(unittest.TestCase):

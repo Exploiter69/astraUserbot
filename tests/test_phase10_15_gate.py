@@ -6,12 +6,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from core.sdk import SDK_API_VERSION, metadata
 from core.services.flags import FeatureFlagService
 from core.services.isolation import IsolationService
 from core.services.metrics import MetricsService
 from core.services.search import SearchService
 from core.services.storage import StorageService
-from core.sdk import SDK_API_VERSION, metadata
 
 
 class Phase10To15Tests(unittest.IsolatedAsyncioTestCase):
@@ -28,7 +28,10 @@ class Phase10To15Tests(unittest.IsolatedAsyncioTestCase):
     async def test_search_rebuild_and_query(self):
         service = SearchService(self.storage, self.root)
         await service.start()
-        await self.storage.execute("INSERT INTO plugins(name,module,state,updated_at) VALUES(?,?,?,?)", ("demo", "plugins.demo", "RUNNING", 1))
+        await self.storage.execute(
+            "INSERT INTO plugins(name,module,state,updated_at) VALUES(?,?,?,?)",
+            ("demo", "plugins.demo", "RUNNING", 1),
+        )
         await service.rebuild()
         results = await service.search("demo")
         self.assertTrue(any(item.source == "plugin" for item in results))
@@ -38,7 +41,12 @@ class Phase10To15Tests(unittest.IsolatedAsyncioTestCase):
         service = SearchService(self.storage, self.root)
         await service.start()
         for index in range(3):
-            await service.upsert(source="document", ref=f"{index}.md", title=f"alpha {index}", content="alpha evidence")
+            await service.upsert(
+                source="document",
+                ref=f"{index}.md",
+                title=f"alpha {index}",
+                content="alpha evidence",
+            )
         first = await service.search_page("alpha", limit=1)
         self.assertEqual(len(first.results), 1)
         self.assertTrue(first.next_cursor)
@@ -55,11 +63,25 @@ class Phase10To15Tests(unittest.IsolatedAsyncioTestCase):
         now = 1.0
         await self.storage.execute(
             "INSERT INTO intel_entities(entity_id,entity_type,canonical_value,display_value,created_at,updated_at) VALUES(?,?,?,?,?,?)",
-            ("ocr-entity", "TEXT", "invoice account 123", "invoice account 123", now, now),
+            (
+                "ocr-entity",
+                "TEXT",
+                "invoice account 123",
+                "invoice account 123",
+                now,
+                now,
+            ),
         )
         await self.storage.execute(
             "INSERT INTO intel_entities(entity_id,entity_type,canonical_value,display_value,created_at,updated_at) VALUES(?,?,?,?,?,?)",
-            ("transcript-entity", "TEXT", "spoken phrase 456", "spoken phrase 456", now, now),
+            (
+                "transcript-entity",
+                "TEXT",
+                "spoken phrase 456",
+                "spoken phrase 456",
+                now,
+                now,
+            ),
         )
         await self.storage.execute(
             "INSERT INTO intel_sources(source_id,source_family,provider,source_type,created_at,updated_at) VALUES(?,?,?,?,?,?)",
@@ -67,11 +89,31 @@ class Phase10To15Tests(unittest.IsolatedAsyncioTestCase):
         )
         await self.storage.execute(
             "INSERT INTO intel_observations(observation_id,entity_id,source_id,source_family,retrieved_at,matched_field,evidence_state,confidence,provenance_json) VALUES(?,?,?,?,?,?,?,?,?)",
-            ("ocr-obs", "ocr-entity", "media-source", "media", now, "ocr_text", "OBSERVED", 0.9, "{}"),
+            (
+                "ocr-obs",
+                "ocr-entity",
+                "media-source",
+                "media",
+                now,
+                "ocr_text",
+                "OBSERVED",
+                0.9,
+                "{}",
+            ),
         )
         await self.storage.execute(
             "INSERT INTO intel_observations(observation_id,entity_id,source_id,source_family,retrieved_at,matched_field,evidence_state,confidence,provenance_json) VALUES(?,?,?,?,?,?,?,?,?)",
-            ("transcript-obs", "transcript-entity", "media-source", "media", now, "transcript", "OBSERVED", 0.9, "{}"),
+            (
+                "transcript-obs",
+                "transcript-entity",
+                "media-source",
+                "media",
+                now,
+                "transcript",
+                "OBSERVED",
+                0.9,
+                "{}",
+            ),
         )
         counts = await service.rebuild()
         self.assertGreaterEqual(counts["ocr"], 1)
@@ -83,11 +125,15 @@ class Phase10To15Tests(unittest.IsolatedAsyncioTestCase):
     async def test_search_is_rebuildable(self):
         service = SearchService(self.storage, self.root)
         await service.start()
-        await service.upsert(source="document", ref="x.md", title="X", content="rebuildable source")
+        await service.upsert(
+            source="document", ref="x.md", title="X", content="rebuildable source"
+        )
         self.assertTrue(await service.search("rebuildable"))
         await service.rebuild()
         self.assertFalse(await service.search("rebuildable"))
-        await service.upsert(source="document", ref="x.md", title="X", content="rebuildable source")
+        await service.upsert(
+            source="document", ref="x.md", title="X", content="rebuildable source"
+        )
         self.assertTrue(await service.search("rebuildable"))
         await service.close()
 
@@ -120,7 +166,9 @@ class Phase10To15Tests(unittest.IsolatedAsyncioTestCase):
         await service.close()
 
     def test_sdk_metadata_contract(self):
-        item = metadata(name="example", version="1.2.3", capabilities=("network.request",))
+        item = metadata(
+            name="example", version="1.2.3", capabilities=("network.request",)
+        )
         self.assertEqual(item.api_version, SDK_API_VERSION)
         with self.assertRaises(ValueError):
             metadata(name="bad", api_version="99.0")

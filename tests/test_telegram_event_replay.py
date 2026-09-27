@@ -29,20 +29,36 @@ class TelegramEventReplayTests(unittest.IsolatedAsyncioTestCase):
         self.tmp.cleanup()
 
     async def test_replay_rebuilds_projection_and_tracks_progress(self):
-        await self.journal.append(TelegramEvent("e1", "MESSAGE_NEW", 10.0, "chat:1", 42, 7, {"text": "old"}))
-        await self.journal.append(TelegramEvent("e2", "MESSAGE_EDIT", 20.0, "chat:1", 42, 7, {"text": "new"}))
+        await self.journal.append(
+            TelegramEvent("e1", "MESSAGE_NEW", 10.0, "chat:1", 42, 7, {"text": "old"})
+        )
+        await self.journal.append(
+            TelegramEvent("e2", "MESSAGE_EDIT", 20.0, "chat:1", 42, 7, {"text": "new"})
+        )
         run_id = await self.replay.begin()
         result = await self.replay.replay(run_id, batch_size=1)
         self.assertEqual(result["state"], "COMPLETED")
         self.assertEqual(result["processed_count"], 2)
-        latest = await self.storage.fetchall("SELECT event_id,payload_json FROM telegram_latest_messages WHERE message_id=42")
+        latest = await self.storage.fetchall(
+            "SELECT event_id,payload_json FROM telegram_latest_messages WHERE message_id=42"
+        )
         self.assertEqual(len(latest), 1)
         self.assertEqual(latest[0]["event_id"], "e2")
         self.assertIn("new", latest[0]["payload_json"])
 
     async def test_cancel_is_safe_and_resume_uses_durable_cursor(self):
         for index in range(3):
-            await self.journal.append(TelegramEvent(f"e{index}", "MESSAGE_NEW", float(index), "chat:1", index, 7, {"text": str(index)}))
+            await self.journal.append(
+                TelegramEvent(
+                    f"e{index}",
+                    "MESSAGE_NEW",
+                    float(index),
+                    "chat:1",
+                    index,
+                    7,
+                    {"text": str(index)},
+                )
+            )
         run_id = await self.replay.begin()
         await self.replay.cancel()
         paused = await self.replay.replay(run_id, batch_size=1)
@@ -53,7 +69,9 @@ class TelegramEventReplayTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(resumed["processed_count"], 3)
 
     async def test_replay_state_survives_service_restart(self):
-        await self.journal.append(TelegramEvent("e1", "MESSAGE_NEW", 10.0, "chat:1", 42, 7, {"text": "hello"}))
+        await self.journal.append(
+            TelegramEvent("e1", "MESSAGE_NEW", 10.0, "chat:1", 42, 7, {"text": "hello"})
+        )
         run_id = await self.replay.begin()
         self.replay._cancelled = True
         paused = await self.replay.replay(run_id, batch_size=1)
@@ -76,7 +94,17 @@ class TelegramEventReplayTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_replay_task_cancellation_marks_run_paused(self):
         for index in range(2):
-            await self.journal.append(TelegramEvent(f"e{index}", "MESSAGE_NEW", float(index), "chat:1", index, 7, {"text": str(index)}))
+            await self.journal.append(
+                TelegramEvent(
+                    f"e{index}",
+                    "MESSAGE_NEW",
+                    float(index),
+                    "chat:1",
+                    index,
+                    7,
+                    {"text": str(index)},
+                )
+            )
         run_id = await self.replay.begin()
         original_apply = self.projections.apply_row
 

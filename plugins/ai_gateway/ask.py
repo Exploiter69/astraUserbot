@@ -32,14 +32,18 @@ async def handle_ask(event):
         raise CommandError("AI service is unavailable.")
     service = context.get("ai")
 
-    await event.edit(render(
-        title="LLM INFERENCE",
-        rows=[f"Routing query to {service.provider_name}..."],
-        footer="ai | ask",
-    ))
+    await event.edit(
+        render(
+            title="LLM INFERENCE",
+            rows=[f"Routing query to {service.provider_name}..."],
+            footer="ai | ask",
+        )
+    )
     response = await service.chat([{"role": "user", "content": prompt}])
-    await event.edit(render(
-        title="AI RESPONSE",
-        rows=response.text.split("\n"),
-        footer=f"ai | ask | {response.provider}",
-    ))
+    await event.edit(
+        render(
+            title="AI RESPONSE",
+            rows=response.text.split("\n"),
+            footer=f"ai | ask | {response.provider}",
+        )
+    )

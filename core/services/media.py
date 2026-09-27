@@ -5,9 +5,9 @@ from __future__ import annotations
 import asyncio
 import mimetypes
 import shutil
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
 
 from core.errors import CommandError, ResourceError
 from core.services.isolation import IsolationService
@@ -94,7 +94,9 @@ class MediaService:
         if size is None and file_obj is not None:
             size = getattr(file_obj, "size", None)
         if isinstance(size, (int, float)) and size > self.max_input_bytes:
-            raise ResourceError("Telegram media exceeds the configured input size limit.")
+            raise ResourceError(
+                "Telegram media exceeds the configured input size limit."
+            )
 
         duration = getattr(media, "duration", None)
         if duration is None and file_obj is not None:
@@ -104,15 +106,22 @@ class MediaService:
 
     def telegram_download_progress(self):
         """Return a Telethon-compatible synchronous progress guard."""
+
         def progress(received: int, total: int) -> None:
             if total and total > self.max_input_bytes:
-                raise ResourceError("Telegram media exceeds the configured input size limit.")
+                raise ResourceError(
+                    "Telegram media exceeds the configured input size limit."
+                )
             if received > self.max_input_bytes:
-                raise ResourceError("Telegram media exceeded the configured input size limit during download.")
+                raise ResourceError(
+                    "Telegram media exceeded the configured input size limit during download."
+                )
 
         return progress
 
-    async def download_telegram_media(self, download_media, media: object, *, workspace: Workspace) -> str | None:
+    async def download_telegram_media(
+        self, download_media, media: object, *, workspace: Workspace
+    ) -> str | None:
         """Download Telegram media with size, workspace, disk, and cancellation guards."""
         self.validate_telegram_media(media)
         self._check_disk_space()
@@ -133,10 +142,14 @@ class MediaService:
 
         watch_task = asyncio.create_task(watch(), name="media.telegram-watchdog")
         try:
-            done, _ = await asyncio.wait({download_task, watch_task}, return_when=asyncio.FIRST_COMPLETED)
+            done, _ = await asyncio.wait(
+                {download_task, watch_task}, return_when=asyncio.FIRST_COMPLETED
+            )
             if watch_task in done:
                 watch_task.result()
-                raise ResourceError("Telegram media download stopped because storage limits were reached.")
+                raise ResourceError(
+                    "Telegram media download stopped because storage limits were reached."
+                )
             return download_task.result()
         except asyncio.CancelledError:
             download_task.cancel()
@@ -165,7 +178,9 @@ class MediaService:
                 except OSError as exc:
                     raise ResourceError("Unable to inspect media workspace.") from exc
                 if total > self.max_workspace_bytes:
-                    raise ResourceError("Media workspace exceeds the configured size limit.")
+                    raise ResourceError(
+                        "Media workspace exceeds the configured size limit."
+                    )
 
     @staticmethod
     def _parse_probe_fields(stdout: str) -> dict[str, str]:
@@ -181,7 +196,9 @@ class MediaService:
         if duration is not None and duration > self.max_duration_seconds:
             raise ResourceError("Media duration exceeds the configured limit.")
 
-    async def verify_media(self, path: str | Path, *, workspace: Workspace) -> SubprocessResult | None:
+    async def verify_media(
+        self, path: str | Path, *, workspace: Workspace
+    ) -> SubprocessResult | None:
         """Verify media readability and duration when ffprobe is available."""
         if not shutil.which("ffprobe"):
             return None
@@ -211,16 +228,24 @@ class MediaService:
         media_type = mimetypes.guess_type(path.name)[0]
         return MediaArtifact(path=path, size_bytes=size, media_type=media_type)
 
-    def discover_new_artifacts(self, workspace: Workspace, before: set[Path]) -> list[MediaArtifact]:
+    def discover_new_artifacts(
+        self, workspace: Workspace, before: set[Path]
+    ) -> list[MediaArtifact]:
         self._validate_workspace_size(workspace)
         artifacts: list[MediaArtifact] = []
         for path in sorted(workspace.path.iterdir(), key=lambda item: item.name):
-            if not path.is_file() or path in before or path.name.endswith((".part", ".ytdl", ".tmp")):
+            if (
+                not path.is_file()
+                or path in before
+                or path.name.endswith((".part", ".ytdl", ".tmp"))
+            ):
                 continue
             artifacts.append(self.artifact(workspace, path.name))
         return artifacts
 
-    async def _run_with_disk_guard(self, argv: Sequence[str], *, workspace: Workspace, timeout: float) -> SubprocessResult:
+    async def _run_with_disk_guard(
+        self, argv: Sequence[str], *, workspace: Workspace, timeout: float
+    ) -> SubprocessResult:
         self._check_disk_space()
         process_task = asyncio.create_task(
             self.subprocess.run(list(argv), timeout=timeout, cwd=workspace.path),
@@ -235,10 +260,14 @@ class MediaService:
 
         disk_task = asyncio.create_task(watch_disk(), name="media.disk-watchdog")
         try:
-            done, _ = await asyncio.wait({process_task, disk_task}, return_when=asyncio.FIRST_COMPLETED)
+            done, _ = await asyncio.wait(
+                {process_task, disk_task}, return_when=asyncio.FIRST_COMPLETED
+            )
             if disk_task in done:
                 disk_task.result()
-                raise ResourceError("Media operation stopped because storage limits were reached.")
+                raise ResourceError(
+                    "Media operation stopped because storage limits were reached."
+                )
             return process_task.result()
         except asyncio.CancelledError:
             process_task.cancel()
@@ -252,7 +281,14 @@ class MediaService:
                 disk_task.cancel()
             await asyncio.gather(disk_task, return_exceptions=True)
 
-    async def _run_isolated_with_disk_guard(self, argv: Sequence[str], *, workspace: Workspace, timeout: float, max_output_bytes: int) -> SubprocessResult:
+    async def _run_isolated_with_disk_guard(
+        self,
+        argv: Sequence[str],
+        *,
+        workspace: Workspace,
+        timeout: float,
+        max_output_bytes: int,
+    ) -> SubprocessResult:
         self._check_disk_space()
         isolated_task = asyncio.create_task(
             self.isolation.run(  # type: ignore[union-attr]
@@ -273,10 +309,14 @@ class MediaService:
 
         disk_task = asyncio.create_task(watch_disk(), name="media.disk-watchdog")
         try:
-            done, _ = await asyncio.wait({isolated_task, disk_task}, return_when=asyncio.FIRST_COMPLETED)
+            done, _ = await asyncio.wait(
+                {isolated_task, disk_task}, return_when=asyncio.FIRST_COMPLETED
+            )
             if disk_task in done:
                 disk_task.result()
-                raise ResourceError("Isolated media operation stopped because storage limits were reached.")
+                raise ResourceError(
+                    "Isolated media operation stopped because storage limits were reached."
+                )
             return isolated_task.result()
         except asyncio.CancelledError:
             isolated_task.cancel()
@@ -290,11 +330,17 @@ class MediaService:
                 disk_task.cancel()
             await asyncio.gather(disk_task, return_exceptions=True)
 
-    async def run(self, argv: Sequence[str], *, workspace: Workspace, timeout: float | None = None) -> SubprocessResult:
+    async def run(
+        self, argv: Sequence[str], *, workspace: Workspace, timeout: float | None = None
+    ) -> SubprocessResult:
         if not argv:
             raise ValueError("Media command cannot be empty")
         async with self._slots:
-            result = await self._run_with_disk_guard(argv, workspace=workspace, timeout=self.default_timeout if timeout is None else timeout)
+            result = await self._run_with_disk_guard(
+                argv,
+                workspace=workspace,
+                timeout=self.default_timeout if timeout is None else timeout,
+            )
         self._validate_workspace_size(workspace)
         return result
 
@@ -321,7 +367,9 @@ class MediaService:
         self._validate_workspace_size(workspace)
         return result
 
-    async def run_download(self, argv: Sequence[str], *, workspace: Workspace, timeout: float = 600.0) -> tuple[SubprocessResult, list[MediaArtifact]]:
+    async def run_download(
+        self, argv: Sequence[str], *, workspace: Workspace, timeout: float = 600.0
+    ) -> tuple[SubprocessResult, list[MediaArtifact]]:
         before = {path for path in workspace.path.iterdir() if path.is_file()}
         result = await self.run(argv, workspace=workspace, timeout=timeout)
         if result.returncode != 0:
@@ -336,12 +384,16 @@ class MediaService:
                 await self.verify_media(artifact.path, workspace=workspace)
         return result, artifacts
 
-    async def run_rclone(self, argv: Sequence[str], *, workspace: Workspace, timeout: float = 900.0) -> SubprocessResult:
+    async def run_rclone(
+        self, argv: Sequence[str], *, workspace: Workspace, timeout: float = 900.0
+    ) -> SubprocessResult:
         if len(argv) < 2 or argv[0] != "rclone":
             raise ValueError("Rclone command must begin with rclone")
         operation = argv[1].lower()
         if operation not in self.ALLOWED_RCLONE_OPERATIONS:
-            raise CommandError(f"Rclone operation '{operation}' is not allowed by media policy.")
+            raise CommandError(
+                f"Rclone operation '{operation}' is not allowed by media policy."
+            )
         return await self.run(argv, workspace=workspace, timeout=timeout)
 
     async def run_ffmpeg(
@@ -383,21 +435,48 @@ class MediaService:
         await self.verify_media(artifact.path, workspace=workspace)
         return result, artifact
 
-    async def run_ffprobe(self, path: str | Path, *, workspace: Workspace, timeout: float = 30.0) -> SubprocessResult:
+    async def run_ffprobe(
+        self, path: str | Path, *, workspace: Workspace, timeout: float = 30.0
+    ) -> SubprocessResult:
         source = self.validate_input(path)
         relative = source.relative_to(workspace.path).as_posix()
         return await self.run_isolated(
-            ["ffprobe", "-v", "error", "-show_entries", "format=duration,size", "-of", "default=noprint_wrappers=1", f"/workspace/{relative}"],
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration,size",
+                "-of",
+                "default=noprint_wrappers=1",
+                f"/workspace/{relative}",
+            ],
             workspace=workspace,
             timeout=timeout,
         )
 
-    async def run_tts(self, *, workspace: Workspace, text: str, voice: str, output_name: str, timeout: float = 60.0) -> MediaArtifact:
+    async def run_tts(
+        self,
+        *,
+        workspace: Workspace,
+        text: str,
+        voice: str,
+        output_name: str,
+        timeout: float = 60.0,
+    ) -> MediaArtifact:
         if not text.strip():
             raise CommandError("TTS text cannot be empty.")
         output = workspace.resolve(output_name)
         result = await self.run(
-            ["edge-tts", "--voice", voice, "--text", text, "--write-media", str(output)],
+            [
+                "edge-tts",
+                "--voice",
+                voice,
+                "--text",
+                text,
+                "--write-media",
+                str(output),
+            ],
             workspace=workspace,
             timeout=timeout,
         )

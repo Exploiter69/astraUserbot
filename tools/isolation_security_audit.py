@@ -17,7 +17,6 @@ from core.errors import TimeoutError
 from core.services.isolation import IsolationService
 from helpers.archive import ArchiveSafetyError, extract_archive
 
-
 _EXCLUDED_DIRS = {
     ".git",
     ".venv",
@@ -55,16 +54,27 @@ async def isolated_probe(service: IsolationService) -> dict[str, bool]:
                 "else:\n"
                 "    print('NET=OPEN')\n"
             )
-            result = await service.run(["python3", "-c", code], workspace=root, timeout=5, max_output_bytes=16 * 1024)
+            result = await service.run(
+                ["python3", "-c", code],
+                workspace=root,
+                timeout=5,
+                max_output_bytes=16 * 1024,
+            )
             stdout = result.stdout
             timeout_ok = False
             try:
-                await service.run(["python3", "-c", "while True: pass"], workspace=root, timeout=0.5, max_output_bytes=1024)
+                await service.run(
+                    ["python3", "-c", "while True: pass"],
+                    workspace=root,
+                    timeout=0.5,
+                    max_output_bytes=1024,
+                )
             except TimeoutError:
                 timeout_ok = True
             return {
                 "actual_isolated_execution": result.returncode == 0,
-                "filesystem_boundary": "HOST=HIDDEN" in stdout and "HOME=HIDDEN" in stdout,
+                "filesystem_boundary": "HOST=HIDDEN" in stdout
+                and "HOME=HIDDEN" in stdout,
                 "network_isolation": "NET=BLOCKED" in stdout,
                 "environment_allowlist": "ENV=MISSING" in stdout,
                 "subprocess_timeout": timeout_ok,
@@ -136,7 +146,10 @@ def archive_probe() -> bool:
         safe = root / "safe.zip"
         with zipfile.ZipFile(safe, "w") as zf:
             zf.writestr("nested/file.txt", "safe")
-        return extract_archive(safe, destination) == 1 and (destination / "nested/file.txt").read_text() == "safe"
+        return (
+            extract_archive(safe, destination) == 1
+            and (destination / "nested/file.txt").read_text() == "safe"
+        )
 
 
 def static_checks() -> dict[str, bool]:
@@ -154,20 +167,46 @@ def static_checks() -> dict[str, bool]:
         if not any(part in _EXCLUDED_DIRS for part in p.relative_to(ROOT).parts)
         and p != Path(__file__).resolve()
     ]
-    combined = "\n".join(p.read_text(encoding="utf-8", errors="replace") for p in python_files)
+    combined = "\n".join(
+        p.read_text(encoding="utf-8", errors="replace") for p in python_files
+    )
 
     return {
-        "bubblewrap_executor": "--unshare-all" in isolation and "--disable-userns" in isolation and "--cap-drop" in isolation and "--clearenv" in isolation and "--bind" in isolation,
+        "bubblewrap_executor": "--unshare-all" in isolation
+        and "--disable-userns" in isolation
+        and "--cap-drop" in isolation
+        and "--clearenv" in isolation
+        and "--bind" in isolation,
         "network_policy": "--unshare-all" in isolation,
-        "environment_policy": "--clearenv" in isolation and '"PATH":' in isolation and '"HOME": "/tmp"' in isolation,
-        "resource_limits": all(token in isolation for token in ("RLIMIT_AS", "RLIMIT_CPU", "RLIMIT_FSIZE", "RLIMIT_NOFILE", "--nproc=")),
-        "argv_only_subprocess": "create_subprocess_exec" in subprocess and "shell=True" not in combined and "os.system(" not in combined,
-        "workspace_path_boundary": "relative_to(self.root)" in workspace and "Cannot remove workspace root" in workspace,
-        "archive_traversal": "Archive member escapes extraction root" in archive and "Archive links and special files are not allowed" in archive,
-        "eval_isolated": 'context.get("isolation")' in eval_source and "isolation.run(" in eval_source and '"-I"' in eval_source,
-        "media_decoder_isolated": "run_isolated(" in media and "self.isolation.run(" in media,
+        "environment_policy": "--clearenv" in isolation
+        and '"PATH":' in isolation
+        and '"HOME": "/tmp"' in isolation,
+        "resource_limits": all(
+            token in isolation
+            for token in (
+                "RLIMIT_AS",
+                "RLIMIT_CPU",
+                "RLIMIT_FSIZE",
+                "RLIMIT_NOFILE",
+                "--nproc=",
+            )
+        ),
+        "argv_only_subprocess": "create_subprocess_exec" in subprocess
+        and "shell=True" not in combined
+        and "os.system(" not in combined,
+        "workspace_path_boundary": "relative_to(self.root)" in workspace
+        and "Cannot remove workspace root" in workspace,
+        "archive_traversal": "Archive member escapes extraction root" in archive
+        and "Archive links and special files are not allowed" in archive,
+        "eval_isolated": 'context.get("isolation")' in eval_source
+        and "isolation.run(" in eval_source
+        and '"-I"' in eval_source,
+        "media_decoder_isolated": "run_isolated(" in media
+        and "self.isolation.run(" in media,
         "ocr_isolated": "run_isolated(" in ocr,
-        "secret_safe_logging": "process_env" in subprocess and "logger.debug" in subprocess and "stdout" not in subprocess.split("logger.debug", 1)[1].split("\n", 1)[0],
+        "secret_safe_logging": "process_env" in subprocess
+        and "logger.debug" in subprocess
+        and "stdout" not in subprocess.split("logger.debug", 1)[1].split("\n", 1)[0],
     }
 
 
@@ -188,7 +227,12 @@ async def main() -> int:
     archive_ok = archive_probe()
     print(f"archive_safety_probe: {'PASS' if archive_ok else 'FAIL'}")
 
-    all_checks = {**checks, **live, "malicious_media_containment": media_ok, "archive_safety_probe": archive_ok}
+    all_checks = {
+        **checks,
+        **live,
+        "malicious_media_containment": media_ok,
+        "archive_safety_probe": archive_ok,
+    }
     if all(all_checks.values()):
         print("ISOLATION_SECURITY_HARDENING_AUDIT_PASS")
         return 0

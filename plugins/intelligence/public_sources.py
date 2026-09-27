@@ -21,7 +21,13 @@ def _service():
 
 
 async def setup(client):
-    register_cmd(client, PATTERN, handle, "intelligence", "Bounded public-source intelligence collection with evidence and provenance.")
+    register_cmd(
+        client,
+        PATTERN,
+        handle,
+        "intelligence",
+        "Bounded public-source intelligence collection with evidence and provenance.",
+    )
 
 
 async def handle(event):
@@ -49,4 +55,10 @@ async def handle(event):
         raise CommandError(str(exc)) from exc
     rows = [str(row)[:500] for row in result.get("rows", [])]
     rows = rows[:32] or ["No public observations were produced."]
-    await event.edit(render("INTELLIGENCE // PUBLIC SOURCES", rows, footer=f"intelligence | {command} | evidence-backed | public-only"))
+    await event.edit(
+        render(
+            "INTELLIGENCE // PUBLIC SOURCES",
+            rows,
+            footer=f"intelligence | {command} | evidence-backed | public-only",
+        )
+    )

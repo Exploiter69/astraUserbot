@@ -1,4 +1,5 @@
 """Run the non-destructive local production acceptance contract."""
+
 from __future__ import annotations
 
 import subprocess
@@ -50,12 +51,36 @@ def main() -> int:
             output = (completed.stdout or "") + (completed.stderr or "")
             lines = [line.strip() for line in output.splitlines() if line.strip()]
             if command[2:4] == ["ruff", "check"]:
-                findings = [line for line in lines if line.startswith(("I", "F", "E", "W", "UP", "SIM", "BLE", "S", "RUF", "TRY", "ASYNC", "G", "C", "RET", "FURB"))]
+                findings = [
+                    line
+                    for line in lines
+                    if line.startswith(
+                        (
+                            "I",
+                            "F",
+                            "E",
+                            "W",
+                            "UP",
+                            "SIM",
+                            "BLE",
+                            "S",
+                            "RUF",
+                            "TRY",
+                            "ASYNC",
+                            "G",
+                            "C",
+                            "RET",
+                            "FURB",
+                        )
+                    )
+                ]
                 print(f"ruff findings: {len(findings)}")
                 for line in findings[:5]:
                     print(f"  {line}")
                 if len(findings) > 5:
-                    print(f"  ... {len(findings) - 5} more (run ruff check . for full details)")
+                    print(
+                        f"  ... {len(findings) - 5} more (run ruff check . for full details)"
+                    )
             else:
                 for line in lines[-8:]:
                     print(f"  {line}")
@@ -64,5 +89,7 @@ def main() -> int:
     print("PRODUCTION_ACCEPTANCE_PASS")
     print("Manual systemd/Telegram acceptance remains required.")
     return 0
+
+
 if __name__ == "__main__":
     raise SystemExit(main())

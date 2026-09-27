@@ -114,7 +114,11 @@ def main() -> int:
     if help_path.is_file():
         help_text = help_path.read_text(encoding="utf-8")
         command_pattern = next(
-            (line for line in help_text.splitlines() if line.startswith("COMMAND_PATTERN = ")),
+            (
+                line
+                for line in help_text.splitlines()
+                if line.startswith("COMMAND_PATTERN = ")
+            ),
             "",
         )
         required_actions = (
@@ -137,7 +141,9 @@ def main() -> int:
     if "raise CommandRegistrationError" not in registry:
         failures.append("registry: deterministic registration rejection missing")
 
-    product = (ROOT / "plugins/system_ops/product_surface.py").read_text(encoding="utf-8")
+    product = (ROOT / "plugins/system_ops/product_surface.py").read_text(
+        encoding="utf-8"
+    )
     for marker in ("PLUGIN_PATTERN", "AI_PATTERN", "CONTROL_PATTERN"):
         if marker not in product:
             failures.append(f"product surface: missing {marker}")

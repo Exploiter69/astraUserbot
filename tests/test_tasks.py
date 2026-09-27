@@ -13,7 +13,9 @@ class TaskSupervisorTests(unittest.TestCase):
 
         async def scenario():
             supervisor = TaskSupervisor()
-            task = supervisor.create_task(work(), name="test.work", owner="plugins.example")
+            task = supervisor.create_task(
+                work(), name="test.work", owner="plugins.example"
+            )
             result = await task
             await asyncio.sleep(0)
             return supervisor, result
@@ -121,15 +123,15 @@ class TaskSupervisorTests(unittest.TestCase):
         async def scenario():
             supervisor = TaskSupervisor(history_limit=2)
             for index in range(3):
-                await supervisor.create_task(
-                    asyncio.sleep(0), name=f"test.{index}"
-                )
+                await supervisor.create_task(asyncio.sleep(0), name=f"test.{index}")
                 await asyncio.sleep(0)
             return supervisor
 
         supervisor = asyncio.run(scenario())
         self.assertEqual(len(supervisor.history()), 2)
-        self.assertEqual([item.name for item in supervisor.history()], ["test.1", "test.2"])
+        self.assertEqual(
+            [item.name for item in supervisor.history()], ["test.1", "test.2"]
+        )
 
     def test_snapshot_contains_no_task_object(self):
         async def scenario():

@@ -20,7 +20,10 @@ class FakeStorage:
 class MediaIntelUnitTests(unittest.IsolatedAsyncioTestCase):
     async def test_hamming_and_similar_are_bounded(self):
         graph = type("Graph", (), {"storage": FakeStorage(), "start": AsyncMock()})()
-        graph.storage.rows = [("a", "0000000000000000", "a"), ("b", "ffffffffffffffff", "b")]
+        graph.storage.rows = [
+            ("a", "0000000000000000", "a"),
+            ("b", "ffffffffffffffff", "b"),
+        ]
         service = MediaIntelService(object(), graph)
         matches = await service.similar("0000000000000000", limit=5000)
         self.assertEqual(len(matches), 1)
@@ -36,7 +39,11 @@ class MediaIntelUnitTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_perceptual_hash_helpers_are_16_hex_digits(self):
         pixels32 = bytes(range(256)) * 4
-        ahash_pixels = bytes(pixels32[row * 32 + col] for row in range(0, 32, 4) for col in range(0, 32, 4))
+        ahash_pixels = bytes(
+            pixels32[row * 32 + col]
+            for row in range(0, 32, 4)
+            for col in range(0, 32, 4)
+        )
         dhash_grid = bytearray()
         for row in range(8):
             for col in range(9):
@@ -55,7 +62,9 @@ class MediaIntelUnitTests(unittest.IsolatedAsyncioTestCase):
         async def get_reply_message():
             return reply
 
-        event = type("Event", (), {"media": None, "get_reply_message": get_reply_message})()
+        event = type(
+            "Event", (), {"media": None, "get_reply_message": get_reply_message}
+        )()
         self.assertIs(await _resolve_media(event), media)
 
     async def test_media_command_prefers_command_media(self):
@@ -67,7 +76,9 @@ class MediaIntelUnitTests(unittest.IsolatedAsyncioTestCase):
 class CaseServiceTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.storage = type("Storage", (), {})()
-        self.storage.execute = AsyncMock(return_value=type("Cursor", (), {"lastrowid": 1})())
+        self.storage.execute = AsyncMock(
+            return_value=type("Cursor", (), {"lastrowid": 1})()
+        )
         self.storage.fetchone = AsyncMock(return_value={"case_id": "case"})
         self.storage.fetchall = AsyncMock(return_value=[])
         graph = type("Graph", (), {"storage": self.storage, "start": AsyncMock()})()
@@ -85,7 +96,14 @@ class CaseServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("INSERT INTO case_events", calls[3].args[0])
 
     async def test_report_is_deterministic_and_bounded(self):
-        self.service.get = AsyncMock(return_value={"case_id": "abc", "title": "Test", "status": "OPEN", "summary": "summary"})
+        self.service.get = AsyncMock(
+            return_value={
+                "case_id": "abc",
+                "title": "Test",
+                "status": "OPEN",
+                "summary": "summary",
+            }
+        )
         self.service.entities = AsyncMock(return_value=[])
         self.service.timeline = AsyncMock(return_value=[])
         self.service.observations = AsyncMock(return_value=[])
