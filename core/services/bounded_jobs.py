@@ -29,8 +29,10 @@ class JobEngine(_JobEngine):
             return
         try:
             task.result()
-        except (asyncio.CancelledError, Exception):
-            pass
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            return
 
     async def close(self) -> None:
         if not self._started:
@@ -46,7 +48,7 @@ class JobEngine(_JobEngine):
             task.add_done_callback(self._consume_task)
 
         if active_tasks:
-            done, pending = await asyncio.wait(
+            _, pending = await asyncio.wait(
                 active_tasks,
                 timeout=self.SHUTDOWN_BUDGET_SECONDS,
             )
