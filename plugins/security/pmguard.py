@@ -31,7 +31,7 @@ async def _refresh_contacts(client, *, force=False):
         _cached_contacts.clear()
         _cached_contacts.update(contact.id for contact in contacts.users)
         _last_contact_refresh = now
-    except Exception:
+    except Exception:  # noqa: BLE001 - contact refresh is best-effort
         return
 
 
@@ -122,7 +122,7 @@ async def pm_watcher(event):
         await event.reply(render("PM GUARD: BLOCKED", ["You have exceeded the warning limit.", "Automated block executed."]))
         try:
             await event.client(BlockRequest(event.sender_id))
-        except Exception:
+        except Exception:  # noqa: BLE001 - Telegram block failure is isolated from PM handling
             return
         return
 
