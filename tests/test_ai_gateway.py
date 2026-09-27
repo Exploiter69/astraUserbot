@@ -201,9 +201,8 @@ class AIGatewayTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.NamedTemporaryFile(suffix=".ogg") as handle:
             handle.write(b"audio")
             handle.flush()
-            with patch.dict(os.environ, {"ASTRA_AI_MAX_AUDIO_BYTES": "2"}):
-                with self.assertRaises(ResourceError):
-                    await service.transcribe(handle.name)
+            with patch.dict(os.environ, {"ASTRA_AI_MAX_AUDIO_BYTES": "2"}), self.assertRaises(ResourceError):
+                await service.transcribe(handle.name)
 
     async def test_cancellation_propagates(self):
         class SlowProvider(FakeProvider):
