@@ -55,7 +55,7 @@ async def handle_admin(event):
                     ChatBannedRights(until_date=None, view_messages=True),
                 ))
                 purged += 1
-            except Exception:
+            except Exception:  # noqa: BLE001 - bounded admin probe records per-target failures
                 failed += 1
         await event.edit(render("ZOMBIE SCAN", [
             f"Found: {len(zombies)}",
