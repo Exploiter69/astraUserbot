@@ -1,0 +1,36 @@
+name: AstraUserbot Verification
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  production-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ASTRA_API_ID: "1"
+      ASTRA_API_HASH: "ci-test"
+      ASTRA_OWNER_ID: "1"
+      ASTRA_SESSION_NAME: "ci"
+      ASTRA_PREFIX: "."
+      ASTRA_SAFE_MODE: "1"
+      ASTRA_AI_PROVIDER: "ollama"
+      ASTRA_AI_FALLBACKS: ""
+      ASTRA_AI_REMOTE_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap ffmpeg
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -r requirements-dev.txt
+      - name: Production acceptance gate
+        run: python tools/production_acceptance_gate.py
