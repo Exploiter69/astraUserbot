@@ -83,7 +83,7 @@ async def handle_eval(event):
                     file_bytes=_EVAL_FILE_SIZE,
                     processes=_EVAL_PROCESSES,
                 )
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - isolated execution failures are user-facing
                 message = str(exc).strip() or "isolated execution failed"
                 await event.edit(render("EVAL", ["Execution failed:", "---", *_trim(message)], footer="system | eval"))
                 return
