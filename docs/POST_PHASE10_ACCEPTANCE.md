@@ -1,10 +1,10 @@
 # Post-Phase-10 Maturity Acceptance
 
-This document is the acceptance ledger for Gates A–H in `ROADMAP_POST_PHASE10.md`.
+This document is the acceptance ledger for the post-Phase-10 Gates A–H implementation program.
 
 ## Current implementation checkpoint
 
-The A–H implementation program is now **code-complete at the repository contract level**.
+The A–H implementation program is **implemented and verified at the repository contract level**.
 
 The remaining acceptance work is deliberately limited to validation that requires the owner's local runtime, Telegram session, configured provider, systemd environment, or external services. It is not represented as complete until those validations are actually run.
 
