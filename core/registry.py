@@ -184,7 +184,7 @@ def register_cmd(
             if context is not None:
                 metrics = context.get("metrics")
                 metrics.increment("commands.total")
-        except Exception:
+        except Exception:  # noqa: BLE001 - metrics are optional and must never block command dispatch
             metrics = None
         try:
             if metrics is not None:
@@ -215,12 +215,11 @@ def register_cmd(
                     error.message,
                 )
             else:
-                logger.error(
+                logger.exception(
                     "Unhandled command failure correlation=%s command=%s code=%s",
                     correlation_id,
                     pattern,
                     error.code,
-                    exc_info=True,
                 )
             if isinstance(exc, CommandError):
                 rows = [user_message(error)]
