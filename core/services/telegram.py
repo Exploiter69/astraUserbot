@@ -201,7 +201,7 @@ class TelegramFacade:
                 value = getattr(permissions, attribute, None)
                 if value is not None:
                     capabilities[capability] = bool(value)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - Telethon permission objects vary by peer type
             capabilities["permissions_observation"] = "UNAVAILABLE"
             capabilities["permissions_error"] = type(exc).__name__
 
