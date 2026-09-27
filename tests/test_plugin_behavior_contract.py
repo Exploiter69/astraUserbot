@@ -44,9 +44,13 @@ class PluginBehaviorContractTests(unittest.TestCase):
         for path in active_files():
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             for node in ast.walk(tree):
-                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "NewMessage":
-                    if any(kw.arg == "incoming" and isinstance(kw.value, ast.Constant) and kw.value.value is True for kw in node.keywords):
-                        self.assertIn(path.relative_to(ROOT), ALLOWED_DIRECT_EVENTS)
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "NewMessage"
+                    and any(kw.arg == "incoming" and isinstance(kw.value, ast.Constant) and kw.value.value is True for kw in node.keywords)
+                ):
+                    self.assertIn(path.relative_to(ROOT), ALLOWED_DIRECT_EVENTS)
 
     def test_media_downloads_cross_shared_media_service(self):
         targets = [ROOT / "plugins/security/ephemeral.py", ROOT / "plugins/media/ocr.py", ROOT / "plugins/ai_gateway/transcribe.py"]
