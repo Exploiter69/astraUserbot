@@ -24,10 +24,16 @@ def plugin_database_inventory() -> list[dict[str, object]]:
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
-            if isinstance(node.func, ast.Attribute) and node.func.attr == "get":
-                if isinstance(node.func.value, ast.Name) and node.func.value.id == "Database":
-                    if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
-                        names.add(node.args[0].value)
+            if (
+                isinstance(node.func, ast.Attribute)
+                and node.func.attr == "get"
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "Database"
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+            ):
+                names.add(node.args[0].value)
             if isinstance(node.func, ast.Attribute) and node.func.attr == "init_schema":
                 schemas += 1
         for name in sorted(names):
