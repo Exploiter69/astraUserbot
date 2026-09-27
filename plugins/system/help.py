@@ -32,15 +32,8 @@ def _display(registration) -> str:
     return " / ".join(names)
 
 
-def _rows_for_all() -> list[str]:
-    """Render every concrete command name, not merely every registration.
-
-    A single registry registration may intentionally expose several concrete
-    names through a regex alternation and/or aliases. The operator deck must
-    preserve that public command surface rather than collapsing those names
-    into registration count.
-    """
-    registrations = list_registrations()
+def _command_deck_rows(registrations) -> tuple[int, dict[str, list[str]]]:
+    """Expand registrations into the concrete command names shown to operators."""
     grouped: dict[str, list[str]] = {}
     exposed = 0
     for registration in registrations:
@@ -48,7 +41,15 @@ def _rows_for_all() -> list[str]:
         names = [f"{config.PREFIX}{name}" for name in meta["names"]]
         exposed += len(names)
         grouped.setdefault(meta["category"], []).extend(names)
+    for category in grouped:
+        grouped[category] = sorted(dict.fromkeys(grouped[category]), key=str.lower)
+    return exposed, grouped
 
+
+def _rows_for_all() -> list[str]:
+    """Render every concrete command name, not merely every registration."""
+    registrations = list_registrations()
+    exposed, grouped = _command_deck_rows(registrations)
     rows = [
         "Astra Command Manual · live registry",
         f"Commands exposed: {exposed}  ·  registrations: {len(registrations)}",
@@ -57,10 +58,7 @@ def _rows_for_all() -> list[str]:
     ]
     for category in sorted(grouped):
         rows.append(f"◈ {category.upper()}")
-        rows.extend(
-            f"  {item}"
-            for item in sorted(dict.fromkeys(grouped[category]), key=str.lower)
-        )
+        rows.extend(f"  {item}" for item in grouped[category])
     return rows
 
 def _resolve(query: str):
