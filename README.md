@@ -93,7 +93,7 @@ Quarantine is intentional. Do not remove it merely because an AI command is unav
 | `FAILURE_MODE_MATRIX.md` | Failure detection and response |
 | `RELEASE_NOTES_v1.0.0.md` | v1.0.0 release summary |
 | `RELEASE_NOTES_v1.0.1.md` | v1.0.1 release summary |
-| `docs/acceptance/POST_PHASE10_ACCEPTANCE.md` | Product maturity maturity acceptance ledger |
+| `docs/acceptance/PRODUCT_MATURITY_ACCEPTANCE.md` | Product maturity acceptance ledger |
 
 Audit and verification implementations live under `tools/`; tests live under `tests/`. Historical implementation artifacts and one-time release documents are intentionally not kept in the repository root.
 
@@ -105,7 +105,7 @@ The canonical non-destructive verification gate is:
 python tools/release_acceptance.py
 ```
 
-Useful individual gates:
+Useful individual checks:
 
 ```bash
 python -m pytest -q

@@ -1,6 +1,6 @@
-# Product maturity Maturity Acceptance
+# Product Maturity Acceptance
 
-This document is the acceptance ledger for the product maturity Gates A–H implementation program.
+This document is the acceptance ledger for the A–H maturity program implementation program.
 
 ## Current implementation checkpoint
 
