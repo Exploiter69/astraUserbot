@@ -51,7 +51,7 @@ async def _check_profile(http, name: str, platform: str, url_template: str) -> t
         if platform == "GitHub" and final_url.lower() in {"https://github.com", "https://github.com/login"}:
             return platform, False
         return platform, final_url.lower() == requested_url.lower()
-    except Exception:
+    except Exception:  # noqa: BLE001 - public endpoint failures are a negative probe result
         return platform, False
 
 async def handle_osint(event):
