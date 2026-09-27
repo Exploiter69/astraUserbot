@@ -148,6 +148,21 @@ class PostPhase10ContractTests(unittest.TestCase):
         help_text = (root / "plugins/system/help.py").read_text(encoding="utf-8")
         self.assertIn(".help <command-or-category>", help_text)
 
+    def test_help_deck_preserves_concrete_names_from_grouped_registrations(self):
+        from plugins.system.help import _command_deck_rows
+
+        grouped_registration = CommandRegistration(
+            registration_id="grouped-id",
+            pattern=r"^\\.(alpha|beta)(?:\\s+(.*))?$",
+            handler=lambda event: None,
+            category="system",
+            description="grouped commands",
+            aliases=("gamma",),
+        )
+        exposed, grouped = _command_deck_rows([grouped_registration])
+        self.assertEqual(exposed, 3)
+        self.assertEqual(grouped["system"], [".alpha", ".beta", ".gamma"])
+
 
 if __name__ == "__main__":
     unittest.main()
