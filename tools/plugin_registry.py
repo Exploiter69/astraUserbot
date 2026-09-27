@@ -24,7 +24,7 @@ def _literal(tree: ast.Module, name: str, default):
                 if isinstance(target, ast.Name) and target.id == name:
                     try:
                         return ast.literal_eval(node.value)
-                    except Exception:
+                    except (ValueError, SyntaxError):
                         return default
     return default
 
