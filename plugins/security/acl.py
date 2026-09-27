@@ -46,5 +46,5 @@ async def acl_watcher(event):
     if row:
         try:
             await event.delete()
-        except Exception:
+        except Exception:  # noqa: BLE001 - message deletion is best-effort ACL enforcement
             return
