@@ -110,8 +110,8 @@ class PluginBehaviorContractTests(unittest.TestCase):
             "Saved profile photo is outside the managed identity cache.", text
         )
 
-    def test_plugin_behavior_audit_exists_and_is_ast_only(self):
-        text = (ROOT / "tools/plugin_behavior_audit.py").read_text(encoding="utf-8")
+    def test_plugin_behavior_check_exists_and_is_ast_only(self):
+        text = (ROOT / "tools/plugin_behavior_check.py").read_text(encoding="utf-8")
         self.assertIn("ast.parse", text)
         self.assertNotIn("importlib.import_module", text)
         self.assertNotIn("exec(", text)
