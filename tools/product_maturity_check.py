@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 REQUIRED_FILES = (
     "docs/roadmap/ROADMAP.md",
-    "docs/POST_PHASE10_ACCEPTANCE.md",
+    "docs/acceptance/PRODUCT_MATURITY_ACCEPTANCE.md",
     "docs/UNIFIED_SEARCH.md",
     "docs/ENTITY_INSPECTOR.md",
     "docs/FIRST_RUN.md",
@@ -78,7 +78,7 @@ REQUIRED_TEXT = {
         "bounded_callback_token",
         "parse_callback_token",
     ),
-    "docs/POST_PHASE10_ACCEPTANCE.md": (
+    "docs/acceptance/PRODUCT_MATURITY_ACCEPTANCE.md": (
         "Gate A",
         "Gate B",
         "Gate C",
