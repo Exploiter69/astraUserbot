@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import os
 import signal
-import subprocess
 import re
 import time
 from pathlib import Path
@@ -431,15 +430,14 @@ async def handle_control(event):
     if action == "update":
         mode = arg.lower() or "check"
         root = Path(ctx.project_root)
-        def run_git(args):
-            return subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, timeout=20, check=False)
-        status = await asyncio.to_thread(run_git, ["status", "--porcelain"])
+        subprocess_service = ctx.get("subprocess")
+        status = await subprocess_service.run(["git", "status", "--porcelain"], cwd=root, timeout=20)
         if status.returncode != 0:
             raise CommandError("Unable to inspect git state.")
         if status.stdout.strip():
             raise CommandError("Update blocked: working tree is dirty.")
-        head = await asyncio.to_thread(run_git, ["rev-parse", "HEAD"])
-        remote = await asyncio.to_thread(run_git, ["rev-parse", "@{u}"])
+        head = await subprocess_service.run(["git", "rev-parse", "HEAD"], cwd=root, timeout=20)
+        remote = await subprocess_service.run(["git", "rev-parse", "@{u}"], cwd=root, timeout=20)
         if head.returncode != 0 or remote.returncode != 0:
             raise CommandError("Unable to resolve repository/upstream state.")
         rows = [f"HEAD: {head.stdout.strip()[:12]}", f"Upstream: {remote.stdout.strip()[:12]}", f"Working tree: CLEAN"]
