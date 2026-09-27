@@ -73,6 +73,7 @@ def main() -> int:
                             "FURB",
                         )
                     )
+                    or ".py:" in line
                 ]
                 print(f"ruff findings: {len(findings)}")
                 for line in findings[:5]:
