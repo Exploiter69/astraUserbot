@@ -1,6 +1,5 @@
 import asyncio
 import re
-import sqlite3
 import uuid
 from pathlib import Path
 
@@ -37,10 +36,9 @@ async def setup(client):
             photo_path TEXT
         );
     """)
-    try:
+    columns = await db.fetchall("PRAGMA table_info(my_profile)")
+    if not any(str(row[1]) == "photo_path" for row in columns):
         await db.execute("ALTER TABLE my_profile ADD COLUMN photo_path TEXT")
-    except sqlite3.OperationalError:
-        pass
 
     register_cmd(
         client,
