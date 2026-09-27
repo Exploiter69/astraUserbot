@@ -44,8 +44,9 @@ def main() -> int:
         and "DELETE FROM jobs" in jobs,
         "event_log": "job_events" in storage and "_event_locked" in jobs,
         "attempt_history": "job_attempts" in storage and "job_attempts" in jobs,
-        "migration_v3": '(3, """' in storage
-        and "CREATE INDEX IF NOT EXISTS idx_leases_expiry" in storage,
+        "migration_v3": "ALTER TABLE leases ADD COLUMN attempt" in storage
+        and "CREATE INDEX IF NOT EXISTS idx_leases_expiry" in storage
+        and "CREATE INDEX IF NOT EXISTS idx_job_attempts_job_attempt" in storage,
     }
 
     print("=== DURABLE JOB HARDENING AUDIT ===")
