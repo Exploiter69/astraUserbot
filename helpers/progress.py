@@ -19,5 +19,5 @@ class ProgressCallback:
                     rows=[f"Task: {self.action}", f"Progress: {percent:.1f}%", f"Size: {current}/{total}"]
                 ))
                 self.last_edit = now
-            except Exception:
-                pass # Ignore FloodWait or MessageNotModified during progress edit
+            except Exception:  # noqa: BLE001 - Telethon edit failures are intentionally non-fatal
+                pass  # Ignore FloodWait or MessageNotModified during progress edit
