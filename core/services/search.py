@@ -149,7 +149,7 @@ class SearchService:
                 ])
                 await self.upsert(source="command", ref=ref, title=item["names"][0] if item["names"] else ref, content=content)
                 counts["command"] += 1
-        except Exception:
+        except Exception:  # noqa: BLE001 - registry fallback keeps search rebuildable
             rows = await self.storage.fetchall("SELECT pattern,plugin_name,metadata_json FROM commands ORDER BY pattern")
             for row in rows:
                 await self.upsert(source="command", ref=row[0], title=row[0], content=f"{row[1] or ''} {row[2] or ''}")
@@ -196,7 +196,7 @@ class SearchService:
         for source, sql in optional_queries:
             try:
                 rows = await self.storage.fetchall(sql)
-            except Exception:
+            except Exception:  # noqa: BLE001 - optional sources must not block the search rebuild
                 rows = []
             for row in rows:
                 ref = str(row[0])
