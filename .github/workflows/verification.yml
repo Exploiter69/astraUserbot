@@ -18,9 +18,10 @@ jobs:
       ASTRA_SAFE_MODE: "1"
       ASTRA_AI_PROVIDER: "ollama"
       ASTRA_AI_FALLBACKS: ""
-      ASTRA_AI_REMOTE_ENABLED: "false"
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.14"
