@@ -79,7 +79,7 @@ async def _network_probe(client) -> tuple[bool, str]:
             return False, f"Telegram connected but identity lookup returned empty ({elapsed:.0f} ms)"
         label = getattr(me, "username", None) or getattr(me, "first_name", None) or "authorized user"
         return True, f"Telegram MTProto OK · {label} · {elapsed:.0f} ms"
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - diagnostic probe reports failures as data
         return False, f"Telegram probe failed: {type(exc).__name__}: {_safe_text(str(exc), 240)}"
 
 
@@ -104,7 +104,7 @@ async def _static_probe() -> list[dict]:
         item = {"plugin": str(path.relative_to(project_root)), "ok": True}
         try:
             compile(path.read_text(encoding="utf-8"), str(path), "exec")
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - static probe records parse failures per plugin
             item.update(ok=False, error=f"{type(exc).__name__}: {_safe_text(str(exc))}")
         results.append(item)
     return results
