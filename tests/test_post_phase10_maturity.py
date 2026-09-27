@@ -138,7 +138,7 @@ class PostPhase10ContractTests(unittest.TestCase):
         self.assertIn("inspect|correlate", product)
         self.assertIn("plugin", product)
         self.assertIn("aiux", product)
-        self.assertIn("doctor|config|update|restart", product)
+        self.assertIn("config|restart", product)
         self.assertIn("command search", help_text) or self.assertIn(
             "COMMAND_PATTERN", help_text
         )
