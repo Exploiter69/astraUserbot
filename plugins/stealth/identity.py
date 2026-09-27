@@ -1,4 +1,6 @@
+import asyncio
 import re
+import sqlite3
 import uuid
 from pathlib import Path
 
@@ -33,7 +35,7 @@ async def setup(client):
     """)
     try:
         await db.execute("ALTER TABLE my_profile ADD COLUMN photo_path TEXT")
-    except Exception:
+    except sqlite3.OperationalError:
         pass
 
     register_cmd(client, PATTERN, handle_identity, "stealth", "Identity mirroring tools (.clone / .revert / .idbackup).")
@@ -98,8 +100,7 @@ async def _restore_photo(client, photo_path: str | None):
         if not path.is_file() or path.stat().st_size <= 0:
             raise CommandError("Saved profile photo is missing or invalid.")
         # Upload first so a failed upload cannot destroy the current profile photo.
-        with open(path, "rb") as handle:
-            uploaded = await client.upload_file(handle)
+        uploaded = await client.upload_file(await asyncio.to_thread(path.read_bytes))
         await client(UploadProfilePhotoRequest(file=uploaded))
         return
 
@@ -122,7 +123,7 @@ async def handle_identity(event):
         if not target:
             try:
                 target = await resolve_target(event)
-            except Exception:
+            except Exception:  # noqa: BLE001 - target resolution is best-effort before the explicit error
                 target = None
         if not target:
             raise CommandError("Reply to a user or provide a username/ID to clone.")
@@ -148,11 +149,10 @@ async def handle_identity(event):
             _PROFILE_DIR.mkdir(parents=True, exist_ok=True)
             downloaded = await client.download_profile_photo(target, file=str(target_photo))
             if downloaded and target_photo.is_file() and target_photo.stat().st_size > 0:
-                with open(target_photo, "rb") as handle:
-                    uploaded = await client.upload_file(handle)
+                uploaded = await client.upload_file(await asyncio.to_thread(target_photo.read_bytes))
                 await client(UploadProfilePhotoRequest(file=uploaded))
                 dp_status = "Full identity (Name, Bio, & DP) cloned."
-        except Exception:
+        except Exception:  # noqa: BLE001 - optional photo cloning must not undo text cloning
             dp_status = "Name & Bio cloned. Target profile photo could not be cloned."
         finally:
             target_photo.unlink(missing_ok=True)
