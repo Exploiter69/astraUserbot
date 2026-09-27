@@ -41,8 +41,10 @@ def _command_deck_rows(registrations) -> tuple[int, dict[str, list[str]]]:
         names = [f"{config.PREFIX}{name}" for name in meta["names"]]
         exposed += len(names)
         grouped.setdefault(meta["category"], []).extend(names)
-    for category in grouped:
-        grouped[category] = sorted(dict.fromkeys(grouped[category]), key=str.lower)
+    grouped = {
+        category: sorted(dict.fromkeys(names), key=str.lower)
+        for category, names in grouped.items()
+    }
     return exposed, grouped
 
 
