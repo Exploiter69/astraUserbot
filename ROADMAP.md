@@ -1,7 +1,7 @@
 # AstraUserbot Roadmap
 
 **Roadmap status:** Active planning baseline  
-**Current release:** `1.0.0`  
+**Current release:** `1.0.1`  
 **Target direction:** AstraUserbot 2.x  
 **Primary constraint:** ₹0 / $0  
 **Architecture constraint:** preserve the existing single-process Python/asyncio modular-monolith design
@@ -3200,9 +3200,7 @@ H → Astra Control Plane / Operator UX
 ↓ remaining intelligence/media work
 ↓ release/operations hardening
 
-The detailed dependency-first execution contract is maintained in `ROADMAP_POST_PHASE10.md`.
-
-The implementation baseline for Gates A–H is recorded in `docs/POST_PHASE10_ACCEPTANCE.md`.
+The implementation baseline and acceptance record for the post-Phase-10 maturity program are recorded in `docs/POST_PHASE10_ACCEPTANCE.md`.
 
 ### Current implementation additions
 
