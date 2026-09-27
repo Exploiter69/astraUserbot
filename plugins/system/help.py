@@ -33,22 +33,35 @@ def _display(registration) -> str:
 
 
 def _rows_for_all() -> list[str]:
+    """Render every concrete command name, not merely every registration.
+
+    A single registry registration may intentionally expose several concrete
+    names through a regex alternation and/or aliases. The operator deck must
+    preserve that public command surface rather than collapsing those names
+    into registration count.
+    """
     registrations = list_registrations()
+    grouped: dict[str, list[str]] = {}
+    exposed = 0
+    for registration in registrations:
+        meta = command_metadata(registration)
+        names = [f"{config.PREFIX}{name}" for name in meta["names"]]
+        exposed += len(names)
+        grouped.setdefault(meta["category"], []).extend(names)
+
     rows = [
         "Astra Command Manual · live registry",
-        f"Registrations: {len(registrations)}",
+        f"Commands exposed: {exposed}  ·  registrations: {len(registrations)}",
         f"Use {HELP_DISCOVERY_MARKER}, .help <category> or {config.PREFIX}command describe <command>.",
         "---",
     ]
-    grouped: dict[str, list[str]] = {}
-    for registration in registrations:
-        meta = command_metadata(registration)
-        grouped.setdefault(meta["category"], []).append(_display(registration))
     for category in sorted(grouped):
         rows.append(f"◈ {category.upper()}")
-        rows.extend(f"  {item}" for item in sorted(grouped[category], key=str.lower))
+        rows.extend(
+            f"  {item}"
+            for item in sorted(dict.fromkeys(grouped[category]), key=str.lower)
+        )
     return rows
-
 
 def _resolve(query: str):
     matches = find_registrations(query)
