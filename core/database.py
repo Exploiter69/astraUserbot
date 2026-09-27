@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import sqlite3
 import tempfile
@@ -10,6 +11,8 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 import aiosqlite
+
+logger = logging.getLogger("astra.database")
 
 DB_DIR = Path(__file__).resolve().parent.parent / "data" / "databases"
 
