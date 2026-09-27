@@ -451,11 +451,10 @@ class AutomationEngine:
 
     @staticmethod
     def _scope_matches(scope: dict[str, Any], event: dict[str, Any]) -> bool:
-        if scope.get("chat_id") is not None and str(event.get("source_peer")) != str(scope["chat_id"]):
-            return False
-        if scope.get("entity_id") is not None and str(event.get("entity_id")) != str(scope["entity_id"]):
-            return False
-        return True
+        return not (
+            (scope.get("chat_id") is not None and str(event.get("source_peer")) != str(scope["chat_id"]))
+            or (scope.get("entity_id") is not None and str(event.get("entity_id")) != str(scope["entity_id"]))
+        )
 
     @staticmethod
     def _match_matches(match: dict[str, Any], event: dict[str, Any]) -> bool:
@@ -470,8 +469,7 @@ class AutomationEngine:
         if "has_media" in match and bool(payload.get("has_media")) != bool(match["has_media"]): return False
         if "sender_id" in match and str(event.get("entity_id")) != str(match["sender_id"]): return False
         if "job_type" in match and str(payload.get("job_type")) != str(match["job_type"]): return False
-        if "job_state" in match and str(payload.get("state")) != str(match["job_state"]): return False
-        return True
+        return not ("job_state" in match and str(payload.get("state")) != str(match["job_state"]))
 
     @staticmethod
     def _cooldown_key(rule: AutomationRule, event: dict[str, Any]) -> str:
