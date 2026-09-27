@@ -208,7 +208,7 @@ class PluginManager:
             except Exception as exc:
                 record.state = PluginState.FAILED_IMPORT
                 record.error = str(exc)
-                logger.exception("Failed to import plugin %s: %s", name, exc)
+                logger.exception("Failed to import plugin %s", name)
                 if record.critical:
                     raise
         try:
@@ -231,7 +231,7 @@ class PluginManager:
             except Exception as exc:
                 record.state = PluginState.FAILED_SETUP
                 record.error = str(exc)
-                logger.exception("Failed to setup plugin %s: %s", name, exc)
+                logger.exception("Failed to setup plugin %s", name)
                 if record.critical:
                     raise
         self._log_report()
