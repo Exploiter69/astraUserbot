@@ -24,7 +24,7 @@ async def _check_port(host: str, port: int, timeout: float = 1.5) -> tuple[int, 
         writer.close()
         await writer.wait_closed()
         return port, True
-    except Exception:
+    except Exception:  # noqa: BLE001 - connection failures are expected negative scan results
         return port, False
 
 async def handle_portscan(event):
