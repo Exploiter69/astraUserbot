@@ -121,7 +121,7 @@ async def setup(client):
         CONTROL_PATTERN,
         handle_control,
         "system_ops",
-        "Operator doctor, safe config inspection, update preflight and controlled restart.",
+        "Safe config inspection and controlled restart.",
         permission="owner",
         operation_class="MUTATION",
         required_capabilities=["operator.manage"],
