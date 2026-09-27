@@ -329,7 +329,7 @@ class AutomationEngine:
             return False, None
         try:
             messages = await self.telegram.get_messages(peer, limit=20)
-        except Exception:
+        except Exception:  # noqa: BLE001 - reconciliation is best-effort and must not fail automation
             return False, None
         reply_to = event.get("message_id") if kind == "REPLY" else None
         for message in messages:
@@ -461,9 +461,12 @@ class AutomationEngine:
     def _match_matches(match: dict[str, Any], event: dict[str, Any]) -> bool:
         payload = event.get("payload") or {}
         text = str(payload.get("text") or event.get("text") or "")[:MAX_MATCH_TEXT]
-        if "contains" in match and str(match["contains"]).lower() not in text.lower(): return False
-        if "equals" in match and text != str(match["equals"]): return False
-        if "prefix" in match and not text.lower().startswith(str(match["prefix"]).lower()): return False
+        if "contains" in match and str(match["contains"]).lower() not in text.lower():
+            return False
+        if "equals" in match and text != str(match["equals"]):
+            return False
+        if "prefix" in match and not text.lower().startswith(str(match["prefix"]).lower()):
+            return False
         if "has_media" in match and bool(payload.get("has_media")) != bool(match["has_media"]): return False
         if "sender_id" in match and str(event.get("entity_id")) != str(match["sender_id"]): return False
         if "job_type" in match and str(payload.get("job_type")) != str(match["job_type"]): return False
