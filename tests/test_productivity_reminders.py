@@ -58,7 +58,8 @@ class ProductivityReminderTests(unittest.TestCase):
 
     def test_setup_source_uses_task_supervisor_when_context_exists(self):
         module = importlib.import_module("plugins.productivity")
-        source = open(module.__file__, encoding="utf-8").read()
+        with open(module.__file__, encoding="utf-8") as handle:
+            source = handle.read()
         self.assertIn('context.tasks.create_task(_reminder_worker(context.get("telegram"))', source)
         self.assertIn('name="productivity.reminder_worker"', source)
 
