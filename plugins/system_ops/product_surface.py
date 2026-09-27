@@ -128,8 +128,7 @@ async def setup(client):
         resource_class="operator",
         timeout_seconds=30,
         examples=[
-            f"{config.PREFIX}doctor",
-            f"{config.PREFIX}update check",
+            f"{config.PREFIX}config",
             f"{config.PREFIX}restart confirm",
         ],
     )
