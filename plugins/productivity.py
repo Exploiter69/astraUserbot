@@ -85,7 +85,7 @@ async def handle_remind(event):
 
 async def handle_reminders(event):
     rows = await DB.fetchall("SELECT id, due_at, text FROM reminders WHERE delivered=0 ORDER BY due_at LIMIT ?", (_MAX_ROWS,))
-    lines = [f"`{r[0]}` · {datetime.fromtimestamp(r[1]).strftime('%Y-%m-%d %H:%M')} · {r[2][:160]}" for r in rows]
+    lines = [f"`{r[0]}` · {datetime.fromtimestamp(r[1], timezone.utc).astimezone().strftime('%Y-%m-%d %H:%M')} · {r[2][:160]}" for r in rows]
     await event.edit(render("REMINDERS", lines or ["No pending reminders."], footer="productivity | reminders"))
 
 
