@@ -42,7 +42,7 @@ class TelegramEventProjections:
                 await self.apply_row(row)
                 await self.journal.mark_processed(event_id)
                 processed += 1
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - failed events are journaled and processing continues
                 await self.journal.mark_failed(event_id, str(exc))
         await self._prune_timeline()
         return processed
