@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class Phase16Gate(unittest.TestCase):
     def test_plugin_audit(self):
-        from tools.phase16_audit import FORBIDDEN_IMPORTS, QUARANTINED
+        from tools.plugin_architecture_check import FORBIDDEN_IMPORTS, QUARANTINED
 
         violations = []
         for path in sorted((ROOT / "plugins").rglob("*.py")):

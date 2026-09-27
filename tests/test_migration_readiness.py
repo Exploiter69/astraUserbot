@@ -1,4 +1,4 @@
-"""Phase 17 migration-readiness contract tests."""
+"""migration migration-readiness contract tests."""
 
 from __future__ import annotations
 
@@ -10,10 +10,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def load_audit():
-    path = ROOT / "tools" / "phase17_migration_audit.py"
+    path = ROOT / "tools" / "migration_readiness_check.py"
     spec = importlib.util.spec_from_file_location("phase17_audit", path)
     if spec is None or spec.loader is None:
-        raise RuntimeError("Unable to load Phase 17 audit")
+        raise RuntimeError("Unable to load migration audit")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
