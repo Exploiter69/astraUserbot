@@ -21,7 +21,7 @@ def module_assignments(tree: ast.Module) -> dict[str, object]:
                 if isinstance(target, ast.Name):
                     try:
                         result[target.id] = ast.literal_eval(node.value)
-                    except Exception:
+                    except (ValueError, SyntaxError):
                         pass
     return result
 
