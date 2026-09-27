@@ -46,7 +46,7 @@ async def _snapshot_profile(client):
     try:
         full = await client(GetFullUserRequest("me"))
         bio = full.about or ""
-    except Exception:
+    except Exception:  # noqa: BLE001 - optional profile metadata must not block snapshot
         bio = ""
 
     old_row = await db.fetchone("SELECT photo_path FROM my_profile WHERE id=1")
@@ -85,7 +85,7 @@ async def get_user_from_event(event):
         args = event.pattern_match.group(2)
         if args:
             return await event.client.get_entity(args.strip())
-    except Exception:
+    except Exception:  # noqa: BLE001 - target lookup failure is surfaced as no target
         return None
     return None
 
@@ -134,7 +134,7 @@ async def handle_identity(event):
         try:
             target_full = await client(GetFullUserRequest(target))
             target_bio = (target_full.about or "")[:_MAX_BIO]
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - Telethon profile payloads vary by account type
             raise CommandError("Could not read the target profile; no identity changes were made.") from exc
 
         await client(UpdateProfileRequest(
@@ -167,7 +167,7 @@ async def handle_identity(event):
         await client(UpdateProfileRequest(first_name=row[0] or "", last_name=row[1] or "", about=row[2] or ""))
         try:
             await _restore_photo(client, row[3])
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - restore spans several Telethon photo operations
             raise CommandError("Profile text was restored, but photo restoration failed; the current photo was left unchanged.") from exc
         await event.edit(render("IDENTITY REVERT", ["Restored the saved profile identity and original photo."], footer="stealth | revert"))
         return
