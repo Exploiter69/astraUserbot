@@ -60,8 +60,10 @@ class ProductivityReminderTests(unittest.TestCase):
         module = importlib.import_module("plugins.productivity")
         with open(module.__file__, encoding="utf-8") as handle:
             source = handle.read()
-        self.assertIn('context.tasks.create_task(_reminder_worker(context.get("telegram"))', source)
+        self.assertIn("context.tasks.create_task(", source)
+        self.assertIn('_reminder_worker(context.get("telegram"))', source)
         self.assertIn('name="productivity.reminder_worker"', source)
+        self.assertIn('owner="productivity"', source)
 
 
 if __name__ == "__main__":
