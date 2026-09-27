@@ -17,7 +17,7 @@ async def resolve_target(event) -> types.User | types.Chat:
                 return await event.client.get_entity(target)
             except (ValueError, TypeError):
                 pass
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - Telethon entity resolution varies by input type
                 raise CommandError(f"Could not resolve entity: {target_str}")
                 
     return await event.client.get_entity("me")
