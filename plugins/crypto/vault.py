@@ -70,7 +70,7 @@ async def handle_crypto(event):
         try:
             plaintext = await run_in_thread(_decrypt, pwd, row[0], row[1], row[2])
             await event.edit(render("CRYPTO VAULT: DECRYPTED", [f"Tag: {tag}", "---", plaintext]))
-        except Exception:
+        except (ValueError, TypeError):
             raise CommandError("Decryption failed. Authentication tag mismatch (wrong passphrase).")
 
     elif cmd == "delnote_sec":
