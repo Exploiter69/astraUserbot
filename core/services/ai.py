@@ -10,7 +10,8 @@ import time
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping, Protocol, Sequence
+from collections.abc import Sequence
+from typing import Any, Protocol
 from urllib.parse import urlsplit
 
 import aiohttp
