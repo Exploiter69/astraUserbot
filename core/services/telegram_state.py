@@ -209,8 +209,9 @@ class TelegramStateCache:
         entity = await resolver()
         try:
             await self.remember_entity(lookup, entity)
-        except Exception:  # noqa: BLE001 - entity cache persistence is best-effort
-            pass
+        except Exception as exc:  # noqa: BLE001, S110 - entity cache persistence is best-effort
+            import logging
+            logging.getLogger("astra.telegram_state").debug("Entity cache persistence failed: %s", exc)
         return entity
 
     async def remember_dialog(self, dialog: Any, *, sync_state: str = "OBSERVED") -> DialogState:
