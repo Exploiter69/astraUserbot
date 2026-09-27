@@ -58,7 +58,7 @@ Current production hardening includes deterministic plugin lifecycle and command
 
 Current verified inventory:
 
-- **41 active plugins**
+- **56 active plugins**
 - **4 intentionally quarantined legacy AI modules**
 
 Quarantined:
@@ -103,22 +103,22 @@ Audit and verification implementations live under `tools/`; tests live under `te
 The canonical non-destructive verification gate is:
 
 ```bash
-./venv/bin/python tools/production_acceptance_gate.py
+python tools/production_acceptance_gate.py
 ```
 
 Useful individual gates:
 
 ```bash
-./venv/bin/python -m pytest -q
-./venv/bin/python -m compileall -q core plugins tools
-./venv/bin/python tools/plugin_behavior_audit.py
-./venv/bin/python tools/plugin_ecosystem_audit.py
-./venv/bin/python tools/media_pipeline_audit.py
-./venv/bin/python tools/isolation_security_audit.py
-./venv/bin/python tools/storage_hardening_audit.py
-./venv/bin/python tools/job_hardening_audit.py
-./venv/bin/python tools/phase18_production_audit.py
-./venv/bin/python tools/phase18_shutdown_probe.py
+python -m pytest -q
+python -m compileall -q core plugins tools
+python tools/plugin_behavior_audit.py
+python tools/plugin_ecosystem_audit.py
+python tools/media_pipeline_audit.py
+python tools/isolation_security_audit.py
+python tools/storage_hardening_audit.py
+python tools/job_hardening_audit.py
+python tools/phase18_production_audit.py
+python tools/phase18_shutdown_probe.py
 ```
 
 The automated gate is non-destructive and does not restart the production system. Manual production checks are covered by the operator runbook.
