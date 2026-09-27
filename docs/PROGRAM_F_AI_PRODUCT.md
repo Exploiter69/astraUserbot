@@ -105,7 +105,7 @@ Acceptance basis:
 5. reply-based OCR/STT paths are runtime-smoked — **PASS**
 6. durable AI job queue/completion/status is runtime-smoked — **PASS**
 7. existing AI compatibility surface and broader regression suite remain green — **PASS**
-8. runtime evidence and known limitations are recorded here and in `PHASE_5_ACCEPTANCE.md` — **PASS**
+8. runtime evidence and known limitations are recorded in this document — **PASS**
 
 ### Deferred post-Phase-5 quality work
 
