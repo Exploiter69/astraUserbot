@@ -135,7 +135,7 @@ class PublicIntelService:
                 findings.append(f"{provider}: public profile observed")
             except Exception:  # noqa: BLE001 - each public provider is an independent best-effort probe
                 findings.append(f"{provider}: unavailable")
-        return {"target": username, "rows": [f"Username: @{username}", "", *findings] or [f"No public profiles observed for @{username}"], "findings": findings}
+        return {"target": username, "rows": ([f"Username: @{username}", "", *findings] if findings else [f"No public profiles observed for @{username}"]), "findings": findings}
 
     async def domain_intel(self, target: str, *, include_ct: bool = False) -> dict:
         domain = self._clean_domain(target)
@@ -299,8 +299,7 @@ class PublicIntelService:
     async def _tls_metadata(self, domain: str) -> list[str]:
         def probe() -> tuple[str | None, str | None]:
             context = ssl.create_default_context()
-            with socket.create_connection((domain, 443), timeout=8) as raw:
-                with context.wrap_socket(raw, server_hostname=domain) as sock:
+            with socket.create_connection((domain, 443), timeout=8) as raw, context.wrap_socket(raw, server_hostname=domain) as sock:
                     cert = sock.getpeercert()
                     subject = cert.get("subject", ())
                     issuer = cert.get("issuer", ())
