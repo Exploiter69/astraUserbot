@@ -276,7 +276,7 @@ class MediaIntelService:
                 try:
                     transcript_result = await self.ai.transcribe(transcript_source)
                     text = str(getattr(transcript_result, "text", transcript_result) or "").strip()[: self.MAX_TEXT]
-                except Exception:
+                except Exception:  # noqa: BLE001 - optional STT failure must not fail media indexing
                     text = None
                 if text:
                     text_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
