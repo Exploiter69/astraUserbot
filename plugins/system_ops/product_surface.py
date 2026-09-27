@@ -2,19 +2,16 @@
 
 from __future__ import annotations
 
-import asyncio
 import os
-import signal
 import re
-import time
+import signal
 from pathlib import Path
 
 from config import config
 from core.context import get_application_context
 from core.errors import CommandError
-from core.registry import command_metadata, find_registrations, list_registrations, register_cmd
+from core.registry import command_metadata, find_registrations, register_cmd
 from helpers.hud import render
-from helpers.ux import list_buttons, form_buttons, gallery_buttons
 
 
 PRODUCT_PATTERN = rf"^{re.escape(config.PREFIX)}(inspect|correlate)(?:\s+(.*))?$"
@@ -440,7 +437,7 @@ async def handle_control(event):
         remote = await subprocess_service.run(["git", "rev-parse", "@{u}"], cwd=root, timeout=20)
         if head.returncode != 0 or remote.returncode != 0:
             raise CommandError("Unable to resolve repository/upstream state.")
-        rows = [f"HEAD: {head.stdout.strip()[:12]}", f"Upstream: {remote.stdout.strip()[:12]}", f"Working tree: CLEAN"]
+        rows = [f"HEAD: {head.stdout.strip()[:12]}", f"Upstream: {remote.stdout.strip()[:12]}", "Working tree: CLEAN"]
         if mode == "apply":
             pull = await asyncio.to_thread(run_git, ["pull", "--ff-only"])
             if pull.returncode != 0:
