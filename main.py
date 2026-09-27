@@ -65,7 +65,7 @@ def _command_count() -> int:
                 if match:
                     names.append(match.group(0))
         names.extend(str(alias).lstrip(config.PREFIX) for alias in registration.aliases)
-        total += len(set(name.lower() for name in names if name))
+        total += len({name.lower() for name in names if name})
     return total
 
 
