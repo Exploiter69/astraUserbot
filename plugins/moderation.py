@@ -98,7 +98,7 @@ async def handle_moderation(event):
             try:
                 await event.client(EditBannedRequest(event.chat_id, user.id, ChatBannedRights(until_date=None, send_messages=True)))
                 count += 1
-            except Exception:
+            except Exception:  # noqa: BLE001, S112 - per-participant Telegram failures are isolated
                 continue
         await _audit(event.chat_id, "LOCKDOWN", None, f"bounded participants={count}")
         await event.edit(render("LOCKDOWN", [f"Restricted {count} participants (bounded at {_MAX_LOCKDOWN})."], footer="moderation | lockdown"))
