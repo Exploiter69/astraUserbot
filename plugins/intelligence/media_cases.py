@@ -47,9 +47,9 @@ async def _resolve_media(event):
         else:
             try:
                 reply = await raw_get_reply()
-            except Exception:
+            except Exception:  # noqa: BLE001 - reply resolution varies across Telethon event implementations
                 reply = None
-    except Exception:
+    except Exception:  # noqa: BLE001 - reply lookup is optional enrichment
         reply = None
     return getattr(reply, "media", None) if reply is not None else None
 
