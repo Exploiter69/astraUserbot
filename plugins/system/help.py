@@ -66,6 +66,7 @@ def _rows_for_all() -> list[str]:
         rows.append(f"◈ {category.upper()}  {' '.join(grouped[category])}")
     return rows
 
+
 def _resolve(query: str):
     matches = find_registrations(query)
     return matches[0] if matches else None
