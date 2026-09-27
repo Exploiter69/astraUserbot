@@ -274,7 +274,7 @@ class PluginManager:
             task.exception()
         except asyncio.CancelledError:
             return
-        except Exception:
+        except Exception:  # noqa: BLE001
             return
 
     async def _bounded_unload(self, name: str, timeout: float) -> None:
