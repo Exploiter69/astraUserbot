@@ -133,7 +133,7 @@ class PublicIntelService:
                 obs = await self.graph.add_observation(entity_id=profile_id, source_id=source_id, source_family="public_profile", matched_field="username", match_type="exact", confidence=0.9, provenance={"provider": provider, "status": response.status, "uri": profile_url})
                 await self.graph.add_relationship(from_entity_id=username_id, relationship_type="LINKS_TO", to_entity_id=profile_id, evidence_state="OBSERVED", confidence=0.9, observation_id=obs)
                 findings.append(f"{provider}: public profile observed")
-            except Exception:
+            except Exception:  # noqa: BLE001 - each public provider is an independent best-effort probe
                 findings.append(f"{provider}: unavailable")
         return {"target": username, "rows": [f"Username: @{username}", "", *findings] or [f"No public profiles observed for @{username}"], "findings": findings}
 
@@ -160,7 +160,7 @@ class PublicIntelService:
                 rows.append(f"RDAP: available{f' · registrar={registrar}' if registrar else ''}")
                 if nameservers:
                     rows.append(f"Nameservers: {', '.join(nameservers[:8])}")
-        except Exception:
+        except Exception:  # noqa: BLE001 - RDAP is an optional enrichment source
             rows.append("RDAP: unavailable")
 
         http_meta = await self._http_metadata(domain)
@@ -196,7 +196,7 @@ class PublicIntelService:
                 await self.graph.add_relationship(from_entity_id=domain_id, relationship_type="MENTIONS", to_entity_id=sub_id, evidence_state="OBSERVED", confidence=1.0, observation_id=obs)
             rows.append(f"CT names: {len(names)}")
             rows.extend(f"  · {name}" for name in sorted(names)[:12])
-        except Exception:
+        except Exception:  # noqa: BLE001 - certificate transparency is optional enrichment
             rows.append("CT: unavailable")
         return {"target": domain, "rows": rows}
 
@@ -293,7 +293,7 @@ class PublicIntelService:
         try:
             response = await self.http.head(f"https://{domain}", allow_redirects=True, response_limit=16 * 1024)
             return [f"HTTP: {response.status}", f"Final URL: {response.url}", f"Server: {response.headers.get('Server', '—')}", f"Content-Type: {response.headers.get('Content-Type', '—')}"]
-        except Exception:
+        except Exception:  # noqa: BLE001 - HTTP metadata is optional enrichment
             return ["HTTP: unavailable"]
 
     async def _tls_metadata(self, domain: str) -> list[str]:
@@ -314,7 +314,7 @@ class PublicIntelService:
         try:
             subject, issuer = await asyncio.to_thread(probe)
             return [f"TLS subject: {subject or '—'}", f"TLS issuer: {issuer or '—'}"]
-        except Exception:
+        except Exception:  # noqa: BLE001 - TLS metadata is optional enrichment
             return ["TLS: unavailable"]
 
     @staticmethod
