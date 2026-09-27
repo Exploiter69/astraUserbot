@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import inspect
 import json
+import logging
 import time
 import uuid
 from typing import Any, Awaitable, Callable
@@ -31,6 +32,7 @@ RELATIONSHIP_TYPES = frozenset(
     }
 )
 ObservationSink = Callable[[dict[str, Any]], Awaitable[Any] | Any]
+logger = logging.getLogger("astra.intelgraph")
 
 
 class IntelGraph:
@@ -204,9 +206,9 @@ class IntelGraph:
                 result = sink(observation)
                 if inspect.isawaitable(result):
                     await result
-            except Exception:
+            except Exception as exc:  # noqa: BLE001 - observation sinks are optional integrations
                 # Intelligence persistence must not depend on automation availability.
-                continue
+                logger.warning("IntelGraph observation sink failed: %s", exc)
         return observation_id
 
     async def add_relationship(
