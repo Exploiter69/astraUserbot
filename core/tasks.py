@@ -112,7 +112,6 @@ class TaskSupervisor:
                 record.name,
                 record.owner or "unknown",
                 error.code,
-                exc_info=True,
             )
             return self._archive(record)
         record.state = TaskState.COMPLETED
