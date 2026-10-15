@@ -53,6 +53,7 @@ ENVIRONMENT_CONTRACT: dict[str, tuple[str, str]] = {
 # core/, or plugins/. Keep this explicit until each is intentionally adopted or
 # permanently removed from historical configuration guidance.
 ORPHANED_TEMPLATE_VARIABLES = {
+    "SESSION_STRING": "removed; client.py uses the Telethon file-session path under data/",
     "BOT_TOKEN": "no runtime consumer found",
     "BOT_API_KEY": "no runtime consumer found",
     "DATABASE_URL": "the application uses local SQLite, not this URL",
