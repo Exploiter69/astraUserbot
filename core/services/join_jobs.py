@@ -119,7 +119,18 @@ class JoinJobAdapter:
                 if status in {"PENDING", "REQUESTED", "REQUEST_SENT"}:
                     return "PENDING", observed
                 if observed is False or status in {"NON_MEMBER", "NOT_MEMBER"}:
-                    return "NON_MEMBER", observed
+                    request_getter = getattr(self.telegram, "get_join_request_status", None)
+                    if request_getter is None:
+                        # Without an explicit pending-request observation, a
+                        # membership miss cannot safely authorize another join.
+                        return "UNKNOWN", {"membership": observed, "request_status": "UNOBSERVED"}
+                    request_status = await request_getter(entity)
+                    request_text = str(request_status).upper()
+                    if request_status is True or request_text in {"PENDING", "REQUESTED", "REQUEST_SENT"}:
+                        return "PENDING", request_status
+                    if request_status is False or request_text in {"NONE", "NO_REQUEST", "NOT_PENDING", "NO_PENDING_REQUEST"}:
+                        return "NON_MEMBER", {"membership": observed, "request_status": request_status}
+                    return "UNKNOWN", {"membership": observed, "request_status": request_status}
                 return "UNKNOWN", observed
 
             participant_getter = getattr(client, "get_participants", None)
