@@ -36,6 +36,7 @@ from core.services.ai import AIService
 from core.services.flags import FeatureFlagService
 from core.services.isolation import IsolationService
 from core.services.metrics import MetricsService
+from core.services.send_jobs import SendJobAdapter
 from core.services.telegram_recorder import TelegramOperationRecorder
 from core.tasks import TaskSupervisor
 
@@ -115,6 +116,10 @@ class ApplicationContext:
             ),
         )
         self.register("jobs", JobEngine(self.get("storage")))
+        self.register(
+            "send_jobs",
+            SendJobAdapter(self.get("jobs"), self.get("telegram"), self.get("storage")),
+        )
         self.register(
             "automation",
             AutomationEngine(
