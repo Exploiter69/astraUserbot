@@ -210,6 +210,12 @@ class CapabilityCoreTests(unittest.IsolatedAsyncioTestCase):
         records = [json.loads(row[2]) for row in rows]
         self.assertEqual([item["outcome"] for item in records], ["GRANTED", "DENIED"])
         self.assertTrue(all(item["plugin"] == "plugins.audit" for item in records))
+        self.assertEqual(records[0]["capability"], "telegram.read")
+        self.assertEqual(records[0]["operation"], "test.read")
+        self.assertEqual(records[1]["capability"], "jobs.enqueue")
+        self.assertEqual(records[1]["operation"], "test.enqueue")
+        self.assertTrue(all(records_item["correlation_id"] for records_item in records))
+        self.assertTrue(all(records_item["enforcement_mode"] == "ENFORCED" for records_item in records))
         self.assertTrue(all("must-not-be-stored" not in row[2] for row in rows))
         self.assertTrue(all("private" not in row[2] for row in rows))
 
