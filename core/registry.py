@@ -22,6 +22,7 @@ from telethon import events
 from config import config
 from core.errors import AstraError, CommandError, as_astra_error, user_message
 from core.plugins.manager import PluginManager
+from core.plugins.capabilities import plugin_identity_context, trusted_core_context
 from helpers.hud import render
 
 logger = logging.getLogger("astra.registry")
@@ -207,22 +208,31 @@ def register_cmd(
             # Runtime import avoids a core.registry <-> core.context import cycle.
             from core.context import get_application_context
 
-            context = get_application_context()
-            if context is not None:
-                metrics = context.get("metrics")
-                metrics.increment("commands.total")
+            with trusted_core_context("command.registry"):
+                context = get_application_context()
+                if context is not None:
+                    metrics = context.get("metrics")
+                    metrics.increment("commands.total")
         except Exception:  # noqa: BLE001 - metrics are optional and must never block command dispatch
             metrics = None
         try:
-            if metrics is not None:
-                with metrics.timer(f"command.{category}"):
+            # Framework instrumentation is core-owned; plugin callbacks retain
+            # their recorded identity and never inherit unrestricted core authority.
+            identity_scope = (
+                plugin_identity_context(owner)
+                if owner is not None
+                else trusted_core_context("command.handler")
+            )
+            with identity_scope:
+                if metrics is not None:
+                    with metrics.timer(f"command.{category}"):
+                        result = handler(event)
+                        if inspect.isawaitable(result):
+                            await result
+                else:
                     result = handler(event)
                     if inspect.isawaitable(result):
                         await result
-            else:
-                result = handler(event)
-                if inspect.isawaitable(result):
-                    await result
         except Exception as exc:
             elapsed = time.perf_counter() - start_time
             if metrics is not None:
