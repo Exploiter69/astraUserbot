@@ -270,29 +270,31 @@ async def test_setup_tracking_journals_are_isolated_between_plugin_attempts():
         client.plugin_manager = manager
         observed = {}
 
+        def make_setup(plugin_name):
+            async def setup(_client):
+                active_manager = PluginManager.current_manager()
+                assert active_manager is manager
+                active_manager.tracked_resource(
+                    lambda: plugin_name,
+                    lambda _resource: None,
+                    kind="isolated_resource",
+                    identity=plugin_name,
+                )
+                journal = active_manager.current_setup_journal()
+                assert journal is not None
+                observed[plugin_name] = {
+                    "attempt_id": journal.attempt_id,
+                    "entries": list(journal.entries),
+                }
+
+            return setup
+
         for plugin_name in (
             "plugins.phase3c_step1_isolation_a",
             "plugins.phase3c_step1_isolation_b",
         ):
             module = types.ModuleType(plugin_name)
-
-            async def setup(_client, *, _plugin_name=plugin_name):
-                active_manager = PluginManager.current_manager()
-                assert active_manager is manager
-                active_manager.tracked_resource(
-                    lambda: _plugin_name,
-                    lambda _resource: None,
-                    kind="isolated_resource",
-                    identity=_plugin_name,
-                )
-                journal = active_manager.current_setup_journal()
-                assert journal is not None
-                observed[_plugin_name] = {
-                    "attempt_id": journal.attempt_id,
-                    "entries": list(journal.entries),
-                }
-
-            module.setup = setup
+            module.setup = make_setup(plugin_name)
             manager.records[plugin_name] = PluginRecord(plugin_name, module=module)
             await manager.enable_plugin(plugin_name)
 
@@ -304,3 +306,48 @@ async def test_setup_tracking_journals_are_isolated_between_plugin_attempts():
         assert observed[name_a]["entries"][0].attempt_id == observed[name_a]["attempt_id"]
         assert observed[name_b]["entries"][0].attempt_id == observed[name_b]["attempt_id"]
         assert manager.current_setup_journal() is None
+
+
+@pytest.mark.asyncio
+async def test_failed_setup_freezes_and_reverse_snapshots_journal_without_cleanup():
+    """Step 1 records failure ordering but deliberately does not run cleanup yet."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        client = FakeClient()
+        plugin_name = "plugins.phase3c_step1_freeze"
+        cleanup_calls = []
+        module = types.ModuleType(plugin_name)
+
+        async def setup(_client):
+            manager = PluginManager.current_manager()
+            assert manager is not None
+            manager.tracked_resource(
+                lambda: "first",
+                lambda value: cleanup_calls.append(value),
+                kind="resource",
+                identity="first",
+            )
+            manager.tracked_resource(
+                lambda: "second",
+                lambda value: cleanup_calls.append(value),
+                kind="resource",
+                identity="second",
+            )
+            raise RuntimeError("step 1 journal freeze check")
+
+        module.setup = setup
+        manager = PluginManager(client, root / "plugins")
+        client.plugin_manager = manager
+        manager.records[plugin_name] = PluginRecord(plugin_name, module=module)
+
+        with pytest.raises(PluginLifecycleError, match="Enable failed"):
+            await manager.enable_plugin(plugin_name)
+
+        journal = manager.last_failed_setup_journal
+        assert journal is not None
+        assert journal.frozen
+        assert [entry.identity for entry in journal.failure_entries] == [
+            "second", "first"
+        ]
+        assert cleanup_calls == []
+        assert all(entry.cleanup_state == "PENDING" for entry in journal.entries)
