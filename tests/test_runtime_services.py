@@ -83,6 +83,7 @@ class RuntimeServiceTests(unittest.IsolatedAsyncioTestCase):
                     "send_jobs",
                     "edit_jobs",
                     "delete_jobs",
+                    "upload_jobs",
                     "automation",
                     "secrets",
                     "ai",
