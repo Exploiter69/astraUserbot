@@ -182,6 +182,16 @@ class PluginManager:
     def _plugin_context(self, name: str) -> Iterator[None]:
         return self.plugin_context(name, self)
 
+    def _invalidate_capability_cache(self, name: str) -> None:
+        """Invalidate effective grants whenever lifecycle reloads a plugin."""
+        from core.context import get_application_context
+
+        context = get_application_context()
+        if context is None:
+            return
+        runtime = context.services.get("capabilities")
+        if runtime is not None:
+            runtime.invalidate(name)
 
     def current_setup_journal(self) -> SetupJournal | None:
         """Return this manager's journal only inside its active plugin setup."""
@@ -470,6 +480,7 @@ class PluginManager:
             if record.state != PluginState.LOADED:
                 continue
             try:
+                self._invalidate_capability_cache(name)
                 self._validate_dependency_runtime(name)
                 await self._run_setup(record)
             except Exception as exc:
@@ -492,9 +503,10 @@ class PluginManager:
             token_plugin = self._current_plugin.set(name)
             token_manager = self._current_manager.set(self)
             try:
-                result = shutdown(self.client)
-                if inspect.isawaitable(result):
-                    await result
+                with plugin_identity_context(name):
+                    result = shutdown(self.client)
+                    if inspect.isawaitable(result):
+                        await result
             finally:
                 self._current_manager.reset(token_manager)
                 self._current_plugin.reset(token_plugin)
@@ -508,6 +520,7 @@ class PluginManager:
                     continue
                 registration.unregister(self.client)
             record.registrations.clear()
+        self._invalidate_capability_cache(name)
         record.state = PluginState.UNLOADED
         return record
 
@@ -619,6 +632,7 @@ class PluginManager:
             raise PluginLifecycleError(
                 f"Plugin {name} is not enableable from {record.state.value}"
             )
+        self._invalidate_capability_cache(name)
         self._validate_dependency_runtime(name)
         old_registration_ids = set(record.registrations)
         self._disabled.discard(name)
