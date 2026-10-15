@@ -32,7 +32,7 @@ class StorageHardeningTests(unittest.IsolatedAsyncioTestCase):
                     "SELECT version FROM schema_migrations ORDER BY version"
                 )
             ],
-            list(range(1, 12)),
+            list(range(1, 13)),
         )
         await first.close()
         await second.close()
