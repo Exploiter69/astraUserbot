@@ -76,8 +76,8 @@ def _synthetic_session() -> str:
         ),
         pytest.param(
             "multiline_secret_on_second_line",
-            "worker started successfully\n1AABCD9876secondLineSyntheticSession",
-            "1AABCD9876secondLineSyntheticSession",
+            "worker started successfully\n" + _synthetic_session(),
+            _synthetic_session(),
         ),
     ],
 )
