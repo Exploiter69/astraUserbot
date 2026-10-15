@@ -179,7 +179,7 @@ class CapabilityGrantStore:
         )
         await self.storage.transaction(statements)
         for callback in tuple(self._change_callbacks):
-            result = callback(plugin)
+            result = callback(plugin, frozenset(validated))
             if hasattr(result, "__await__"):
                 await result
 
@@ -234,10 +234,32 @@ class CapabilityRuntime:
         )
         return effective
 
-    def invalidate(self, plugin: str | None = None) -> None:
-        """Invalidate after every grant mutation and controlled reload."""
+    def invalidate(
+        self,
+        plugin: str | None = None,
+        approved: frozenset[str] | None = None,
+    ) -> None:
+        """Invalidate on reload, or atomically replace grants after mutation.
+
+        Grant mutations pass the already-committed grant set so the next call
+        never reads storage and never sees a stale revoked grant.
+        """
         if plugin is None:
             self._cache.clear()
+            return
+        previous = self._cache.get(plugin)
+        if approved is not None and previous is not None:
+            effective = (
+                frozenset(CAPABILITIES)
+                if previous.mode == "LEGACY_UNDECLARED"
+                else previous.declared & approved
+            )
+            self._cache[plugin] = _PluginPolicy(
+                declared=previous.declared,
+                approved=approved,
+                effective=effective,
+                mode=previous.mode,
+            )
         else:
             self._cache.pop(plugin, None)
 
