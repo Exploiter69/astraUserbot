@@ -56,6 +56,15 @@ class JobHardeningTests(unittest.IsolatedAsyncioTestCase):
     async def test_lease_fencing_rejects_stale_worker_completion(self):
         old = JobEngine(self.storage, worker_id="old-worker", lease_seconds=5)
         new = JobEngine(self.storage, worker_id="new-worker", lease_seconds=5)
+        from core.services.jobs import ReconcileOutcome
+
+        async def handler(_job):
+            return None
+
+        async def reconciler(_context):
+            return ReconcileOutcome.NOT_HAPPENED
+
+        old.register_handler("TEST", handler, effect_class="TEST_EFFECT", reconciler=reconciler)
         job = await old.enqueue("TEST")
         old_claim = await old.claim()
         self.assertIsNotNone(old_claim)
