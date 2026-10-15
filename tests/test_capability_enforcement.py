@@ -70,11 +70,15 @@ class CapabilityCoreTests(unittest.IsolatedAsyncioTestCase):
         await self.storage.close()
         self.tmp.cleanup()
 
+    async def _replace_grants(self, *args, **kwargs):
+        with trusted_core_context("test.owner-grant"):
+            return await self.grants.replace_grants(*args, **kwargs)
+
     async def test_grant_store_persists_and_migration_is_additive_idempotent(self):
         original = await self.storage.fetchone(
             "SELECT COUNT(*) FROM jobs"
         )
-        await self.grants.replace_grants(
+        await self._replace_grants(
             "plugins.readonly", ("telegram.read",), granted_by="owner"
         )
         await self.storage.close()
@@ -96,7 +100,7 @@ class CapabilityCoreTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_effective_grants_are_declared_intersect_approved(self):
-        await self.grants.replace_grants(
+        await self._replace_grants(
             "plugins.example",
             ("telegram.read", "jobs.enqueue"),
             granted_by="owner",
@@ -116,7 +120,7 @@ class CapabilityCoreTests(unittest.IsolatedAsyncioTestCase):
             await self.runtime.authorize(
                 "plugins.declared_only", "telegram.read", "test.read"
             )
-        await self.grants.replace_grants(
+        await self._replace_grants(
             "plugins.approved_only", ("telegram.read",), granted_by="owner"
         )
         await self.runtime.load_plugin(
@@ -128,14 +132,14 @@ class CapabilityCoreTests(unittest.IsolatedAsyncioTestCase):
             )
 
     async def test_grant_mutation_invalidates_cache_before_next_call(self):
-        await self.grants.replace_grants(
+        await self._replace_grants(
             "plugins.cache", ("telegram.read",), granted_by="owner"
         )
         await self.runtime.load_plugin(
             "plugins.cache", declared=("telegram.read",), mode="ENFORCED"
         )
         await self.runtime.authorize("plugins.cache", "telegram.read", "first")
-        await self.grants.replace_grants(
+        await self._replace_grants(
             "plugins.cache", (), granted_by="owner"
         )
         self.runtime.invalidate("plugins.cache")
@@ -161,7 +165,7 @@ class CapabilityCoreTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(effects, [])
 
     async def test_audit_records_granted_and_denied_without_secrets(self):
-        await self.grants.replace_grants(
+        await self._replace_grants(
             "plugins.audit", ("telegram.read",), granted_by="owner"
         )
         await self.runtime.load_plugin(
