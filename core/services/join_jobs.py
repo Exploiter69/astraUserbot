@@ -158,7 +158,7 @@ class JoinJobAdapter:
             raise JobError("JOIN payload requires a target channel/group", code="JOIN_INVALID_PAYLOAD")
         started_at = time.time()
         await self._record_attempt(job, target, started_at)
-        if isinstance(target, str) and any(token in target.lower() for token in ("joinchat/", "+", "t.me/")):
+        if isinstance(target, str) and any(token in target.lower() for token in ("joinchat/", "+")):
             raise JobError(
                 "JOIN invite semantics are ambiguous",
                 code="JOIN_INVITE_SEMANTICS_UNKNOWN",
