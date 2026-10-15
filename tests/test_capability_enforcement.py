@@ -1,8 +1,11 @@
 """Phase 4 capability-core contract tests (tests-first)."""
 
 import asyncio
+import hashlib
 import json
+import sqlite3
 import tempfile
+import time
 import unittest
 from contextlib import nullcontext
 from pathlib import Path
@@ -22,7 +25,7 @@ from core.plugins.capabilities import (
     trusted_core_context,
     validate_capabilities,
 )
-from core.services.storage import StorageService
+from core.services.storage import MIGRATIONS, StorageService
 
 
 class CapabilityVocabularyTests(unittest.TestCase):
@@ -330,6 +333,57 @@ class CapabilityCoreTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(framework_identity.kind, "trusted_core")
         self.assertEqual(handler_identity.kind, "plugin")
         self.assertEqual(handler_identity.name, "plugins.phase4-command")
+
+
+
+class CapabilityMigrationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_migration_13_is_additive_and_idempotent_for_existing_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = root / "data" / "databases" / "platform.db"
+            db_path.parent.mkdir(parents=True)
+            conn = sqlite3.connect(db_path)
+            try:
+                conn.execute(
+                    "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, checksum TEXT NOT NULL, applied_at REAL NOT NULL)"
+                )
+                for version, sql in MIGRATIONS[:12]:
+                    for statement in (part.strip() for part in sql.split(";") if part.strip()):
+                        conn.execute(statement)
+                    conn.execute(
+                        "INSERT INTO schema_migrations(version, checksum, applied_at) VALUES (?,?,?)",
+                        (version, hashlib.sha256(sql.encode()).hexdigest(), time.time()),
+                    )
+                conn.execute(
+                    "INSERT INTO audit_events(kind,subject_id,payload_json,created_at) VALUES (?,?,?,?)",
+                    ("pre-phase4", "preserve-me", '{"existing":true}', 1.0),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            storage = StorageService(root)
+            await storage.start()
+            row = await storage.fetchone(
+                "SELECT payload_json FROM audit_events WHERE kind='pre-phase4' AND subject_id='preserve-me'"
+            )
+            self.assertEqual(row[0], '{"existing":true}')
+            self.assertIsNotNone(
+                await storage.fetchone(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='plugin_capability_grants'"
+                )
+            )
+            await storage.close()
+            await storage.start()
+            versions = await storage.fetchall(
+                "SELECT version FROM schema_migrations ORDER BY version"
+            )
+            self.assertEqual([row[0] for row in versions], list(range(1, 14)))
+            row = await storage.fetchone(
+                "SELECT payload_json FROM audit_events WHERE kind='pre-phase4' AND subject_id='preserve-me'"
+            )
+            self.assertEqual(row[0], '{"existing":true}')
+            await storage.close()
 
 
 class CapabilityIsolationHonestyTests(unittest.TestCase):
