@@ -207,6 +207,18 @@ class EditJobAdapter:
         if _state_fingerprint(observed) == row["payload_fingerprint"]:
             return ReconcileOutcome.HAPPENED
         if bool(row["authoritative_rejection"]) and observed == _canonical_text(baseline_text):
-            return ReconcileOutcome.NOT_HAPPENED
+            # Non-application alone is insufficient: the peer must still
+            # explicitly report edit capability before authorizing another try.
+            capability_reader = getattr(self.telegram, "get_capabilities", None)
+            if capability_reader is None:
+                return ReconcileOutcome.UNKNOWN
+            try:
+                capabilities = await capability_reader(target)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                return ReconcileOutcome.UNKNOWN
+            if isinstance(capabilities, dict) and capabilities.get("can_edit") is True:
+                return ReconcileOutcome.NOT_HAPPENED
         # A different state may be a later edit by another actor.
         return ReconcileOutcome.UNKNOWN
