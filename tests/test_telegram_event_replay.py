@@ -1,4 +1,6 @@
 import asyncio
+import json
+import random
 import tempfile
 import unittest
 
@@ -120,3 +122,91 @@ class TelegramEventReplayTests(unittest.IsolatedAsyncioTestCase):
             await task
         status = await self.replay.status(run_id)
         self.assertEqual(status["state"], "PAUSED")
+
+    @staticmethod
+    def _canonical_projection_snapshot(rows):
+        return json.dumps(rows, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+    async def _projection_snapshot(self):
+        timeline = await self.storage.fetchall(
+            "SELECT event_id,event_type,source_peer,entity_id,message_id,observed_at,payload_json "
+            "FROM telegram_timeline ORDER BY event_id"
+        )
+        latest = await self.storage.fetchall(
+            "SELECT message_id,source_peer,event_id,event_type,entity_id,payload_json,observed_at "
+            "FROM telegram_latest_messages ORDER BY source_peer,message_id"
+        )
+        observations = await self.storage.fetchall(
+            "SELECT event_id,entity_id,source_peer,event_type,observed_at,payload_json "
+            "FROM telegram_entity_observations ORDER BY event_id"
+        )
+        return self._canonical_projection_snapshot({
+            "timeline": [tuple(row) for row in timeline],
+            "latest": [tuple(row) for row in latest],
+            "observations": [tuple(row) for row in observations],
+        })
+
+    async def test_seeded_random_event_sequences_match_independent_journal_replay(self):
+        # Fixed seeds make every generated sequence reproducible on CI and locally.
+        for seed in (7, 41, 2026, 65537, 99173):
+            with self.subTest(seed=seed):
+                rng = random.Random(seed)
+                for index in range(30):
+                    event_type = rng.choice(("MESSAGE_NEW", "MESSAGE_EDIT"))
+                    message_id = rng.randint(1, 12)
+                    source_peer = f"chat:{rng.randint(1, 3)}"
+                    entity_id = rng.randint(100, 105)
+                    payload = {
+                        "text": f"seed={seed};index={index};value={rng.getrandbits(24)}",
+                        "sequence": index,
+                    }
+                    await self.journal.append(
+                        TelegramEvent(
+                            f"random-{seed}-{index}",
+                            event_type,
+                            float(seed * 100 + index),
+                            source_peer,
+                            message_id,
+                            entity_id,
+                            payload,
+                        )
+                    )
+
+                # Materialize through the normal pending-event projection path.
+                await self.projections.process_pending(limit=500)
+                incremental = await self._projection_snapshot()
+
+                # Clear and rebuild exclusively by replaying the durable journal.
+                run_id = await self.replay.begin()
+                result = await self.replay.replay(run_id, batch_size=17)
+                self.assertEqual(result["state"], "COMPLETED")
+                rebuilt = await self._projection_snapshot()
+                self.assertEqual(incremental.encode("utf-8"), rebuilt.encode("utf-8"))
+
+    async def test_projection_harness_detects_journal_divergence(self):
+        await self.journal.append(
+            TelegramEvent(
+                "divergence-event",
+                "MESSAGE_NEW",
+                123.0,
+                "chat:divergence",
+                9001,
+                77,
+                {"text": "original payload"},
+            )
+        )
+        await self.projections.process_pending(limit=10)
+        before_tamper = await self._projection_snapshot()
+
+        # Deliberately corrupt only the persisted source row in this temporary DB.
+        await self.storage.execute(
+            "UPDATE telegram_event_journal SET payload_json=? WHERE event_id=?",
+            ('{"text":"tampered payload"}', "divergence-event"),
+        )
+        await self.projections.rebuild()
+        after_rebuild = await self._projection_snapshot()
+        self.assertNotEqual(
+            before_tamper.encode("utf-8"),
+            after_rebuild.encode("utf-8"),
+            "projection comparison harness failed to detect a changed journal payload",
+        )

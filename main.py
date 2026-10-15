@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import math
 import os
 import re
 from logging.handlers import RotatingFileHandler
@@ -19,20 +20,75 @@ LOG_DIR.mkdir(parents=True, exist_ok=True)
 LOG_FILE = LOG_DIR / "astra.log"
 
 
+def _has_high_entropy_and_diversity(value: str, *, min_entropy: float = 4.5, min_unique: int = 20) -> bool:
+    """Reject low-diversity strings before considering them session-shaped secrets.
+
+    Shannon entropy is measured in bits per character. The defaults require
+    broad character diversity and near-random distribution, not just a long
+    alphanumeric value.
+    """
+    if len(value) < min_unique:
+        return False
+    frequencies = {character: value.count(character) for character in set(value)}
+    unique_count = len(frequencies)
+    if unique_count < min_unique:
+        return False
+    entropy = -sum(
+        (count / len(value)) * math.log2(count / len(value))
+        for count in frequencies.values()
+    )
+    return entropy >= min_entropy
+
+
 class SecretFilter(logging.Filter):
     """Prevent common credential-shaped values from entering Astra logs."""
 
     def filter(self, record: logging.LogRecord) -> bool:
         message = record.getMessage()
-        message = re.sub(
-            r"(?i)(api[_-]?hash|api[_-]?id|token|secret|password|authorization|session)[^\n:=]*[:=]\s*[^\n]+",
-            r"\1=[REDACTED]",
-            message,
-        )
-        record.msg = message
+        filtered_lines: list[str] = []
+        for line in message.splitlines(keepends=True):
+            line_ending = ""
+            content = line
+            if content.endswith("\r\n"):
+                content, line_ending = content[:-2], "\r\n"
+            elif content.endswith("\n") or content.endswith("\r"):
+                content, line_ending = content[:-1], content[-1]
+
+            # Redact only when a recognizable key/context explicitly labels
+            # the value. This includes vault plaintext labels, not arbitrary
+            # occurrences of the words "vault" or "plaintext".
+            content = re.sub(
+                r"(?i)\b(api[_-]?hash|api[_-]?id|token|secret|password|authorization|session|vault\s+plaintext|vault\s+secret)\b[^:=]*[:=]\s*[^\n]+",
+                lambda match: f"{match.group(1)}=[REDACTED]",
+                content,
+            )
+
+            # A standalone Bearer scheme is a strong credential marker.
+            # Require a sufficiently long token made of valid token characters.
+            content = re.sub(
+                r"(?i)\bBearer\s+([A-Za-z0-9._~+/-]{16,})(?=\s|$|[,;])",
+                "Bearer [REDACTED]",
+                content,
+            )
+
+            # Telethon StringSession values are URL-safe base64 and begin with
+            # '1'. Use a 200-character minimum total length (1 + at least 199
+            # URL-safe characters); normal Telethon sessions are ~350 chars.
+            # Entropy/diversity checks guard against repetitive false positives.
+            session_pattern = re.compile(
+                r"(?<![A-Za-z0-9_-])1[A-Za-z0-9_-]{199,}(?![A-Za-z0-9_-])"
+            )
+            content = session_pattern.sub(
+                lambda match: "[REDACTED]"
+                if _has_high_entropy_and_diversity(match.group(0))
+                else match.group(0),
+                content,
+            )
+            filtered_lines.append(content + line_ending)
+
+        record.msg = "".join(filtered_lines)
         record.args = ()
         return True
-
 
 formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 file_handler = RotatingFileHandler(

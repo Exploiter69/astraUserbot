@@ -12,7 +12,7 @@ A modular, service-oriented Telegram userbot platform designed for reliability, 
 
 AstraUserbot began as a broad feature-rich userbot. The engineering program extracted shared infrastructure without requiring a framework rewrite. Reliability, safety, compatibility and recovery are platform contracts; plugins remain the feature edge.
 
-The active post-1.0 feature program is defined in **`ROADMAP.md`**. It is the working roadmap for Telegram Core 2.0, product/UX expansion, AI 2.0, durable automation, IntelGraph/IOC intelligence, media intelligence, cases, security intelligence, public-code intelligence and the plugin ecosystem.
+The active post-1.0 feature program is defined in [the roadmap](docs/roadmap/ROADMAP.md). It is the working roadmap for Telegram Core 2.0, product/UX expansion, AI 2.0, durable automation, IntelGraph/IOC intelligence, media intelligence, cases, security intelligence, public-code intelligence and the plugin ecosystem.
 
 ## Core principles
 
@@ -54,9 +54,8 @@ Current production hardening includes deterministic plugin lifecycle and command
 
 ## Plugin state
 
-Current verified inventory:
+The active plugin inventory is discovered by `PluginManager` at runtime. Run `python tools/docs_check.py` to verify the documented inventory and documentation links.
 
-- **56 active plugins**
 - **4 intentionally quarantined legacy AI modules**
 
 Quarantined:
@@ -74,26 +73,13 @@ Quarantine is intentional. Do not remove it merely because an AI command is unav
 
 | Document | Purpose |
 |---|---|
-| `ROADMAP.md` | Active Astra 2.x feature and implementation roadmap |
-| `ARCHITECTURE.md` | Canonical architecture and production invariants |
-| `DATA_MODEL.md` | Data ownership and persistence |
-| `JOB_MODEL.md` | Durable job lifecycle and recovery semantics |
-| `SAFETY_CONTRACT.md` | Mandatory safety rules |
-| `PRODUCTION_BOUNDARY.md` | Authority and cross-boundary rules |
-| `DECISIONS.md` | Accepted architecture decisions |
-| `PLUGIN_SDK.md` | Plugin API contract |
-| `PLUGIN_ECOSYSTEM.md` | Plugin lifecycle and metadata contract |
-| `COMPATIBILITY.md` | Version and migration policy |
-| `STORAGE_HARDENING.md` | Storage safety and integrity contract |
-| `MEDIA_PIPELINE_HARDENING.md` | Media safety and resource contract |
-| `ISOLATION_SECURITY.md` | Process-isolation contract |
-| `OPERATIONS_RUNBOOK.md` | Day-to-day operator procedures |
-| `UPGRADE_PROCEDURE.md` | Upgrade and rollback procedure |
-| `DISASTER_RECOVERY.md` | Backup, restore and recovery procedure |
-| `FAILURE_MODE_MATRIX.md` | Failure detection and response |
-| `RELEASE_NOTES_v1.0.0.md` | v1.0.0 release summary |
-| `RELEASE_NOTES_v1.0.1.md` | v1.0.1 release summary |
-| `docs/acceptance/PRODUCT_MATURITY_ACCEPTANCE.md` | Product maturity acceptance ledger |
+| [ROADMAP.md](docs/roadmap/ROADMAP.md) | Active Astra 2.x feature and implementation roadmap |
+| [ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md) | Canonical architecture and production invariants |
+| [PLUGIN_ECOSYSTEM.md](docs/plugins/PLUGIN_ECOSYSTEM.md) | Plugin lifecycle and metadata contract |
+| [OPERATIONS_RUNBOOK.md](docs/operations/OPERATIONS_RUNBOOK.md) | Day-to-day operator procedures |
+| [DISASTER_RECOVERY.md](docs/operations/DISASTER_RECOVERY.md) | Backup, restore and recovery procedure |
+| [FAILURE_MODE_MATRIX.md](docs/operations/FAILURE_MODE_MATRIX.md) | Failure detection and response |
+| [PRODUCT_MATURITY_ACCEPTANCE.md](docs/acceptance/PRODUCT_MATURITY_ACCEPTANCE.md) | Product maturity acceptance ledger |
 
 Audit and verification implementations live under `tools/`; tests live under `tests/`. Historical implementation artifacts and one-time release documents are intentionally not kept in the repository root.
 
@@ -138,7 +124,7 @@ The operator-facing runtime views are:
 .ops
 ```
 
-Production service lifecycle is managed by systemd. Follow `OPERATIONS_RUNBOOK.md` for normal operation and `FAILURE_MODE_MATRIX.md` for incident triage.
+Production service lifecycle is managed by systemd. Follow the [operations runbook](docs/operations/OPERATIONS_RUNBOOK.md) for normal operation and the [failure-mode matrix](docs/operations/FAILURE_MODE_MATRIX.md) for incident triage.
 
 ## Release model
 
