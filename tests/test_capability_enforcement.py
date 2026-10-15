@@ -4,7 +4,13 @@ import asyncio
 import json
 import tempfile
 import unittest
+from contextlib import nullcontext
 from pathlib import Path
+from unittest.mock import patch
+
+from core.plugins.manager import PluginManager
+from core.services.jobs import JobEngine
+from core.tasks import TaskSupervisor
 
 from core.plugins.capabilities import (
     CAPABILITIES,
@@ -12,6 +18,7 @@ from core.plugins.capabilities import (
     CapabilityRuntime,
     CapabilityGrantStore,
     current_identity,
+    plugin_identity_context,
     trusted_core_context,
     validate_capabilities,
 )
@@ -198,6 +205,107 @@ class CapabilityCoreTests(unittest.IsolatedAsyncioTestCase):
                 "core", "fs.write", "framework.fs.write"
             )
         self.assertIsNone(result)
+
+
+
+    async def test_background_task_runs_under_explicit_trusted_core_identity(self):
+        seen = asyncio.Event()
+        identities = []
+
+        async def background():
+            identities.append(current_identity())
+            seen.set()
+
+        supervisor = TaskSupervisor()
+        supervisor.create_task(background(), name="phase4.core.background")
+        await asyncio.wait_for(seen.wait(), timeout=1)
+        await supervisor.shutdown()
+        self.assertEqual(identities[0].kind, "trusted_core")
+        self.assertEqual(identities[0].name, "phase4.core.background")
+
+    async def test_job_worker_preserves_core_and_plugin_handler_identity(self):
+        engine = JobEngine(self.storage, poll_seconds=0.01)
+        core_seen = asyncio.Event()
+        plugin_seen = asyncio.Event()
+        identities = {}
+
+        async def core_handler(_job):
+            identities["core"] = current_identity()
+            core_seen.set()
+            return {"ok": True}
+
+        async def plugin_handler(_job):
+            identities["plugin"] = current_identity()
+            plugin_seen.set()
+            return {"ok": True}
+
+        with trusted_core_context("job.registration"):
+            engine.register_handler("PHASE4_CORE", core_handler)
+        with plugin_identity_context("plugins.phase4"):
+            engine.register_handler("PHASE4_PLUGIN", plugin_handler)
+        core_job = await engine.enqueue("PHASE4_CORE")
+        plugin_job = await engine.enqueue("PHASE4_PLUGIN")
+        await engine.start()
+        try:
+            await asyncio.wait_for(core_seen.wait(), timeout=1)
+            await asyncio.wait_for(plugin_seen.wait(), timeout=1)
+        finally:
+            await engine.close()
+        self.assertEqual(identities["core"].kind, "trusted_core")
+        self.assertEqual(identities["plugin"].kind, "plugin")
+        self.assertEqual(identities["plugin"].name, "plugins.phase4")
+        self.assertEqual((await engine.get(core_job.id)).state.value, "COMPLETED")
+        self.assertEqual((await engine.get(plugin_job.id)).state.value, "COMPLETED")
+
+    async def test_command_registry_uses_core_identity_for_framework_and_plugin_for_handler(self):
+        from core import registry
+        from core.plugins.manager import PluginManager
+        from core.context import ApplicationContext
+
+        observations = []
+        class Metrics:
+            def increment(self, _name):
+                observations.append(("framework", current_identity()))
+            def timer(self, _name):
+                return nullcontext()
+
+        class Context:
+            def get(self, name):
+                return Metrics() if name == "metrics" else None
+
+        class Client:
+            def add_event_handler(self, *_args, **_kwargs):
+                return None
+            def remove_event_handler(self, *_args, **_kwargs):
+                return None
+
+        class Event:
+            out = True
+            async def edit(self, *_args, **_kwargs):
+                return None
+
+        client = Client()
+        manager = PluginManager(client, Path(self.tmp.name) / "plugins")
+        async def handler(_event):
+            observations.append(("handler", current_identity()))
+
+        with PluginManager.plugin_context("plugins.phase4-command", manager):
+            registration = registry.register_cmd(
+                client,
+                r"\\.phase4capability",
+                handler,
+                description="Phase 4 test command",
+            )
+        try:
+            with patch("core.context.get_application_context", return_value=Context()):
+                await registration.wrapper(Event())
+        finally:
+            registration.unregister(client)
+        framework_identity = next(value for kind, value in observations if kind == "framework")
+        handler_identity = next(value for kind, value in observations if kind == "handler")
+        self.assertEqual(framework_identity.kind, "trusted_core")
+        self.assertEqual(handler_identity.kind, "plugin")
+        self.assertEqual(handler_identity.name, "plugins.phase4-command")
 
 
 class CapabilityIsolationHonestyTests(unittest.TestCase):
