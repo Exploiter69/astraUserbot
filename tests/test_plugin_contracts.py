@@ -75,6 +75,7 @@ class Phase16Gate(unittest.TestCase):
                 "media_intel",
                 "cases",
                 "jobs",
+                "send_jobs",
                 "automation",
                 "secrets",
                 "ai",
