@@ -87,7 +87,7 @@ def test_sensitive_values_are_redacted_from_log_messages(label, message, secret)
 
 
 def test_short_alphanumeric_session_lookalike_is_not_redacted():
-    near_match = "1A" + "B7cD9eF2gH4jK6mN8pQ0rS1tU3vW5xY"
+    near_match = "1A" + "B7cD9eF2gH4jK6mN8pQ0rS1tU3vW5xY1234"
     assert len(near_match) == 37
     assert _filter_message(f"diagnostic id {near_match}") == f"diagnostic id {near_match}"
 
