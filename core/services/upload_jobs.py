@@ -126,15 +126,20 @@ def _expected_media(payload: dict[str, Any]) -> dict[str, Any]:
     return expected
 
 
+def _has_sufficient_media_identity(expected: dict[str, Any]) -> bool:
+    strong = [key for key in ("file_name", "size", "mime_type", "media_id")
+              if expected.get(key) is not None]
+    # A Telegram media ID is itself a strong identifier. Otherwise require at
+    # least two independent metadata fields; a filename alone is too ambiguous.
+    return len(strong) >= 2 or (len(strong) == 1 and strong[0] == "media_id")
+
+
 def _media_matches(observed: dict[str, Any] | None, expected: dict[str, Any]) -> bool:
-    if not observed:
+    if not observed or not _has_sufficient_media_identity(expected):
         return False
-    # A Telegram media message is required, plus at least one identity field.
     identity_keys = ("file_name", "size", "mime_type", "media_id", "kind")
     compared = [key for key in identity_keys if expected.get(key) is not None]
-    if not compared:
-        return False
-    return all(observed.get(key) == expected[key] for key in compared)
+    return bool(compared) and all(observed.get(key) == expected[key] for key in compared)
 
 
 def _fingerprint(target: Any, caption: str, expected_media: dict[str, Any]) -> str:
@@ -245,9 +250,9 @@ class UploadJobAdapter:
                 code="UPLOAD_INVALID_PAYLOAD",
             )
         expected = _expected_media(job.payload)
-        if not expected:
+        if not _has_sufficient_media_identity(expected):
             raise JobError(
-                "UPLOAD requires observable media identity metadata (e.g. filename or media_metadata)",
+                "UPLOAD requires sufficient media identity metadata (e.g. filename plus size, or media ID)",
                 code="UPLOAD_MEDIA_IDENTITY_REQUIRED",
             )
         started_at = time.time()
