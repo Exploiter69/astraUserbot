@@ -173,7 +173,15 @@ class JoinJobAdapter:
                 from telethon.tl.functions.channels import JoinChannelRequest
                 if client is None:
                     raise RuntimeError("Telegram client unavailable")
-                await client(JoinChannelRequest(target))
+                governed_call = getattr(self.telegram, "_call", None)
+                if governed_call is not None:
+                    from core.services.telegram_traffic import P1_INTERACTIVE, WRITE
+                    await governed_call(
+                        "__call__", JoinChannelRequest(target),
+                        operation_class=WRITE, priority=P1_INTERACTIVE,
+                    )
+                else:
+                    await client(JoinChannelRequest(target))
         except asyncio.CancelledError:
             raise
         except Exception as exc:
