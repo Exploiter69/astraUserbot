@@ -53,6 +53,7 @@ class SetupJournal:
     entries: list[SetupJournalEntry] = field(default_factory=list)
     frozen: bool = False
     failure_entries: tuple[SetupJournalEntry, ...] = ()
+    cleanup_errors: list[str] = field(default_factory=list)
 
     def record(
         self,
@@ -132,6 +133,9 @@ class PluginManager:
     )
     _SHUTDOWN_BUDGET_SECONDS = 2.5
     _PLUGIN_MUTATION_TIMEOUT_SECONDS = 5.0
+    # Bound each awaitable tracked cleanup independently; reverse-order
+    # rollback continues even if one cleanup times out.
+    _SETUP_CLEANUP_TIMEOUT_SECONDS = 1.0
 
     _current_plugin: ContextVar[str | None] = ContextVar(
         "astra_current_plugin", default=None
@@ -287,6 +291,30 @@ class PluginManager:
 
             return await_resource()
         return record_resource(created)
+
+    async def _cleanup_setup_journal(self, journal: SetupJournal) -> None:
+        """Run frozen tracked cleanups independently in reverse creation order."""
+        for entry in journal.failure_entries:
+            try:
+                result = entry.cleanup()
+                if inspect.isawaitable(result):
+                    await asyncio.wait_for(
+                        result, timeout=self._SETUP_CLEANUP_TIMEOUT_SECONDS
+                    )
+            except Exception as exc:  # noqa: BLE001 - rollback must keep going
+                entry.cleanup_state = "FAILED"
+                entry.cleanup_error = f"{type(exc).__name__}: {exc}"
+                journal.cleanup_errors.append(
+                    f"{entry.kind} {entry.identity}: {entry.cleanup_error}"
+                )
+                logger.exception(
+                    "Tracked setup cleanup failed for %s (%s)",
+                    journal.plugin_name,
+                    entry.identity,
+                )
+            else:
+                entry.cleanup_state = "SUCCEEDED"
+                entry.cleanup_error = None
 
     def discover(self) -> list[PluginRecord]:
         self.records.clear()
@@ -594,13 +622,14 @@ class PluginManager:
             return record
         except Exception as exc:
             if journal is not None:
-                # Step 1 freezes and snapshots only; cleanup is intentionally
-                # not wired into this failure path until the next step.
                 journal.freeze()
                 self._last_failed_setup_journal = journal
+                # Tracked side effects unwind before command registrations.
+                # Cleanup failures are recorded but never replace setup's cause.
+                await self._cleanup_setup_journal(journal)
             record.state = PluginState.FAILED_SETUP
             record.error = str(exc)
-            # Preserve the existing command-registration rollback unchanged.
+            # Registration rollback intentionally runs LAST, after tracked cleanup.
             from core.registry import get_registration
 
             for registration_id in list(record.registrations - old_registration_ids):
