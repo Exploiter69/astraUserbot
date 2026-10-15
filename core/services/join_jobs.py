@@ -156,10 +156,14 @@ class JoinJobAdapter:
         target = job.payload.get("target", job.payload.get("channel", job.payload.get("peer_id")))
         if target is None or (isinstance(target, str) and not target.strip()):
             raise JobError("JOIN payload requires a target channel/group", code="JOIN_INVALID_PAYLOAD")
-        if isinstance(target, str) and any(token in target.lower() for token in ("joinchat/", "+", "t.me/")):
-            raise JobError("JOIN invite semantics are ambiguous", code="JOIN_INVITE_SEMANTICS_UNKNOWN")
         started_at = time.time()
         await self._record_attempt(job, target, started_at)
+        if isinstance(target, str) and any(token in target.lower() for token in ("joinchat/", "+", "t.me/")):
+            raise JobError(
+                "JOIN invite semantics are ambiguous",
+                code="JOIN_INVITE_SEMANTICS_UNKNOWN",
+                retryable=True,
+            )
         client = getattr(self.telegram, "client", None)
         joiner = getattr(self.telegram, "join_channel", None) or getattr(client, "join_channel", None)
         try:
