@@ -43,6 +43,7 @@ from core.services.upload_jobs import UploadJobAdapter
 from core.services.join_jobs import JoinJobAdapter
 from core.services.telegram_recorder import TelegramOperationRecorder
 from core.tasks import TaskSupervisor
+from core.plugins.capabilities import trusted_core_context
 
 logger = logging.getLogger("astra.context")
 T = TypeVar("T")
@@ -203,7 +204,8 @@ class ApplicationContext:
             if starter is None:
                 continue
             try:
-                await starter()
+                with trusted_core_context(f"context.start.{name}"):
+                    await starter()
                 self._started.append(name)
             except Exception:
                 logger.exception("Failed to start service name=%s", name)
@@ -221,7 +223,8 @@ class ApplicationContext:
             if closer is None:
                 continue
             try:
-                await closer()
+                with trusted_core_context(f"context.close.{name}"):
+                    await closer()
             except Exception:
                 logger.exception("Failed to close service name=%s", name)
         self._started.clear()
