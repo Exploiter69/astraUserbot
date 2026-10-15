@@ -1,0 +1,213 @@
+"""Phase 4 capability-core contract tests (tests-first)."""
+
+import asyncio
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+from core.plugins.capabilities import (
+    CAPABILITIES,
+    CapabilityDeniedError,
+    CapabilityRuntime,
+    CapabilityGrantStore,
+    current_identity,
+    trusted_core_context,
+    validate_capabilities,
+)
+from core.services.storage import StorageService
+
+
+class CapabilityVocabularyTests(unittest.TestCase):
+    def test_vocabulary_contains_exactly_the_approved_eleven(self):
+        self.assertEqual(
+            CAPABILITIES,
+            frozenset(
+                {
+                    "telegram.read",
+                    "telegram.write",
+                    "network.external",
+                    "fs.read",
+                    "fs.write",
+                    "subprocess",
+                    "jobs.enqueue",
+                    "ai.remote",
+                    "ai.local",
+                    "vault.read",
+                    "vault.write",
+                }
+            ),
+        )
+
+    def test_vocabulary_validation_rejects_unknown_names(self):
+        self.assertEqual(
+            validate_capabilities(("telegram.read", "jobs.enqueue")),
+            ("telegram.read", "jobs.enqueue"),
+        )
+        with self.assertRaises(ValueError):
+            validate_capabilities(("intel.write",))
+        with self.assertRaises(ValueError):
+            validate_capabilities(("telegram.read", "telegram.read"))
+
+
+class CapabilityCoreTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.storage = StorageService(self.root)
+        await self.storage.start()
+        self.grants = CapabilityGrantStore(self.storage)
+        self.runtime = CapabilityRuntime(self.grants, self.storage)
+
+    async def asyncTearDown(self):
+        await self.storage.close()
+        self.tmp.cleanup()
+
+    async def test_grant_store_persists_and_migration_is_additive_idempotent(self):
+        original = await self.storage.fetchone(
+            "SELECT COUNT(*) FROM jobs"
+        )
+        await self.grants.replace_grants(
+            "plugins.readonly", ("telegram.read",), granted_by="owner"
+        )
+        await self.storage.close()
+        await self.storage.start()
+        self.grants = CapabilityGrantStore(self.storage)
+        self.assertEqual(
+            await self.grants.get_grants("plugins.readonly"),
+            frozenset({"telegram.read"}),
+        )
+        await self.storage.close()
+        await self.storage.start()
+        migrations = await self.storage.fetchall(
+            "SELECT version FROM schema_migrations ORDER BY version"
+        )
+        self.assertEqual([row[0] for row in migrations], list(range(1, 14)))
+        self.assertEqual(
+            (await self.storage.fetchone("SELECT COUNT(*) FROM jobs"))[0],
+            original[0],
+        )
+
+    async def test_effective_grants_are_declared_intersect_approved(self):
+        await self.grants.replace_grants(
+            "plugins.example",
+            ("telegram.read", "jobs.enqueue"),
+            granted_by="owner",
+        )
+        effective = await self.runtime.load_plugin(
+            "plugins.example",
+            declared=("telegram.read",),
+            mode="ENFORCED",
+        )
+        self.assertEqual(effective, frozenset({"telegram.read"}))
+        await self.runtime.load_plugin(
+            "plugins.declared_only",
+            declared=("telegram.read",),
+            mode="ENFORCED",
+        )
+        with self.assertRaises(CapabilityDeniedError):
+            await self.runtime.authorize(
+                "plugins.declared_only", "telegram.read", "test.read"
+            )
+        await self.grants.replace_grants(
+            "plugins.approved_only", ("telegram.read",), granted_by="owner"
+        )
+        await self.runtime.load_plugin(
+            "plugins.approved_only", declared=(), mode="ENFORCED"
+        )
+        with self.assertRaises(CapabilityDeniedError):
+            await self.runtime.authorize(
+                "plugins.approved_only", "telegram.read", "test.read"
+            )
+
+    async def test_grant_mutation_invalidates_cache_before_next_call(self):
+        await self.grants.replace_grants(
+            "plugins.cache", ("telegram.read",), granted_by="owner"
+        )
+        await self.runtime.load_plugin(
+            "plugins.cache", declared=("telegram.read",), mode="ENFORCED"
+        )
+        await self.runtime.authorize("plugins.cache", "telegram.read", "first")
+        await self.grants.replace_grants(
+            "plugins.cache", (), granted_by="owner"
+        )
+        self.runtime.invalidate("plugins.cache")
+        with self.assertRaises(CapabilityDeniedError):
+            await self.runtime.authorize(
+                "plugins.cache", "telegram.read", "after-revoke"
+            )
+
+    async def test_fake_plugin_denial_happens_before_side_effect(self):
+        await self.runtime.load_plugin(
+            "plugins.no_grants", declared=(), mode="ENFORCED"
+        )
+        effects = []
+
+        async def protected_operation():
+            await self.runtime.authorize(
+                "plugins.no_grants", "jobs.enqueue", "jobs.enqueue"
+            )
+            effects.append("created")
+
+        with self.assertRaises(CapabilityDeniedError):
+            await protected_operation()
+        self.assertEqual(effects, [])
+
+    async def test_audit_records_granted_and_denied_without_secrets(self):
+        await self.grants.replace_grants(
+            "plugins.audit", ("telegram.read",), granted_by="owner"
+        )
+        await self.runtime.load_plugin(
+            "plugins.audit", declared=("telegram.read",), mode="ENFORCED"
+        )
+        await self.runtime.authorize(
+            "plugins.audit", "telegram.read", "test.read"
+        )
+        with self.assertRaises(CapabilityDeniedError):
+            await self.runtime.authorize(
+                "plugins.audit", "jobs.enqueue", "test.enqueue",
+                details={"token": "must-not-be-stored", "payload": "private"},
+            )
+        rows = await self.storage.fetchall(
+            "SELECT kind, subject_id, payload_json FROM audit_events "
+            "WHERE kind='CAPABILITY_CHECK' ORDER BY id"
+        )
+        self.assertEqual(len(rows), 2)
+        records = [json.loads(row[2]) for row in rows]
+        self.assertEqual([item["outcome"] for item in records], ["GRANTED", "DENIED"])
+        self.assertTrue(all(item["plugin"] == "plugins.audit" for item in records))
+        self.assertTrue(all("must-not-be-stored" not in row[2] for row in rows))
+        self.assertTrue(all("private" not in row[2] for row in rows))
+
+    async def test_trusted_core_identity_is_explicit_and_plugin_identity_is_not_core(self):
+        self.assertIsNone(current_identity())
+        with trusted_core_context("test.framework"):
+            identity = current_identity()
+            self.assertEqual(identity.kind, "trusted_core")
+            self.assertEqual(identity.name, "test.framework")
+        self.assertIsNone(current_identity())
+
+    async def test_helper_denies_plugin_and_allows_core_without_service_enforcement(self):
+        await self.runtime.load_plugin(
+            "plugins.empty", declared=(), mode="ENFORCED"
+        )
+        with self.assertRaises(CapabilityDeniedError):
+            await self.runtime.authorize("plugins.empty", "fs.write", "fs.write")
+        with trusted_core_context("test.framework"):
+            result = await self.runtime.authorize(
+                "core", "fs.write", "framework.fs.write"
+            )
+        self.assertIsNone(result)
+
+
+class CapabilityIsolationHonestyTests(unittest.TestCase):
+    def test_capability_handles_do_not_sandbox_direct_python_access(self):
+        # Capability checks govern the supported API only; direct Python access
+        # to imported modules remains possible in this shared process.
+        import os
+
+        self.assertTrue(callable(os.getcwd))
+
+
+if __name__ == "__main__":
+    unittest.main()
