@@ -294,3 +294,5 @@ rollback plan
 Preference alone is not sufficient evidence.
 
 > **Architecture is allowed to evolve, but it must evolve deliberately and leave an audit trail.**
+
+**Phase 3C design note:** A scoped handle bound to `(attempt_id, plugin_name)` is a candidate for Phase 4 capability enforcement; Phase 3C retains manager-bound `ContextVar` access and the unchanged `setup(client)` signature.
