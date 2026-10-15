@@ -132,7 +132,7 @@ async def test_join_unknown_stays_uncertain_without_replay(tmp_path, case):
             with pytest.raises(JobError) as failure:
                 await adapter.handle(claimed)
             assert failure.value.code == "JOIN_INVITE_SEMANTICS_UNKNOWN"
-            await jobs._fail_claimed(claimed, failure.value.code, str(failure.value), retryable=False)
+            await jobs._fail_claimed(claimed, failure.value.code, str(failure.value), retryable=True)
         else:
             await adapter._record_attempt(claimed, target, time.time() - 1)
             if case == "membership_not_queryable":
