@@ -479,13 +479,6 @@ async def test_step2_tracked_cleanup_is_reverse_order_and_registration_rollback_
                 client, command_pattern, lambda _event: None,
                 description="Step 2 rollback ordering",
             )
-            observed["task"] = manager.tracked_task(
-                tasks, asyncio.Event().wait(), name="phase3c-step2-task"
-            )
-            observed["job"] = await manager.tracked_job(
-                jobs, "PHASE3C_STEP2_ORDER", {"stage": "queued"}
-            )
-
             def cleanup_resource(_resource):
                 # Registration must still exist while tracked cleanup runs.
                 assert any(
@@ -498,6 +491,13 @@ async def test_step2_tracked_cleanup_is_reverse_order_and_registration_rollback_
                 lambda: object(), cleanup_resource,
                 kind="test_resource", identity="resource",
             )
+            observed["task"] = manager.tracked_task(
+                tasks, asyncio.Event().wait(), name="phase3c-step2-task"
+            )
+            observed["job"] = await manager.tracked_job(
+                jobs, "PHASE3C_STEP2_ORDER", {"stage": "queued"}
+            )
+
             raise RuntimeError("original setup failure")
 
         module.setup = setup
@@ -514,7 +514,7 @@ async def test_step2_tracked_cleanup_is_reverse_order_and_registration_rollback_
             journal = manager.last_failed_setup_journal
             assert journal is not None
             assert [entry.kind for entry in journal.failure_entries] == [
-                "test_resource", "job", "task"
+                "job", "task", "test_resource"
             ]
             assert all(
                 entry.cleanup_state == "SUCCEEDED"
