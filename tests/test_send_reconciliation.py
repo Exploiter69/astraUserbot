@@ -190,7 +190,7 @@ async def test_send_multi_effect_happened_plus_unknown_remains_uncertain(tmp_pat
             (
                 "effect-unknown",
                 job.id,
-                SEND_EFFECT_CLASS,
+                "OTHER",
                 time.time(),
                 json.dumps("chat-1"),
                 "different-fingerprint",
