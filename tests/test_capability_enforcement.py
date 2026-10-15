@@ -142,11 +142,32 @@ class CapabilityCoreTests(unittest.IsolatedAsyncioTestCase):
         await self._replace_grants(
             "plugins.cache", (), granted_by="owner"
         )
-        self.runtime.invalidate("plugins.cache")
-        with self.assertRaises(CapabilityDeniedError):
+        with patch.object(self.storage, "fetchall", side_effect=AssertionError("hot path read")):
+            with self.assertRaises(CapabilityDeniedError):
+                await self.runtime.authorize(
+                    "plugins.cache", "telegram.read", "after-revoke"
+                )
+        return
+
+    async def test_protected_call_does_not_read_grants_from_storage(self):
+        await self._replace_grants(
+            "plugins.hotpath", ("telegram.read",), granted_by="owner"
+        )
+        await self.runtime.load_plugin(
+            "plugins.hotpath", declared=("telegram.read",), mode="ENFORCED"
+        )
+        with patch.object(self.storage, "fetchall", side_effect=AssertionError("hot path read")):
             await self.runtime.authorize(
-                "plugins.cache", "telegram.read", "after-revoke"
+                "plugins.hotpath", "telegram.read", "hotpath.read"
             )
+
+    async def test_plugin_identity_cannot_mutate_grant_store(self):
+        with plugin_identity_context("plugins.attacker"):
+            with self.assertRaises(PermissionError):
+                await self.grants.replace_grants(
+                    "plugins.attacker", ("fs.write",), granted_by="owner"
+                )
+
 
     async def test_fake_plugin_denial_happens_before_side_effect(self):
         await self.runtime.load_plugin(
