@@ -76,6 +76,7 @@ class Phase16Gate(unittest.TestCase):
                 "cases",
                 "jobs",
                 "send_jobs",
+                "edit_jobs",
                 "automation",
                 "secrets",
                 "ai",
