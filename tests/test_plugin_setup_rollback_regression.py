@@ -176,3 +176,131 @@ async def test_failed_setup_unwinds_every_side_effect(stage, expected_unwound):
             for registration in list(_REGISTRATIONS.values()):
                 if registration.owner == plugin_name:
                     registration.unregister(client)
+
+
+@pytest.mark.asyncio
+async def test_setup_tracking_api_records_entries_in_attempt_order_and_discards_on_success():
+    """The unchanged setup(client) API records tracked resources in its own journal."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        client = FakeClient()
+        storage = StorageService(root / "state")
+        await storage.start()
+        jobs = JobEngine(storage, worker_id="phase3c-step1-record")
+        tasks = TaskSupervisor()
+        plugin_name = "plugins.phase3c_step1_record"
+        cleanup_calls = []
+        resource = object()
+        observed = {}
+        module = types.ModuleType(plugin_name)
+
+        async def setup(_client):
+            manager = PluginManager.current_manager()
+            assert manager is not None
+            observed["signature_parameters"] = len(
+                __import__("inspect").signature(setup).parameters
+            )
+            scheduled_task = manager.tracked_task(
+                tasks,
+                asyncio.Event().wait(),
+                name="phase3c-step1-task",
+            )
+            queued_job = await manager.tracked_job(
+                jobs,
+                "PHASE3C_STEP1_TEST",
+                {"plugin": plugin_name},
+            )
+            created_resource = manager.tracked_resource(
+                lambda: resource,
+                lambda value: cleanup_calls.append(value),
+                kind="test_resource",
+                identity="resource-1",
+            )
+            journal = manager.current_setup_journal()
+            assert journal is not None
+            observed["journal"] = journal
+            observed["entries"] = list(journal.entries)
+            observed["task"] = scheduled_task
+            observed["job"] = queued_job
+            observed["resource"] = created_resource
+
+        module.setup = setup
+        manager = PluginManager(client, root / "plugins")
+        client.plugin_manager = manager
+        manager.records[plugin_name] = PluginRecord(plugin_name, module=module)
+
+        try:
+            await manager.enable_plugin(plugin_name)
+            entries = observed["entries"]
+            assert [entry.kind for entry in entries] == [
+                "task", "job", "test_resource"
+            ]
+            assert [entry.sequence for entry in entries] == [1, 2, 3]
+            assert all(entry.plugin_name == plugin_name for entry in entries)
+            assert all(
+                entry.attempt_id == observed["journal"].attempt_id
+                for entry in entries
+            )
+            assert entries[0].identity
+            assert entries[1].identity == observed["job"].id
+            assert entries[2].identity == "resource-1"
+            assert observed["signature_parameters"] == 1
+            assert manager.current_setup_journal() is None
+            assert manager.last_failed_setup_journal is None
+            assert cleanup_calls == []
+        finally:
+            task = observed.get("task")
+            if task is not None and not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+            job = observed.get("job")
+            if job is not None:
+                await jobs.cancel(job.id)
+            await tasks.shutdown(timeout=0.05)
+            await storage.close()
+
+
+@pytest.mark.asyncio
+async def test_setup_tracking_journals_are_isolated_between_plugin_attempts():
+    """Each plugin's manager-bound tracking calls land only in its own journal."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        client = FakeClient()
+        manager = PluginManager(client, root / "plugins")
+        client.plugin_manager = manager
+        observed = {}
+
+        for plugin_name in (
+            "plugins.phase3c_step1_isolation_a",
+            "plugins.phase3c_step1_isolation_b",
+        ):
+            module = types.ModuleType(plugin_name)
+
+            async def setup(_client, *, _plugin_name=plugin_name):
+                active_manager = PluginManager.current_manager()
+                assert active_manager is manager
+                active_manager.tracked_resource(
+                    lambda: _plugin_name,
+                    lambda _resource: None,
+                    kind="isolated_resource",
+                    identity=_plugin_name,
+                )
+                journal = active_manager.current_setup_journal()
+                assert journal is not None
+                observed[_plugin_name] = {
+                    "attempt_id": journal.attempt_id,
+                    "entries": list(journal.entries),
+                }
+
+            module.setup = setup
+            manager.records[plugin_name] = PluginRecord(plugin_name, module=module)
+            await manager.enable_plugin(plugin_name)
+
+        name_a = "plugins.phase3c_step1_isolation_a"
+        name_b = "plugins.phase3c_step1_isolation_b"
+        assert observed[name_a]["attempt_id"] != observed[name_b]["attempt_id"]
+        assert [entry.plugin_name for entry in observed[name_a]["entries"]] == [name_a]
+        assert [entry.plugin_name for entry in observed[name_b]["entries"]] == [name_b]
+        assert observed[name_a]["entries"][0].attempt_id == observed[name_a]["attempt_id"]
+        assert observed[name_b]["entries"][0].attempt_id == observed[name_b]["attempt_id"]
+        assert manager.current_setup_journal() is None
