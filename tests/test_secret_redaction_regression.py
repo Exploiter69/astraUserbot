@@ -58,10 +58,6 @@ def _synthetic_session() -> str:
             "raw_telethon_session_string",
             "Telethon client restored: " + _synthetic_session(),
             _synthetic_session(),
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="SecretFilter does not recognize an unlabeled raw Telethon StringSession.",
-            ),
         ),
         (
             "api_hash",
@@ -72,28 +68,16 @@ def _synthetic_session() -> str:
             "vault_plaintext",
             "vault plaintext: synthetic-vault-plaintext-value",
             "synthetic-vault-plaintext-value",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="SecretFilter does not recognize vault plaintext context.",
-            ),
         ),
         pytest.param(
             "bearer_token",
             "upstream response included Bearer synthetic_bearer_token_value",
             "synthetic_bearer_token_value",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="SecretFilter does not recognize a standalone Bearer credential.",
-            ),
         ),
         pytest.param(
             "multiline_secret_on_second_line",
             "worker started successfully\n1AABCD9876secondLineSyntheticSession",
             "1AABCD9876secondLineSyntheticSession",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="SecretFilter leaves an unlabeled credential on a later line unchanged.",
-            ),
         ),
     ],
 )
