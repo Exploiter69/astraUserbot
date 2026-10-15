@@ -43,7 +43,11 @@ from core.services.upload_jobs import UploadJobAdapter
 from core.services.join_jobs import JoinJobAdapter
 from core.services.telegram_recorder import TelegramOperationRecorder
 from core.tasks import TaskSupervisor
-from core.plugins.capabilities import trusted_core_context
+from core.plugins.capabilities import (
+    CapabilityGrantStore,
+    CapabilityRuntime,
+    trusted_core_context,
+)
 
 logger = logging.getLogger("astra.context")
 T = TypeVar("T")
@@ -66,6 +70,15 @@ class ApplicationContext:
         self._started: list[str] = []
         self._closed = False
         self.register("storage", StorageService(self.project_root))
+        self.register(
+            "capability_grants", CapabilityGrantStore(self.get("storage"))
+        )
+        self.register(
+            "capabilities",
+            CapabilityRuntime(
+                self.get("capability_grants"), self.get("storage")
+            ),
+        )
         self.register("cache", CacheService(self.project_root))
         self.register("http", HttpService())
         self.register("subprocess", SubprocessService())
