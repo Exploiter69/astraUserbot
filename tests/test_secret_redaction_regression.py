@@ -132,7 +132,7 @@ def test_benign_text_on_second_line_survives():
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
-        ("1" + "".join(random.Random(7).choice("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-") for _ in range(349)), True),
+        ("1" + "".join(random.Random(7).choices("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-", k=349)), True),
         ("A" * 350, False),
         ("AB" * 175, False),
         ("short", False),
