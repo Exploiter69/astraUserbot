@@ -298,6 +298,15 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
         ON plugin_capability_grants(plugin_name);
     """,
     ),
+    (
+        14,
+        """
+    INSERT OR IGNORE INTO plugin_capability_grants
+        (plugin_name, capability, granted_by, granted_at)
+    VALUES ('plugins.system.ping', 'telegram.write',
+            'phase4-owner-approved-pilot', 1792113600.0);
+    """,
+    ),
 )
 
 

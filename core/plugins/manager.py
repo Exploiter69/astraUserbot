@@ -101,6 +101,7 @@ class PluginRecord:
     dependencies: tuple[str, ...] = ()
     optional_dependencies: tuple[str, ...] = ()
     capabilities: tuple[str, ...] = ()
+    capability_mode: str = "LEGACY_UNDECLARED"
     version: str = "legacy"
     api_version: int = 1
     description: str = ""
@@ -192,6 +193,22 @@ class PluginManager:
         runtime = context.services.get("capabilities")
         if runtime is not None:
             runtime.invalidate(name)
+
+    async def _load_capability_policy(self, record: PluginRecord) -> None:
+        """Resolve explicitly enforced plugin policy before setup or reload."""
+        if record.capability_mode != "ENFORCED":
+            return
+        from core.context import get_application_context
+
+        context = get_application_context()
+        runtime = context.get("capabilities") if context is not None else None
+        if runtime is None:
+            raise PluginLifecycleError(
+                f"ENFORCED plugin {record.name} cannot load without capability runtime"
+            )
+        await runtime.load_plugin(
+            record.name, declared=record.capabilities, mode="ENFORCED"
+        )
 
     def current_setup_journal(self) -> SetupJournal | None:
         """Return this manager's journal only inside its active plugin setup."""
@@ -388,6 +405,10 @@ class PluginManager:
         record.dependencies = metadata.dependencies
         record.optional_dependencies = metadata.optional_dependencies
         record.capabilities = metadata.capabilities
+        mode = str(getattr(record.module, "plugin_capability_mode", "LEGACY_UNDECLARED"))
+        if mode not in {"ENFORCED", "LEGACY_UNDECLARED"}:
+            raise ValueError(f"Unsupported capability mode for {record.name}: {mode}")
+        record.capability_mode = mode
         record.critical = metadata.critical
         return metadata
 
@@ -481,6 +502,7 @@ class PluginManager:
                 continue
             try:
                 self._invalidate_capability_cache(name)
+                await self._load_capability_policy(record)
                 self._validate_dependency_runtime(name)
                 await self._run_setup(record)
             except Exception as exc:
@@ -643,6 +665,7 @@ class PluginManager:
                 record.module = importlib.import_module(name)
             record.state = PluginState.LOADED
             self._read_metadata(record)
+            await self._load_capability_policy(record)
             self._validate_dependency_runtime(name)
             journal = SetupJournal(
                 attempt_id=uuid.uuid4().hex,
