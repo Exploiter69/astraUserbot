@@ -355,10 +355,10 @@ class UploadJobAdapter:
                         and _media_matches(_media_metadata(message), expected)):
                     return ReconcileOutcome.HAPPENED
                 return ReconcileOutcome.UNKNOWN
-            # Recorded ID absent from an incomplete/bounded history is not proof
-            # of non-publication; only an explicit rejection can authorize retry.
-            if len(by_id) > 1:
-                return ReconcileOutcome.UNKNOWN
+            # A recorded published-message ID is authoritative for identity.
+            # If that ID is absent from the bounded history, do not substitute
+            # a different caption/media match; the observation may be incomplete.
+            return ReconcileOutcome.UNKNOWN
 
         if len(eligible) == 1:
             return ReconcileOutcome.HAPPENED
