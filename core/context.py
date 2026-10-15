@@ -37,6 +37,7 @@ from core.services.flags import FeatureFlagService
 from core.services.isolation import IsolationService
 from core.services.metrics import MetricsService
 from core.services.send_jobs import SendJobAdapter
+from core.services.edit_jobs import EditJobAdapter
 from core.services.telegram_recorder import TelegramOperationRecorder
 from core.tasks import TaskSupervisor
 
@@ -119,6 +120,10 @@ class ApplicationContext:
         self.register(
             "send_jobs",
             SendJobAdapter(self.get("jobs"), self.get("telegram"), self.get("storage")),
+        )
+        self.register(
+            "edit_jobs",
+            EditJobAdapter(self.get("jobs"), self.get("telegram"), self.get("storage")),
         )
         self.register(
             "automation",
