@@ -113,6 +113,9 @@ async def test_failed_setup_unwinds_every_side_effect(stage, expected_unwound):
 
         module.setup = setup
         manager = PluginManager(client, root / "plugins")
+        # Production loader installs this reference so register_cmd can record
+        # ownership and enable_plugin can unwind setup-created registrations.
+        client.plugin_manager = manager
         manager.records[plugin_name] = PluginRecord(plugin_name, module=module)
 
         try:
