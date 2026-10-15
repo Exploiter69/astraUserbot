@@ -152,15 +152,46 @@ async def test_retryable_failure_cannot_automatically_requeue():
         engine = JobEngine(storage)
         async def fake_handler(job):
             return None
-        engine.register_handler("FAKE_RETRY", fake_handler)
+        engine.register_handler("FAKE_RETRY", fake_handler, effect_class="FAKE")
         try:
             queued = await engine.enqueue("FAKE_RETRY", {})
             claimed = await engine.claim()
             assert claimed is not None and claimed.id == queued.id
             assert await engine._fail_claimed(claimed, "TRANSIENT", "uncertain effect", retryable=True)
             assert (await engine.get(queued.id)).state == JobState.UNCERTAIN
+            with pytest.raises(ReconciliationRequiredError):
+                await engine.requeue_uncertain(queued.id)
             events = await storage.fetchall("SELECT event_type,payload_json FROM job_events WHERE job_id=?", (queued.id,))
             assert any(row["event_type"] == "REPLAY_REFUSED" for row in events)
+        finally:
+            await engine.close()
+            await storage.close()
+
+
+@pytest.mark.asyncio
+async def test_ordinary_retryable_handler_keeps_bounded_retry_and_max_attempts():
+    with tempfile.TemporaryDirectory() as tmp:
+        storage = StorageService(Path(tmp))
+        await storage.start()
+        engine = JobEngine(storage)
+        async def ordinary_handler(job):
+            return None
+        engine.register_handler("ORDINARY_RETRY", ordinary_handler)
+        try:
+            job = await engine.enqueue("ORDINARY_RETRY", {}, max_attempts=2)
+            first = await engine.claim()
+            assert first is not None and first.id == job.id
+            assert await engine._fail_claimed(first, "TEMP", "temporary", retryable=True)
+            retry = await engine.get(job.id)
+            assert retry.state == JobState.QUEUED
+            assert retry.attempt_count == 1
+            await storage.execute("UPDATE jobs SET available_at=0 WHERE id=?", (job.id,))
+            second = await engine.claim()
+            assert second is not None and second.attempt_count == 2
+            assert await engine._fail_claimed(second, "TEMP", "final retry", retryable=True)
+            failed = await engine.get(job.id)
+            assert failed.state == JobState.FAILED
+            assert failed.attempt_count == 2
         finally:
             await engine.close()
             await storage.close()

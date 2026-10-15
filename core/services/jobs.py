@@ -704,11 +704,17 @@ class JobEngine:
     ) -> bool:
         now = time.time()
         requested_retry = retryable and job.attempt_count < job.max_attempts
-        # Retrying re-executes the handler; default-deny until an effect observer
-        # proves every required effect did not happen.
-        should_retry = False
-        state = JobState.UNCERTAIN if requested_retry else JobState.FAILED
-        delay = 0.0
+        # Only handlers that explicitly declare an external effect need the
+        # reconciliation gate. Ordinary handlers retain bounded retry/backoff.
+        effect_class = self.effect_classes.get(job.type)
+        retry_blocked_for_reconciliation = requested_retry and effect_class is not None
+        should_retry = requested_retry and not retry_blocked_for_reconciliation
+        state = (
+            JobState.UNCERTAIN
+            if retry_blocked_for_reconciliation
+            else JobState.QUEUED if should_retry else JobState.FAILED
+        )
+        delay = min(300.0, 2 ** max(0, job.attempt_count - 1)) if should_retry else 0.0
         bounded_message = str(message)[: self.MAX_ERROR_MESSAGE_CHARS]
         async with self.storage.lock:
             assert self.storage.conn is not None
@@ -720,7 +726,7 @@ class JobEngine:
                     bounded_message,
                     now + delay,
                     now,
-                    None if requested_retry else now,
+                    None if should_retry or retry_blocked_for_reconciliation else now,
                     job.id,
                     JobState.RUNNING.value,
                     job.attempt_count,
@@ -738,19 +744,23 @@ class JobEngine:
             )
             await self.storage.conn.execute(
                 "UPDATE job_attempts SET state=?,finished_at=?,error_code=?,error_message=? WHERE job_id=? AND attempt=? AND state='RUNNING'",
-                ("UNCERTAIN" if requested_retry else "FAILED", now, str(code)[:128], bounded_message, job.id, job.attempt_count),
+                ("UNCERTAIN" if retry_blocked_for_reconciliation else "FAILED", now, str(code)[:128], bounded_message, job.id, job.attempt_count),
             )
             await self._event_locked(
                 job.id,
-                "RETRY_BLOCKED_UNCERTAIN" if requested_retry else "FAILED",
+                (
+                    "RETRY_BLOCKED_UNCERTAIN"
+                    if retry_blocked_for_reconciliation
+                    else "RETRY_SCHEDULED" if should_retry else "FAILED"
+                ),
                 {
                     "retryable": retryable,
                     "attempt": job.attempt_count,
-                    "next_attempt": None,
-                    "reason": "RECONCILIATION_REQUIRED" if requested_retry else None,
+                    "next_attempt": job.attempt_count + 1 if should_retry else None,
+                    "reason": "RECONCILIATION_REQUIRED" if retry_blocked_for_reconciliation else None,
                 },
             )
-            if requested_retry:
+            if retry_blocked_for_reconciliation:
                 await self._event_locked(job.id, "REPLAY_REFUSED", {"reason": "AUTOMATIC_RETRY_REQUIRES_RECONCILIATION"})
             await self.storage.conn.commit()
             return True
