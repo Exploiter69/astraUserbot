@@ -140,7 +140,7 @@ async def test_send_not_happened_authoritative_rejection_allows_one_reexecution(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("case", ["no_match", "ambiguous", "history_unavailable", "timeout"])
+@pytest.mark.parametrize("case", ["no_match", "wrong_sender", "ambiguous", "history_unavailable", "timeout"])
 async def test_send_unknown_stays_uncertain_and_never_replays(tmp_path, case):
     storage, jobs, telegram, adapter = await make_services(tmp_path)
     try:
@@ -150,7 +150,11 @@ async def test_send_unknown_stays_uncertain_and_never_replays(tmp_path, case):
         await adapter._record_attempt(job, "chat-1", fingerprint, started_at)
         await mark_uncertain(storage, job.id)
 
-        if case == "ambiguous":
+        if case == "wrong_sender":
+            telegram.history = [
+                FakeMessage(100, 99, "hello", datetime.now(timezone.utc)),
+            ]
+        elif case == "ambiguous":
             timestamp = datetime.now(timezone.utc)
             telegram.history = [
                 FakeMessage(101, 42, "hello", timestamp),
