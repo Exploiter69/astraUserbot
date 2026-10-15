@@ -454,3 +454,217 @@ async def test_failed_setup_freezes_and_reverse_snapshots_journal_without_cleanu
         ]
         assert cleanup_calls == []
         assert all(entry.cleanup_state == "PENDING" for entry in journal.entries)
+
+
+@pytest.mark.asyncio
+async def test_step2_tracked_cleanup_is_reverse_order_and_registration_rollback_is_last():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        client = FakeClient()
+        storage = StorageService(root / "state")
+        await storage.start()
+        jobs = JobEngine(storage, worker_id="phase3c-step2-order")
+        tasks = TaskSupervisor()
+        plugin_name = "plugins.phase3c_step2_order"
+        command_pattern = r"^\.p3c2order($|\s)"
+        events = []
+        observed = {}
+        module = types.ModuleType(plugin_name)
+
+        async def setup(_client):
+            manager = PluginManager.current_manager()
+            assert manager is not None
+            register_cmd(
+                client, command_pattern, lambda _event: None,
+                description="Step 2 rollback ordering",
+            )
+            observed["task"] = manager.tracked_task(
+                tasks, asyncio.Event().wait(), name="phase3c-step2-task"
+            )
+            observed["job"] = await manager.tracked_job(
+                jobs, "PHASE3C_STEP2_ORDER", {"stage": "queued"}
+            )
+
+            def cleanup_resource(_resource):
+                # Registration must still exist while tracked cleanup runs.
+                assert any(
+                    registration.owner == plugin_name
+                    for registration in _REGISTRATIONS.values()
+                )
+                events.append("resource")
+
+            manager.tracked_resource(
+                lambda: object(), cleanup_resource,
+                kind="test_resource", identity="resource",
+            )
+            raise RuntimeError("original setup failure")
+
+        module.setup = setup
+        manager = PluginManager(client, root / "plugins")
+        client.plugin_manager = manager
+        manager.records[plugin_name] = PluginRecord(plugin_name, module=module)
+
+        try:
+            with pytest.raises(PluginLifecycleError, match="Enable failed") as raised:
+                await manager.enable_plugin(plugin_name)
+            assert isinstance(raised.value.__cause__, RuntimeError)
+            assert str(raised.value.__cause__) == "original setup failure"
+            assert events == ["resource"]
+            journal = manager.last_failed_setup_journal
+            assert journal is not None
+            assert [entry.kind for entry in journal.failure_entries] == [
+                "test_resource", "job", "task"
+            ]
+            assert all(
+                entry.cleanup_state == "SUCCEEDED"
+                for entry in journal.failure_entries
+            )
+            assert await jobs.get(observed["job"].id) is not None
+            assert (await jobs.get(observed["job"].id)).state == JobState.CANCELLED
+            assert await jobs.claim(("PHASE3C_STEP2_ORDER",)) is None
+            assert not [
+                item for item in tasks.active() if item.owner == plugin_name
+            ]
+            assert not any(
+                registration.owner == plugin_name
+                for registration in _REGISTRATIONS.values()
+            )
+            assert manager.get(plugin_name).error == "original setup failure"
+        finally:
+            task = observed.get("task")
+            if task is not None and not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+            job = observed.get("job")
+            if job is not None:
+                await jobs.cancel(job.id)
+            await tasks.shutdown(timeout=0.05)
+            await storage.close()
+            for registration in list(_REGISTRATIONS.values()):
+                if registration.owner == plugin_name:
+                    registration.unregister(client)
+
+
+@pytest.mark.asyncio
+async def test_step2_cleanup_failure_does_not_stop_unwind_or_mask_setup_error():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        client = FakeClient()
+        plugin_name = "plugins.phase3c_step2_partial_failure"
+        events = []
+        module = types.ModuleType(plugin_name)
+
+        async def setup(_client):
+            manager = PluginManager.current_manager()
+            assert manager is not None
+            manager.tracked_resource(
+                lambda: "first",
+                lambda _value: events.append("first"),
+                kind="test_resource", identity="first",
+            )
+
+            def broken_cleanup(_value):
+                events.append("broken")
+                raise ValueError("cleanup exploded")
+
+            manager.tracked_resource(
+                lambda: "broken",
+                broken_cleanup,
+                kind="test_resource", identity="broken",
+            )
+            manager.tracked_resource(
+                lambda: "last",
+                lambda _value: events.append("last"),
+                kind="test_resource", identity="last",
+            )
+            raise RuntimeError("primary setup failure")
+
+        module.setup = setup
+        manager = PluginManager(client, root / "plugins")
+        client.plugin_manager = manager
+        manager.records[plugin_name] = PluginRecord(plugin_name, module=module)
+
+        with pytest.raises(PluginLifecycleError, match="Enable failed") as raised:
+            await manager.enable_plugin(plugin_name)
+
+        assert isinstance(raised.value.__cause__, RuntimeError)
+        assert str(raised.value.__cause__) == "primary setup failure"
+        assert events == ["last", "broken", "first"]
+        journal = manager.last_failed_setup_journal
+        assert journal is not None
+        by_identity = {entry.identity: entry for entry in journal.entries}
+        assert by_identity["last"].cleanup_state == "SUCCEEDED"
+        assert by_identity["first"].cleanup_state == "SUCCEEDED"
+        assert by_identity["broken"].cleanup_state == "FAILED"
+        assert "ValueError: cleanup exploded" in by_identity["broken"].cleanup_error
+        assert len(journal.cleanup_errors) == 1
+        assert "broken" in journal.cleanup_errors[0]
+        assert manager.get(plugin_name).error == "primary setup failure"
+
+
+@pytest.mark.asyncio
+async def test_step2_failed_plugin_cleanup_does_not_touch_overlapping_plugin_journal():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        client = FakeClient()
+        manager = PluginManager(client, root / "plugins")
+        client.plugin_manager = manager
+        b_started = asyncio.Event()
+        release_b = asyncio.Event()
+        cleaned = []
+        observed = {}
+        name_a = "plugins.phase3c_step2_overlap_a"
+        name_b = "plugins.phase3c_step2_overlap_b"
+
+        async def setup_a(_client):
+            active = PluginManager.current_manager()
+            assert active is manager
+            active.tracked_resource(
+                lambda: "A",
+                lambda value: cleaned.append(value),
+                kind="resource", identity="A",
+            )
+            await b_started.wait()
+            raise RuntimeError("A setup failure")
+
+        async def setup_b(_client):
+            active = PluginManager.current_manager()
+            assert active is manager
+            resource = active.tracked_resource(
+                lambda: "B",
+                lambda value: cleaned.append(value),
+                kind="resource", identity="B",
+            )
+            observed["journal_b"] = active.current_setup_journal()
+            observed["resource_b"] = resource
+            b_started.set()
+            await release_b.wait()
+            assert active.current_setup_journal() is observed["journal_b"]
+            assert observed["journal_b"] is not None
+            assert observed["journal_b"].plugin_name == name_b
+
+        module_a = types.ModuleType(name_a)
+        module_a.setup = setup_a
+        module_b = types.ModuleType(name_b)
+        module_b.setup = setup_b
+        manager.records[name_a] = PluginRecord(name_a, module=module_a)
+        manager.records[name_b] = PluginRecord(name_b, module=module_b)
+
+        task_b = asyncio.create_task(manager.enable_plugin(name_b))
+        try:
+            with pytest.raises(PluginLifecycleError, match="Enable failed"):
+                await manager.enable_plugin(name_a)
+            assert cleaned == ["A"]
+            journal_a = manager.last_failed_setup_journal
+            assert journal_a is not None
+            assert [entry.identity for entry in journal_a.entries] == ["A"]
+            assert observed["journal_b"] is not journal_a
+            assert observed["journal_b"].plugin_name == name_b
+            assert [entry.identity for entry in observed["journal_b"].entries] == ["B"]
+            assert observed["journal_b"].entries[0].cleanup_state == "PENDING"
+        finally:
+            release_b.set()
+            await task_b
+        assert cleaned == ["A"]
+        assert manager.get(name_b).state.name == "RUNNING"
+
