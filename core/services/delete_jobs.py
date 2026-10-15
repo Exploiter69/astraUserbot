@@ -182,7 +182,11 @@ class DeleteJobAdapter:
             pre_state = evidence["pre_attempt_state"]
         except (TypeError, ValueError, KeyError, json.JSONDecodeError):
             return ReconcileOutcome.UNKNOWN
-        if not row["payload_fingerprint"] or pre_state.get("id") != message_id:
+        if (
+            not row["payload_fingerprint"]
+            or not isinstance(pre_state, dict)
+            or pre_state.get("id") != message_id
+        ):
             return ReconcileOutcome.UNKNOWN
 
         try:
