@@ -11,7 +11,7 @@ from contextlib import nullcontext
 from pathlib import Path
 from unittest.mock import patch
 
-from core.plugins.manager import PluginManager
+from core.plugins.manager import PluginManager, PluginRecord, PluginState
 from core.services.jobs import JobEngine
 from core.tasks import TaskSupervisor
 
@@ -96,7 +96,7 @@ class CapabilityCoreTests(unittest.IsolatedAsyncioTestCase):
         migrations = await self.storage.fetchall(
             "SELECT version FROM schema_migrations ORDER BY version"
         )
-        self.assertEqual([row[0] for row in migrations], list(range(1, 14)))
+        self.assertEqual([row[0] for row in migrations], list(range(1, 15)))
         self.assertEqual(
             (await self.storage.fetchone("SELECT COUNT(*) FROM jobs"))[0],
             original[0],
@@ -241,6 +241,171 @@ class CapabilityCoreTests(unittest.IsolatedAsyncioTestCase):
 
 
 
+
+    async def test_ping_enforced_acceptance_grant_deny_audit_and_reload(self):
+        from importlib import import_module
+
+        plugin_name = "plugins.system.ping"
+        module = import_module(plugin_name)
+        self.assertEqual(module.plugin_capability_mode, "ENFORCED")
+        self.assertEqual(tuple(module.capabilities), ("telegram.write",))
+        self.assertEqual(
+            await self.grants.get_grants(plugin_name),
+            frozenset({"telegram.write"}),
+        )
+
+        class FakeClient:
+            def __init__(self):
+                self.handlers = []
+            def add_event_handler(self, handler, builder):
+                self.handlers.append((handler, builder))
+            def remove_event_handler(self, handler, builder):
+                self.handlers = [
+                    item for item in self.handlers
+                    if item != (handler, builder)
+                ]
+
+        class FakeEvent:
+            out = True
+            def __init__(self):
+                self.edits = []
+            async def edit(self, value):
+                self.edits.append(value)
+
+        class FakeContext:
+            def __init__(self, runtime):
+                self.services = {"capabilities": runtime}
+            def get(self, name):
+                return self.services.get(name)
+
+        client = FakeClient()
+        manager = PluginManager(client, self.root / "plugins")
+        client.plugin_manager = manager
+        manager.records[plugin_name] = PluginRecord(
+            name=plugin_name, state=PluginState.DISABLED
+        )
+        context = FakeContext(self.runtime)
+        with patch("core.context.get_application_context", return_value=context):
+            record = await manager.enable_plugin(plugin_name)
+            self.assertEqual(record.capability_mode, "ENFORCED")
+            self.assertEqual(
+                await self.runtime.authorize(
+                    plugin_name, "telegram.write", "acceptance.granted"
+                ),
+                None,
+            )
+
+            # Exercise the real registered .ping handler under the loaded policy.
+            registration = next(
+                item for item in client.handlers
+                if getattr(item[0], "__name__", "") == "wrapper"
+            )
+            event = FakeEvent()
+            await registration[0](event)
+            self.assertEqual(len(event.edits), 2)
+
+            # A denied operation is stopped before its side effect.
+            effects = []
+            with plugin_identity_context(plugin_name):
+                with self.assertRaises(CapabilityDeniedError):
+                    await self.runtime.authorize(
+                        plugin_name, "fs.write", "acceptance.denied-write"
+                    )
+                    effects.append("must-not-happen")
+            self.assertEqual(effects, [])
+
+            # Persisted grant mutation + controlled reload changes the live policy.
+            with trusted_core_context("acceptance.owner-revoke"):
+                await self.grants.replace_grants(
+                    plugin_name, (), granted_by="owner-test"
+                )
+            await manager.unload(plugin_name)
+            await manager.enable_plugin(plugin_name)
+            with plugin_identity_context(plugin_name):
+                with self.assertRaises(CapabilityDeniedError):
+                    await self.runtime.authorize(
+                        plugin_name, "telegram.write", "acceptance.after-revoke"
+                    )
+            denied_registration = next(
+                item for item in client.handlers
+                if getattr(item[0], "__name__", "") == "wrapper"
+            )
+            denied_event = FakeEvent()
+            await denied_registration[0](denied_event)
+            # The framework may render an error reply, but the plugin's
+            # protected Telegram edit ("..." / PING output) never executes.
+            self.assertFalse(any(value == "..." for value in denied_event.edits))
+            self.assertFalse(any("Latency:" in value for value in denied_event.edits))
+
+            with trusted_core_context("acceptance.owner-regrant"):
+                await self.grants.replace_grants(
+                    plugin_name, ("telegram.write",), granted_by="owner-test"
+                )
+            await manager.unload(plugin_name)
+            await manager.enable_plugin(plugin_name)
+            with plugin_identity_context(plugin_name):
+                await self.runtime.authorize(
+                    plugin_name, "telegram.write", "acceptance.after-regrant"
+                )
+            granted_registration = next(
+                item for item in client.handlers
+                if getattr(item[0], "__name__", "") == "wrapper"
+            )
+            reloaded_event = FakeEvent()
+            await granted_registration[0](reloaded_event)
+            self.assertEqual(len(reloaded_event.edits), 2)
+
+            # A non-migrated plugin remains on its existing compatibility path.
+            legacy_name = "plugins.system.help"
+            manager.records[legacy_name] = PluginRecord(
+                name=legacy_name, state=PluginState.RUNNING
+            )
+            legacy_event = FakeEvent()
+            async def legacy_handler(event):
+                await event.edit("legacy behavior unchanged")
+            from core.registry import register_cmd
+            with PluginManager.plugin_context(legacy_name, manager):
+                legacy_registration = register_cmd(
+                    client,
+                    r"\\.phase4legacyacceptance",
+                    legacy_handler,
+                    description="Legacy compatibility acceptance test",
+                )
+            try:
+                await legacy_registration.wrapper(legacy_event)
+            finally:
+                legacy_registration.unregister(client)
+            self.assertEqual(legacy_event.edits, ["legacy behavior unchanged"])
+            self.assertEqual(manager.records[legacy_name].capability_mode, "LEGACY_UNDECLARED")
+
+            audit_rows = await self.storage.fetchall(
+                "SELECT subject_id,payload_json FROM audit_events "
+                "WHERE kind='CAPABILITY_CHECK' ORDER BY id"
+            )
+            records = [json.loads(row[1]) for row in audit_rows]
+            ping_records = [item for item in records if item["plugin"] == plugin_name]
+            self.assertTrue(any(
+                item["outcome"] == "GRANTED"
+                and item["operation"] == "telegram.event.edit"
+                for item in ping_records
+            ))
+            self.assertTrue(any(
+                item["outcome"] == "DENIED"
+                and item["operation"] == "acceptance.denied-write"
+                and item["capability"] == "fs.write"
+                for item in ping_records
+            ))
+            self.assertTrue(any(
+                item["outcome"] == "DENIED"
+                and item["operation"] == "telegram.event.edit"
+                and item["capability"] == "telegram.write"
+                for item in ping_records
+            ))
+            self.assertTrue(all(item["plugin"] == plugin_name for item in ping_records))
+            self.assertFalse(any(item["plugin"] == legacy_name for item in records))
+            await manager.unload(plugin_name)
+            await manager.shutdown()
+
     async def test_background_task_runs_under_explicit_trusted_core_identity(self):
         seen = asyncio.Event()
         identities = []
@@ -384,7 +549,7 @@ class CapabilityMigrationTests(unittest.IsolatedAsyncioTestCase):
                 conn.execute(
                     "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, checksum TEXT NOT NULL, applied_at REAL NOT NULL)"
                 )
-                for version, sql in MIGRATIONS[:12]:
+                for version, sql in MIGRATIONS[:13]:
                     for statement in (part.strip() for part in sql.split(";") if part.strip()):
                         conn.execute(statement)
                     conn.execute(

@@ -53,7 +53,7 @@ class StorageAndJobsGateTests(unittest.IsolatedAsyncioTestCase):
         rows = await self.storage.fetchall(
             "SELECT version FROM schema_migrations ORDER BY version"
         )
-        self.assertEqual([row[0] for row in rows], list(range(1, 14)))
+        self.assertEqual([row[0] for row in rows], list(range(1, 15)))
 
     async def test_foreign_keys_are_enabled(self):
         row = await self.storage.fetchone("PRAGMA foreign_keys")
