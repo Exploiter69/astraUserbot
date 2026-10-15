@@ -49,6 +49,19 @@ def send_fingerprint(target: Any, sender_id: int, text: Any) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def _is_authoritative_rejection(error: Exception) -> bool:
+    if isinstance(error, (RPCError, AuthoritativeSendRejection)):
+        return True
+    seen: set[int] = set()
+    current: BaseException | None = error
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, RPCError):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
 def _message_id(message: Any) -> int | None:
     value = getattr(message, "id", None)
     if value is None:
@@ -184,7 +197,9 @@ class SendJobAdapter:
             sent = await self.telegram.send_message(target, text)
         except asyncio.CancelledError:
             raise
-        except (RPCError, AuthoritativeSendRejection) as exc:
+        except Exception as exc:
+            if not _is_authoritative_rejection(exc):
+                raise
             await self._record_authoritative_rejection(job.id, exc)
             raise JobError(
                 "Telegram authoritatively rejected the SEND request",
