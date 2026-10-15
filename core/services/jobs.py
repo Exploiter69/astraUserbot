@@ -82,6 +82,7 @@ class ReconcileContext:
     external_ref: Any
     attempt_started_at: float | None
     contract_version: int = 1
+    content_fingerprint: str | None = None
 
 
 class Reconciler(Protocol):
@@ -617,17 +618,33 @@ class JobEngine:
         payload_hash = hashlib.sha256(
             json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
         ).hexdigest()
+        try:
+            observed_target = json.loads(effect_row["target_json"]) if effect_row["target_json"] else None
+        except (TypeError, ValueError, json.JSONDecodeError):
+            observed_target = None
+        try:
+            external_ref = json.loads(effect_row["external_ref_json"]) if effect_row["external_ref_json"] else None
+        except (TypeError, ValueError, json.JSONDecodeError):
+            external_ref = None
+        attempt_started_at = effect_row["attempt_started_at"]
+        if attempt_started_at is None:
+            attempt_row = await self.storage.fetchone(
+                "SELECT started_at FROM job_attempts WHERE job_id=? AND attempt=?",
+                (job.id, job.attempt_count),
+            )
+            attempt_started_at = attempt_row["started_at"] if attempt_row else None
         context = ReconcileContext(
             job_id=job.id,
             effect_id=effect_id,
             job_type=job.type,
             effect_class=str(effect_row["effect_class"]),
             attempt_number=job.attempt_count,
-            target=payload.get("target", payload.get("peer_id")),
+            target=observed_target if observed_target is not None else payload.get("target", payload.get("peer_id")),
             idempotency_key=row["idempotency_key"] if row else None,
             payload_hash=payload_hash,
-            external_ref=payload.get("external_ref"),
-            attempt_started_at=float(row["started_at"]) if row and row["started_at"] is not None else None,
+            external_ref=external_ref if external_ref is not None else payload.get("external_ref"),
+            attempt_started_at=float(attempt_started_at) if attempt_started_at is not None else None,
+            content_fingerprint=effect_row["payload_fingerprint"],
         )
         task = asyncio.create_task(reconciler(context))
         try:
