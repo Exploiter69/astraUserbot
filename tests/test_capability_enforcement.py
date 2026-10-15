@@ -294,6 +294,14 @@ class CapabilityCoreTests(unittest.IsolatedAsyncioTestCase):
         try:
             await asyncio.wait_for(core_seen.wait(), timeout=1)
             await asyncio.wait_for(plugin_seen.wait(), timeout=1)
+            async def wait_completed(job_id):
+                for _ in range(100):
+                    if (await engine.get(job_id)).state.value == "COMPLETED":
+                        return
+                    await asyncio.sleep(0.01)
+                raise AssertionError(f"job did not complete: {job_id}")
+            await wait_completed(core_job.id)
+            await wait_completed(plugin_job.id)
         finally:
             await engine.close()
         self.assertEqual(identities["core"].kind, "trusted_core")
