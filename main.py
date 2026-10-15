@@ -45,11 +45,45 @@ class SecretFilter(logging.Filter):
 
     def filter(self, record: logging.LogRecord) -> bool:
         message = record.getMessage()
-        message = re.sub(
-            r"(?i)(api[_-]?hash|api[_-]?id|token|secret|password|authorization|session)[^\n:=]*[:=]\s*[^\n]+",
-            r"\1=[REDACTED]",
-            message,
-        )
+        filtered_lines: list[str] = []
+        for line in message.splitlines(keepends=True):
+            line_ending = ""
+            content = line
+            if content.endswith("\\r\\n"):
+                content, line_ending = content[:-2], "\\r\\n"
+            elif content.endswith("\\n") or content.endswith("\\r"):
+                content, line_ending = content[:-1], content[-1]
+
+            # Preserve the existing labeled-secret behavior and add explicit
+            # vault context labels. Only the value on that line is replaced.
+            content = re.sub(
+                r"(?i)\\b(api[_-]?hash|api[_-]?id|token|secret|password|authorization|session|vault\\s+plaintext|vault\\s+secret)\\b[^:=]*[:=]\\s*[^\\n]+",
+                lambda match: f"{match.group(1)}=[REDACTED]",
+                content,
+            )
+
+            # Bearer credentials have a recognizable scheme marker even when
+            # the log omits an Authorization key. Require a token-like value.
+            content = re.sub(
+                r"(?i)\\bBearer\\s+([A-Za-z0-9._~+/-]{16,})(?=\\s|$|[,;])",
+                "Bearer [REDACTED]",
+                content,
+            )
+
+            # Telethon StringSession values are URL-safe base64 and start with
+            # '1'. Real sessions are ~350 chars; 200 permits format variation
+            # while excluding short IDs. Entropy/diversity guards reduce false
+            # positives from long but repetitive identifiers.
+            session_pattern = re.compile(r"(?<![A-Za-z0-9_-])1[A-Za-z0-9_-]{199,}(?![A-Za-z0-9_-])")
+            content = session_pattern.sub(
+                lambda match: "[REDACTED]"
+                if _has_high_entropy_and_diversity(match.group(0))
+                else match.group(0),
+                content,
+            )
+            filtered_lines.append(content + line_ending)
+
+        message = "".join(filtered_lines)
         record.msg = message
         record.args = ()
         return True
