@@ -16,6 +16,7 @@ class FakeTelegram:
     def __init__(self):
         self.client = self
         self.membership = "NON_MEMBER"
+        self.join_request_status = "NONE"
         self.joins = []
         self.join_behavior = None
         self.membership_error = None
@@ -36,6 +37,9 @@ class FakeTelegram:
         if self.membership_delay:
             await asyncio.sleep(self.membership_delay)
         return self.membership
+
+    async def get_join_request_status(self, entity):
+        return self.join_request_status
 
     async def join_channel(self, target):
         self.joins.append(target)
@@ -135,6 +139,7 @@ async def test_join_unknown_stays_uncertain_without_replay(tmp_path, case):
                 telegram.membership_error = RuntimeError("lookup unavailable")
             elif case == "pending_request":
                 telegram.membership = "PENDING"
+                telegram.join_request_status = "PENDING"
             elif case == "access_restricted":
                 target = "inaccessible"
                 await storage.execute(
