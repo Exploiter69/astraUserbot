@@ -20,7 +20,8 @@ def _load_secret_filter_namespace():
     nodes = [
         node
         for node in module_ast.body
-        (isinstance(node, ast.ClassDef) and node.name == "SecretFilter") or (isinstance(node, ast.FunctionDef) and node.name == "_has_high_entropy_and_diversity")
+        if (isinstance(node, ast.ClassDef) and node.name == "SecretFilter")
+        or (isinstance(node, ast.FunctionDef) and node.name == "_has_high_entropy_and_diversity")
     ]
     isolated_module = ast.Module(body=nodes, type_ignores=[])
     namespace = {"re": re, "logging": logging, "math": math}
