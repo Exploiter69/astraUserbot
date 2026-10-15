@@ -180,3 +180,25 @@ async def test_edit_happened_does_not_complete_other_unknown_required_effect(tmp
     finally:
         await jobs.close()
         await storage.close()
+
+
+@pytest.mark.asyncio
+async def test_edit_rejection_without_current_edit_capability_stays_uncertain(tmp_path):
+    storage, jobs, telegram, adapter = await make_services(tmp_path)
+    try:
+        job = await jobs.enqueue(EDIT_JOB_TYPE, {"target": "chat-1", "message_id": 7, "text": "after"})
+        async def reject(_target, _message_id, _text):
+            raise AuthoritativeEditRejection("not applied, but capability must be rechecked")
+        telegram.edit_behavior = reject
+        claimed = await jobs.claim()
+        assert claimed is not None
+        with pytest.raises(JobError) as failure:
+            await adapter.handle(claimed)
+        await jobs._fail_claimed(claimed, failure.value.code, str(failure.value), retryable=True)
+        telegram.can_edit = False
+        result = await jobs.requeue_uncertain(job.id)
+        assert result.state == JobState.UNCERTAIN
+        assert len(telegram.edits) == 1
+    finally:
+        await jobs.close()
+        await storage.close()
