@@ -29,5 +29,7 @@ def test_application_context_registers_only_phase_3b_adapters(tmp_path: Path):
         assert jobs.effect_classes[job_type] == job_type
         assert jobs.reconcilers[job_type] == context.get(service_name).reconcile
 
-    assert set(jobs.effect_classes) == {"SEND", "EDIT", "DELETE", "UPLOAD", "JOIN"}
+    # TELEGRAM_ARCHIVE is a known pre-existing effect class, not a Phase 3B adapter.
+    known_effect_classes = {"SEND", "EDIT", "DELETE", "UPLOAD", "JOIN", "TELEGRAM_ARCHIVE"}
+    assert set(jobs.effect_classes) == known_effect_classes
     assert set(jobs.reconcilers) == {"SEND", "EDIT", "DELETE", "UPLOAD", "JOIN"}
