@@ -9,8 +9,6 @@ import time
 import unicodedata
 from typing import Any
 
-from telethon.errors import RPCError
-
 from core.services.jobs import Job, JobEngine, JobError, ReconcileContext, ReconcileOutcome
 from core.services.storage import StorageService
 
