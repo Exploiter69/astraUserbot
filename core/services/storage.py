@@ -284,6 +284,20 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
     ALTER TABLE job_effects ADD COLUMN authoritative_rejection INTEGER NOT NULL DEFAULT 0;
     """,
     ),
+    (
+        13,
+        """
+    CREATE TABLE IF NOT EXISTS plugin_capability_grants (
+        plugin_name TEXT NOT NULL,
+        capability TEXT NOT NULL,
+        granted_by TEXT NOT NULL,
+        granted_at REAL NOT NULL,
+        PRIMARY KEY(plugin_name, capability)
+    );
+    CREATE INDEX IF NOT EXISTS idx_plugin_capability_grants_plugin
+        ON plugin_capability_grants(plugin_name);
+    """,
+    ),
 )
 
 
