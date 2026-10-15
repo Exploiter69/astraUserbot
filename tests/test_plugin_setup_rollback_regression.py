@@ -263,7 +263,7 @@ async def test_setup_tracking_api_records_entries_in_attempt_order_and_discards_
 
 @pytest.mark.asyncio
 async def test_setup_tracking_journals_are_isolated_between_plugin_attempts():
-    """Each plugin's manager-bound tracking calls land only in its own journal."""
+    """Each plugin's manager-bound tracking calls land only in its own journal during sequential setup attempts. Concurrent setup isolation is covered separately."""
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         client = FakeClient()
@@ -306,6 +306,108 @@ async def test_setup_tracking_journals_are_isolated_between_plugin_attempts():
         assert [entry.plugin_name for entry in observed[name_b]["entries"]] == [name_b]
         assert observed[name_a]["entries"][0].attempt_id == observed[name_a]["attempt_id"]
         assert observed[name_b]["entries"][0].attempt_id == observed[name_b]["attempt_id"]
+        assert manager.current_setup_journal() is None
+
+
+@pytest.mark.asyncio
+async def test_concurrent_setup_tracking_journals_remain_isolated():
+    """Overlapping setup attempts retain task-local journals and ownership."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        client = FakeClient()
+        manager = PluginManager(client, root / "plugins")
+        client.plugin_manager = manager
+        a_started = asyncio.Event()
+        b_finished = asyncio.Event()
+        observed = {}
+
+        name_a = "plugins.phase3c_step1_concurrent_a"
+        name_b = "plugins.phase3c_step1_concurrent_b"
+
+        async def setup_a(_client):
+            active_manager = PluginManager.current_manager()
+            assert active_manager is manager
+            journal_a = active_manager.current_setup_journal()
+            assert journal_a is not None
+            assert journal_a.plugin_name == name_a
+            active_manager.tracked_resource(
+                lambda: "a-before-pause",
+                lambda _resource: None,
+                kind="isolated_resource",
+                identity="a-before-pause",
+            )
+            a_started.set()
+            await b_finished.wait()
+
+            # B's setup has run while A is suspended. A must still see its
+            # original manager, journal, and ownership after resuming.
+            assert PluginManager.current_manager() is manager
+            assert active_manager.current_setup_journal() is journal_a
+            assert journal_a.plugin_name == name_a
+            active_manager.tracked_resource(
+                lambda: "a-after-resume",
+                lambda _resource: None,
+                kind="isolated_resource",
+                identity="a-after-resume",
+            )
+            observed[name_a] = {
+                "journal": journal_a,
+                "entries": list(journal_a.entries),
+            }
+
+        async def setup_b(_client):
+            await a_started.wait()
+            active_manager = PluginManager.current_manager()
+            assert active_manager is manager
+            journal_b = active_manager.current_setup_journal()
+            assert journal_b is not None
+            assert journal_b.plugin_name == name_b
+            active_manager.tracked_resource(
+                lambda: "b-only",
+                lambda _resource: None,
+                kind="isolated_resource",
+                identity="b-only",
+            )
+            assert active_manager.current_setup_journal() is journal_b
+            observed[name_b] = {
+                "journal": journal_b,
+                "entries": list(journal_b.entries),
+            }
+            b_finished.set()
+
+        module_a = types.ModuleType(name_a)
+        module_a.setup = setup_a
+        module_b = types.ModuleType(name_b)
+        module_b.setup = setup_b
+        manager.records[name_a] = PluginRecord(name_a, module=module_a)
+        manager.records[name_b] = PluginRecord(name_b, module=module_b)
+
+        await asyncio.gather(
+            manager.enable_plugin(name_a),
+            manager.enable_plugin(name_b),
+        )
+
+        journal_a = observed[name_a]["journal"]
+        journal_b = observed[name_b]["journal"]
+        entries_a = observed[name_a]["entries"]
+        entries_b = observed[name_b]["entries"]
+        assert journal_a is not journal_b
+        assert journal_a.attempt_id != journal_b.attempt_id
+        assert journal_a.plugin_name == name_a
+        assert journal_b.plugin_name == name_b
+        assert [entry.identity for entry in entries_a] == [
+            "a-before-pause", "a-after-resume"
+        ]
+        assert [entry.identity for entry in entries_b] == ["b-only"]
+        assert all(entry.plugin_name == name_a for entry in entries_a)
+        assert all(entry.plugin_name == name_b for entry in entries_b)
+        assert all(entry.attempt_id == journal_a.attempt_id for entry in entries_a)
+        assert all(entry.attempt_id == journal_b.attempt_id for entry in entries_b)
+        assert not any(entry.identity == "b-only" for entry in entries_a)
+        assert not any(
+            entry.identity in {"a-before-pause", "a-after-resume"}
+            for entry in entries_b
+        )
         assert manager.current_setup_journal() is None
 
 
