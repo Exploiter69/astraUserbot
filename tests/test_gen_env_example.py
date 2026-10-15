@@ -42,3 +42,8 @@ def test_generated_template_covers_config_py_environment_fields():
 
 def test_environment_contract_covers_literal_runtime_consumers():
     assert contract_findings(ROOT) == []
+
+def test_session_string_is_removed_in_favor_of_file_session():
+    generated = render_env_example()
+    assert "SESSION_STRING=" not in generated
+    assert "data/<ASTRA_SESSION_NAME>.session" in generated
