@@ -241,6 +241,7 @@ class CapabilityCoreTests(unittest.IsolatedAsyncioTestCase):
 
         async def background():
             identities.append(current_identity())
+            await self.runtime.authorize("core", "fs.write", "background.internal")
             seen.set()
 
         supervisor = TaskSupervisor()
@@ -256,13 +257,24 @@ class CapabilityCoreTests(unittest.IsolatedAsyncioTestCase):
         plugin_seen = asyncio.Event()
         identities = {}
 
+        await self._replace_grants(
+            "plugins.phase4", ("telegram.read",), granted_by="owner"
+        )
+        await self.runtime.load_plugin(
+            "plugins.phase4", declared=("telegram.read",), mode="ENFORCED"
+        )
+
         async def core_handler(_job):
             identities["core"] = current_identity()
+            await self.runtime.authorize("core", "fs.write", "job.worker.internal")
             core_seen.set()
             return {"ok": True}
 
         async def plugin_handler(_job):
             identities["plugin"] = current_identity()
+            await self.runtime.authorize(
+                "plugins.phase4", "telegram.read", "plugin.handler"
+            )
             plugin_seen.set()
             return {"ok": True}
 
@@ -313,7 +325,18 @@ class CapabilityCoreTests(unittest.IsolatedAsyncioTestCase):
 
         client = Client()
         manager = PluginManager(client, Path(self.tmp.name) / "plugins")
+        await self._replace_grants(
+            "plugins.phase4-command", ("telegram.read",), granted_by="owner"
+        )
+        await self.runtime.load_plugin(
+            "plugins.phase4-command",
+            declared=("telegram.read",),
+            mode="ENFORCED",
+        )
         async def handler(_event):
+            await self.runtime.authorize(
+                "plugins.phase4-command", "telegram.read", "command.handler"
+            )
             observations.append(("handler", current_identity()))
 
         with PluginManager.plugin_context("plugins.phase4-command", manager):
