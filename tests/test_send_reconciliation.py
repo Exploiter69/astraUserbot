@@ -84,6 +84,12 @@ async def test_send_happened_recorded_message_id_completes_without_resend(tmp_pa
     try:
         job = await jobs.enqueue(SEND_JOB_TYPE, {"target": "chat-1", "text": "hello"})
         await adapter.handle(job)
+        # A duplicate-looking message makes history ambiguous; the recorded ID
+        # must still identify the intended send without replaying it.
+        telegram.history.insert(
+            0,
+            FakeMessage(999, 42, "hello", datetime.now(timezone.utc)),
+        )
         await mark_uncertain(storage, job.id)
 
         result = await jobs.requeue_uncertain(job.id)
