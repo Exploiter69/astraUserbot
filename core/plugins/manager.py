@@ -260,7 +260,11 @@ class PluginManager:
         )
 
         async def cleanup_job() -> Any:
-            return await jobs.cancel(job.id)
+            await jobs.cancel(job.id)
+            current = await jobs.get(job.id)
+            if getattr(current.state, "value", current.state) == "UNCERTAIN":
+                return "UNCERTAIN"
+            return None
 
         journal.record("job", job.id, cleanup_job)
         return job
@@ -298,9 +302,24 @@ class PluginManager:
             try:
                 result = entry.cleanup()
                 if inspect.isawaitable(result):
-                    await asyncio.wait_for(
+                    result = await asyncio.wait_for(
                         result, timeout=self._SETUP_CLEANUP_TIMEOUT_SECONDS
                     )
+                if entry.kind == "job" and result == "UNCERTAIN":
+                    entry.cleanup_state = "UNCERTAIN"
+                    entry.cleanup_error = (
+                        "Job was claimed before setup rollback; cancellation "
+                        "cannot prove the external effect did not occur."
+                    )
+                    journal.cleanup_errors.append(
+                        f"{entry.kind} {entry.identity}: {entry.cleanup_error}"
+                    )
+                    logger.warning(
+                        "Tracked setup job is uncertain after rollback for %s (%s)",
+                        journal.plugin_name,
+                        entry.identity,
+                    )
+                    continue
             except Exception as exc:  # noqa: BLE001 - rollback must keep going
                 entry.cleanup_state = "FAILED"
                 entry.cleanup_error = f"{type(exc).__name__}: {exc}"
