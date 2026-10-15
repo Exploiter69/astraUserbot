@@ -54,7 +54,15 @@ def _authoritative_rejection(error: BaseException) -> bool:
     current: BaseException | None = error
     while current is not None and id(current) not in seen:
         seen.add(id(current))
-        if isinstance(current, (RPCError, AuthoritativeEditRejection)):
+        # Only an explicit adapter signal (or an exception that declares both
+        # properties) proves non-application and permits a safe retry. A generic
+        # RPC error can mean permissions/rate limits changed and is not enough.
+        if isinstance(current, AuthoritativeEditRejection):
+            return True
+        if (
+            getattr(current, "authoritative_not_applied", False) is True
+            and getattr(current, "retry_safe", False) is True
+        ):
             return True
         current = current.__cause__ or current.__context__
     return False
@@ -156,7 +164,12 @@ class EditJobAdapter:
                     "Telegram authoritatively rejected the EDIT request",
                     code="EDIT_REJECTED", retryable=True,
                 ) from exc
-            raise
+            # Keep ambiguous transport failures in UNCERTAIN through the normal
+            # declared-effect retry gate; never make them terminal/replayable.
+            raise JobError(
+                "EDIT outcome is not authoritative",
+                code="EDIT_OUTCOME_UNKNOWN", retryable=True,
+            ) from exc
         return {"target": str(target), "message_id": message_id}
 
     async def reconcile(self, context: ReconcileContext) -> ReconcileOutcome:
