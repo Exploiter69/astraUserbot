@@ -669,3 +669,51 @@ async def test_step2_failed_plugin_cleanup_does_not_touch_overlapping_plugin_jou
         assert cleaned == ["A"]
         assert manager.get(name_b).state.name == "RUNNING"
 
+@pytest.mark.asyncio
+async def test_step2_async_cleanup_timeout_is_recorded_and_later_cleanup_runs():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        client = FakeClient()
+        plugin_name = "plugins.phase3c_step2_cleanup_timeout"
+        events = []
+        never = asyncio.Event()
+        module = types.ModuleType(plugin_name)
+
+        async def setup(_client):
+            manager = PluginManager.current_manager()
+            assert manager is not None
+            manager._SETUP_CLEANUP_TIMEOUT_SECONDS = 0.01
+
+            async def hanging_cleanup(_value):
+                await never.wait()
+
+            manager.tracked_resource(
+                lambda: "hanging", hanging_cleanup,
+                kind="test_resource", identity="hanging",
+            )
+            manager.tracked_resource(
+                lambda: "later",
+                lambda _value: events.append("later"),
+                kind="test_resource", identity="later",
+            )
+            raise RuntimeError("setup failed before cleanup timeout")
+
+        module.setup = setup
+        manager = PluginManager(client, root / "plugins")
+        client.plugin_manager = manager
+        manager.records[plugin_name] = PluginRecord(plugin_name, module=module)
+
+        with pytest.raises(PluginLifecycleError, match="Enable failed") as raised:
+            await manager.enable_plugin(plugin_name)
+
+        assert str(raised.value.__cause__) == "setup failed before cleanup timeout"
+        journal = manager.last_failed_setup_journal
+        assert journal is not None
+        entries = {entry.identity: entry for entry in journal.entries}
+        assert entries["hanging"].cleanup_state == "FAILED"
+        assert "TimeoutError" in entries["hanging"].cleanup_error
+        assert entries["later"].cleanup_state == "SUCCEEDED"
+        assert events == ["later"]
+        assert len(journal.cleanup_errors) == 1
+        assert manager.get(plugin_name).error == "setup failed before cleanup timeout"
+
