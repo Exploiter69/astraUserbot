@@ -480,6 +480,14 @@ class PluginManager:
                 record.module = importlib.import_module(name)
                 record.state = PluginState.LOADED
                 self._read_metadata(record)
+                if record.capability_mode == "LEGACY_UNDECLARED":
+                    logger.warning(
+                        "Plugin %s is LEGACY_UNDECLARED; capability enforcement is not active "
+                        "for it. Migration action: declare plugin_capability_mode='ENFORCED' "
+                        "and the required capabilities in the plugin module, then obtain "
+                        "owner-approved grants before enabling enforcement.",
+                        record.name,
+                    )
             except Exception as exc:
                 record.state = PluginState.FAILED_IMPORT
                 record.error = str(exc)
