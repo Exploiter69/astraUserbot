@@ -600,5 +600,130 @@ class CapabilityIsolationHonestyTests(unittest.TestCase):
         self.assertTrue(callable(os.getcwd))
 
 
+class LegacyCapabilityCompatibilityTests(unittest.IsolatedAsyncioTestCase):
+    async def test_sysinfo_runs_legacy_warns_and_ping_remains_enforced(self):
+        from types import SimpleNamespace
+
+        from core.registry import get_registration
+        from plugins.system import ping, sysinfo
+
+        plugin_name = "plugins.system.sysinfo"
+
+        class Client:
+            def __init__(self):
+                self.handlers = []
+
+            def add_event_handler(self, callback, event_builder):
+                self.handlers.append((callback, event_builder))
+
+            def remove_event_handler(self, callback, event_builder):
+                self.handlers = [
+                    item for item in self.handlers if item[0] is not callback
+                ]
+
+        class SubprocessService:
+            async def run(self, command, **_kwargs):
+                output = {
+                    "uname": "6.1.0-test\\n",
+                    "uptime": "up 2 hours\\n",
+                    "free": "Mem: 1024 512 512 0 0 512\\n",
+                }[command[0]]
+                return SimpleNamespace(returncode=0, stdout=output)
+
+        class Context:
+            def get(self, name):
+                return SubprocessService() if name == "subprocess" else None
+
+        class Event:
+            out = True
+
+            def __init__(self):
+                self.edits = []
+
+            async def edit(self, value):
+                self.edits.append(value)
+
+        client = Client()
+        plugin_root = Path(__file__).resolve().parents[1] / "plugins"
+        manager = PluginManager(client, plugin_root)
+        manager.records = {plugin_name: PluginRecord(name=plugin_name)}
+        try:
+            with self.assertLogs("astra.plugins", level="WARNING") as captured:
+                await manager.load_all()
+
+            record = manager.get(plugin_name)
+            self.assertEqual(record.state, PluginState.RUNNING)
+            self.assertEqual(record.capability_mode, "LEGACY_UNDECLARED")
+            self.assertEqual(record.capabilities, ())
+            self.assertFalse(hasattr(sysinfo, "plugin_capability_mode"))
+            self.assertFalse(hasattr(sysinfo, "capabilities"))
+
+            warning = "\\n".join(captured.output).lower()
+            self.assertIn(plugin_name, warning)
+            self.assertIn("capability enforcement is not active", warning)
+            self.assertIn("migration action", warning)
+            self.assertIn("plugin_capability_mode='enforced'", warning)
+            self.assertIn("owner-approved grants", warning)
+
+            self.assertEqual(ping.plugin_capability_mode, "ENFORCED")
+            self.assertEqual(tuple(ping.capabilities), ("telegram.write",))
+
+            registrations = [
+                get_registration(registration_id)
+                for registration_id in record.registrations
+            ]
+            registration = next(
+                item for item in registrations if item.pattern == sysinfo.PATTERN
+            )
+            event = Event()
+            with patch(
+                "plugins.system.sysinfo.get_application_context",
+                return_value=Context(),
+            ):
+                await registration.wrapper(event)
+
+            self.assertEqual(len(event.edits), 2)
+            self.assertIn("Kernel: 6.1.0-test", event.edits[-1])
+            self.assertIn("Uptime: up 2 hours", event.edits[-1])
+            self.assertIn("Memory: 512MB / 1024MB", event.edits[-1])
+        finally:
+            if manager.get(plugin_name).state in {
+                PluginState.RUNNING,
+                PluginState.FAILED_SETUP,
+            }:
+                await manager.unload(plugin_name)
+
+    async def test_invalid_capability_mode_fails_import_instead_of_running_legacy(self):
+        from types import ModuleType
+
+        plugin_name = "plugins.system.invalid_capability_policy"
+        module = ModuleType(plugin_name)
+        module.plugin_name = plugin_name
+        module.plugin_capability_mode = "ENFORCE_MAYBE"
+        setup_calls = []
+
+        async def setup(_client):
+            setup_calls.append("ran")
+
+        module.setup = setup
+
+        class Client:
+            def add_event_handler(self, *_args, **_kwargs):
+                raise AssertionError("invalid-policy plugin must not register handlers")
+
+            def remove_event_handler(self, *_args, **_kwargs):
+                return None
+
+        manager = PluginManager(Client(), Path(__file__).resolve().parents[1] / "plugins")
+        manager.records = {plugin_name: PluginRecord(name=plugin_name)}
+        with patch("core.plugins.manager.importlib.import_module", return_value=module):
+            await manager.load_all()
+
+        record = manager.get(plugin_name)
+        self.assertEqual(record.state, PluginState.FAILED_IMPORT)
+        self.assertNotEqual(record.state, PluginState.RUNNING)
+        self.assertEqual(setup_calls, [])
+
+
 if __name__ == "__main__":
     unittest.main()
