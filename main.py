@@ -49,32 +49,35 @@ class SecretFilter(logging.Filter):
         for line in message.splitlines(keepends=True):
             line_ending = ""
             content = line
-            if content.endswith("\\r\\n"):
-                content, line_ending = content[:-2], "\\r\\n"
-            elif content.endswith("\\n") or content.endswith("\\r"):
+            if content.endswith("\r\n"):
+                content, line_ending = content[:-2], "\r\n"
+            elif content.endswith("\n") or content.endswith("\r"):
                 content, line_ending = content[:-1], content[-1]
 
-            # Preserve the existing labeled-secret behavior and add explicit
-            # vault context labels. Only the value on that line is replaced.
+            # Redact only when a recognizable key/context explicitly labels
+            # the value. This includes vault plaintext labels, not arbitrary
+            # occurrences of the words "vault" or "plaintext".
             content = re.sub(
-                r"(?i)\\b(api[_-]?hash|api[_-]?id|token|secret|password|authorization|session|vault\\s+plaintext|vault\\s+secret)\\b[^:=]*[:=]\\s*[^\\n]+",
+                r"(?i)\b(api[_-]?hash|api[_-]?id|token|secret|password|authorization|session|vault\s+plaintext|vault\s+secret)\b[^:=]*[:=]\s*[^\n]+",
                 lambda match: f"{match.group(1)}=[REDACTED]",
                 content,
             )
 
-            # Bearer credentials have a recognizable scheme marker even when
-            # the log omits an Authorization key. Require a token-like value.
+            # A standalone Bearer scheme is a strong credential marker.
+            # Require a sufficiently long token made of valid token characters.
             content = re.sub(
-                r"(?i)\\bBearer\\s+([A-Za-z0-9._~+/-]{16,})(?=\\s|$|[,;])",
+                r"(?i)\bBearer\s+([A-Za-z0-9._~+/-]{16,})(?=\s|$|[,;])",
                 "Bearer [REDACTED]",
                 content,
             )
 
-            # Telethon StringSession values are URL-safe base64 and start with
-            # '1'. Real sessions are ~350 chars; 200 permits format variation
-            # while excluding short IDs. Entropy/diversity guards reduce false
-            # positives from long but repetitive identifiers.
-            session_pattern = re.compile(r"(?<![A-Za-z0-9_-])1[A-Za-z0-9_-]{199,}(?![A-Za-z0-9_-])")
+            # Telethon StringSession values are URL-safe base64 and begin with
+            # '1'. Use a 200-character minimum total length (1 + at least 199
+            # URL-safe characters); normal Telethon sessions are ~350 chars.
+            # Entropy/diversity checks guard against repetitive false positives.
+            session_pattern = re.compile(
+                r"(?<![A-Za-z0-9_-])1[A-Za-z0-9_-]{199,}(?![A-Za-z0-9_-])"
+            )
             content = session_pattern.sub(
                 lambda match: "[REDACTED]"
                 if _has_high_entropy_and_diversity(match.group(0))
@@ -83,11 +86,9 @@ class SecretFilter(logging.Filter):
             )
             filtered_lines.append(content + line_ending)
 
-        message = "".join(filtered_lines)
-        record.msg = message
+        record.msg = "".join(filtered_lines)
         record.args = ()
         return True
-
 
 formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 file_handler = RotatingFileHandler(
