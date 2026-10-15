@@ -158,6 +158,9 @@ class CapabilityGrantStore:
             raise ValueError("Plugin name is required")
         if not granted_by or not isinstance(granted_by, str):
             raise ValueError("Granting owner identity is required")
+        identity = current_identity()
+        if identity is None or identity.kind != "trusted_core":
+            raise PermissionError("Capability grants may only be mutated by authorized core code")
         validated = validate_capabilities(capabilities)
         statements = [
             (
