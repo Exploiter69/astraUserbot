@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import sqlite3
@@ -11,7 +12,7 @@ import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any
+from typing import Any, Protocol
 
 from core.services.storage import StorageService
 
@@ -62,6 +63,38 @@ class Job:
 Handler = Callable[[Job], Awaitable[Any]]
 
 
+class ReconcileOutcome(StrEnum):
+    HAPPENED = "HAPPENED"
+    NOT_HAPPENED = "NOT_HAPPENED"
+    UNKNOWN = "UNKNOWN"
+
+
+@dataclass(frozen=True)
+class ReconcileContext:
+    job_id: str
+    effect_id: str
+    job_type: str
+    effect_class: str
+    attempt_number: int
+    target: Any
+    idempotency_key: str | None
+    payload_hash: str
+    external_ref: Any
+    attempt_started_at: float | None
+    contract_version: int = 1
+
+
+class Reconciler(Protocol):
+    async def __call__(self, context: ReconcileContext) -> ReconcileOutcome: ...
+
+
+class ReconciliationRequiredError(JobError):
+    """Raised when replay is requested without a usable effect observer."""
+
+    def __init__(self, message: str = "Uncertain job cannot be replayed without reconciliation") -> None:
+        super().__init__(message, code="RECONCILIATION_REQUIRED", retryable=False)
+
+
 class JobEngine:
     """Own accepted durable work; workers may disappear without losing job state."""
 
@@ -74,6 +107,8 @@ class JobEngine:
     MAX_ERROR_MESSAGE_CHARS = 500
     DEFAULT_RETENTION_SECONDS = 30 * 24 * 60 * 60
     CLEANUP_INTERVAL_SECONDS = 60 * 60
+    RECONCILER_TIMEOUT_SECONDS = 5.0
+    RECONCILIATION_LEASE_SECONDS = 15.0
 
     def __init__(
         self,
@@ -90,6 +125,9 @@ class JobEngine:
         self.poll_seconds = max(0.1, poll_seconds)
         self.retention_seconds = max(0.0, retention_seconds)
         self.handlers: dict[str, Handler] = {}
+        self.effect_classes: dict[str, str | None] = {}
+        self.reconcilers: dict[str, Any] = {}
+        self._reconcile_leases: dict[str, tuple[str, float]] = {}
         self._worker_task: asyncio.Task[None] | None = None
         self._active_tasks: dict[str, asyncio.Task[Any]] = {}
         self._stop = asyncio.Event()
@@ -128,7 +166,14 @@ class JobEngine:
         self._active_tasks.clear()
         self._started = False
 
-    def register_handler(self, job_type: str, handler: Handler) -> None:
+    def register_handler(
+        self,
+        job_type: str,
+        handler: Handler,
+        *,
+        effect_class: str | None = None,
+        reconciler: Reconciler | None = None,
+    ) -> None:
         if (
             not job_type
             or len(job_type) > self.MAX_JOB_TYPE_CHARS
@@ -137,7 +182,14 @@ class JobEngine:
             raise ValueError(f"Job handler already registered: {job_type}")
         if not callable(handler):
             raise TypeError("Job handler must be callable")
+        if reconciler is not None and effect_class is None:
+            raise ValueError("A reconciler requires an explicit effect_class")
+        if effect_class is not None and (not isinstance(effect_class, str) or not effect_class.strip()):
+            raise ValueError("effect_class must be a non-empty string")
         self.handlers[job_type] = handler
+        self.effect_classes[job_type] = effect_class.upper() if effect_class else None
+        if reconciler is not None:
+            self.reconcilers[job_type] = reconciler
 
     async def enqueue(
         self,
@@ -212,6 +264,12 @@ class JobEngine:
                 if row is None:
                     raise
                 return self._row_to_job(row)
+            effect_class = self.effect_classes.get(job_type)
+            if effect_class is not None:
+                await self.storage.conn.execute(
+                    "INSERT INTO job_effects(effect_id,job_id,effect_class,state,required,updated_at) VALUES (?,?,?,?,?,?)",
+                    (uuid.uuid4().hex, job_id, effect_class, "PENDING", 1, now),
+                )
             await self._event_locked(job_id, "ENQUEUED", {"type": job_type})
             await self.storage.conn.commit()
         return await self.get(job_id)
@@ -483,22 +541,131 @@ class JobEngine:
             return len(rows)
 
     async def requeue_uncertain(self, job_id: str) -> Job:
-        """Explicitly requeue a job after an operator verifies replay is safe."""
+        """Reconcile every required effect before allowing an uncertain job to replay."""
+        job = await self.get(job_id)
+        if job.state != JobState.UNCERTAIN:
+            raise ValueError(f"Job is not uncertain: {job_id}")
+        rows = await self.storage.fetchall(
+            "SELECT * FROM job_effects WHERE job_id=? AND required=1 ORDER BY effect_id",
+            (job_id,),
+        )
+        reconciler = self.reconcilers.get(job.type)
+        if not rows or reconciler is None:
+            await self._record_replay_refusal(job_id, "RECONCILIATION_REQUIRED")
+            raise ReconciliationRequiredError()
+        outcomes: list[ReconcileOutcome] = []
+        for row in rows:
+            outcome = await self._run_reconciler(job, row, reconciler)
+            outcomes.append(outcome)
+            await self.storage.execute(
+                "UPDATE job_effects SET state=?,reason=CASE WHEN ?='UNKNOWN' THEN COALESCE(reason,'RECONCILIATION_UNKNOWN') ELSE NULL END,updated_at=? WHERE effect_id=?",
+                (outcome.value, outcome.value, time.time(), row["effect_id"]),
+            )
+        if outcomes and all(value == ReconcileOutcome.HAPPENED for value in outcomes):
+            await self._set_reconciled_job_state(job_id, JobState.COMPLETED, "RECONCILIATION_HAPPENED")
+        elif outcomes and all(value == ReconcileOutcome.NOT_HAPPENED for value in outcomes):
+            await self._set_reconciled_job_state(job_id, JobState.QUEUED, "UNCERTAIN_REQUEUED")
+        else:
+            await self._set_reconciled_job_state(job_id, JobState.UNCERTAIN, "RECONCILIATION_INCOMPLETE")
+        return await self.get(job_id)
+
+    async def _record_replay_refusal(self, job_id: str, reason: str) -> None:
+        async with self.storage.lock:
+            assert self.storage.conn is not None
+            await self._event_locked(job_id, "REPLAY_REFUSED", {"reason": reason})
+            await self.storage.conn.commit()
+
+    async def _set_reconciled_job_state(self, job_id: str, state: JobState, event: str) -> None:
         now = time.time()
         async with self.storage.lock:
             assert self.storage.conn is not None
-            cur = await self.storage.conn.execute(
-                "UPDATE jobs SET state=?,error_code=NULL,error_message=NULL,available_at=?,updated_at=?,completed_at=NULL WHERE id=? AND state=?",
-                (JobState.QUEUED.value, now, now, job_id, JobState.UNCERTAIN.value),
+            completed = now if state == JobState.COMPLETED else None
+            await self.storage.conn.execute(
+                "UPDATE jobs SET state=?,error_code=?,error_message=?,available_at=?,updated_at=?,completed_at=? WHERE id=? AND state=?",
+                (state.value, None if state != JobState.UNCERTAIN else "RECONCILIATION_UNKNOWN",
+                 None if state != JobState.UNCERTAIN else "External effect outcome remains unknown.",
+                 now, now, completed, job_id, JobState.UNCERTAIN.value),
             )
-            if cur.rowcount != 1:
-                await self.storage.conn.rollback()
-                raise ValueError(f"Job is not uncertain: {job_id}")
-            await self._event_locked(
-                job_id, "UNCERTAIN_REQUEUED", {"worker_id": self.worker_id}
-            )
+            await self._event_locked(job_id, event, {"state": state.value})
             await self.storage.conn.commit()
-        return await self.get(job_id)
+
+    async def _run_reconciler(self, job: Job, effect_row: Any, reconciler: Any) -> ReconcileOutcome:
+        effect_id = str(effect_row["effect_id"])
+        token = uuid.uuid4().hex
+        now = time.monotonic()
+        current = self._reconcile_leases.get(effect_id)
+        if current is not None and current[1] > now:
+            return ReconcileOutcome.UNKNOWN
+        lease_expires = now + self.RECONCILIATION_LEASE_SECONDS
+        self._reconcile_leases[effect_id] = (token, lease_expires)
+        # Persist a reconciliation lease and monotonically increasing fence that
+        # are independent from the worker's job lease.
+        await self.storage.execute(
+            "UPDATE job_effects SET reconcile_token=?,reconcile_lease_until=?,reconcile_fence=reconcile_fence+1,updated_at=? WHERE effect_id=? AND (reconcile_lease_until IS NULL OR reconcile_lease_until<=?)",
+            (token, time.time() + self.RECONCILIATION_LEASE_SECONDS, time.time(), effect_id, time.time()),
+        )
+        lease_row = await self.storage.fetchone(
+            "SELECT reconcile_token,reconcile_lease_until,reconcile_fence FROM job_effects WHERE effect_id=?",
+            (effect_id,),
+        )
+        if lease_row is None or lease_row["reconcile_token"] != token:
+            self._reconcile_leases.pop(effect_id, None)
+            return ReconcileOutcome.UNKNOWN
+        fence = int(lease_row["reconcile_fence"])
+        row = await self.storage.fetchone("SELECT idempotency_key,started_at,payload_json FROM jobs WHERE id=?", (job.id,))
+        payload = json.loads(row["payload_json"]) if row else {}
+        payload_hash = hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        ).hexdigest()
+        context = ReconcileContext(
+            job_id=job.id,
+            effect_id=effect_id,
+            job_type=job.type,
+            effect_class=str(effect_row["effect_class"]),
+            attempt_number=job.attempt_count,
+            target=payload.get("target", payload.get("peer_id")),
+            idempotency_key=row["idempotency_key"] if row else None,
+            payload_hash=payload_hash,
+            external_ref=payload.get("external_ref"),
+            attempt_started_at=float(row["started_at"]) if row and row["started_at"] is not None else None,
+        )
+        task = asyncio.create_task(reconciler(context))
+        try:
+            done, _ = await asyncio.wait({task}, timeout=self.RECONCILER_TIMEOUT_SECONDS)
+            if not done:
+                task.cancel()
+                task.add_done_callback(lambda finished: finished.exception() if not finished.cancelled() else None)
+                await self.storage.execute(
+                    "UPDATE job_effects SET reason='RECONCILER_TIMEOUT',updated_at=? WHERE effect_id=? AND reconcile_token=? AND reconcile_fence=?",
+                    (time.time(), effect_id, token, fence),
+                )
+                await self._record_replay_refusal(job.id, "RECONCILER_TIMEOUT")
+                return ReconcileOutcome.UNKNOWN
+            lease = self._reconcile_leases.get(effect_id)
+            persisted = await self.storage.fetchone(
+                "SELECT reconcile_token,reconcile_lease_until,reconcile_fence FROM job_effects WHERE effect_id=?",
+                (effect_id,),
+            )
+            if (
+                lease is None or lease[0] != token or time.monotonic() >= lease[1]
+                or persisted is None or persisted["reconcile_token"] != token
+                or int(persisted["reconcile_fence"]) != fence
+                or persisted["reconcile_lease_until"] is None
+                or float(persisted["reconcile_lease_until"]) <= time.time()
+            ):
+                await self.storage.execute(
+                    "UPDATE job_effects SET reason='RECONCILER_LEASE_LOST',updated_at=? WHERE effect_id=? AND reconcile_token=? AND reconcile_fence=?",
+                    (time.time(), effect_id, token, fence),
+                )
+                await self._record_replay_refusal(job.id, "RECONCILER_LEASE_LOST")
+                return ReconcileOutcome.UNKNOWN
+            try:
+                return ReconcileOutcome(task.result())
+            except (Exception, asyncio.CancelledError):
+                return ReconcileOutcome.UNKNOWN
+        finally:
+            if self._reconcile_leases.get(effect_id, (None,))[0] == token:
+                self._reconcile_leases.pop(effect_id, None)
 
     async def _mark_active_uncertain(self, job_ids: list[str], *, reason: str) -> None:
         if not job_ids:
@@ -536,9 +703,12 @@ class JobEngine:
         self, job: Job, code: str, message: str, *, retryable: bool = False
     ) -> bool:
         now = time.time()
-        should_retry = retryable and job.attempt_count < job.max_attempts
-        state = JobState.QUEUED if should_retry else JobState.FAILED
-        delay = min(300.0, 2 ** max(0, job.attempt_count - 1)) if should_retry else 0.0
+        requested_retry = retryable and job.attempt_count < job.max_attempts
+        # Retrying re-executes the handler; default-deny until an effect observer
+        # proves every required effect did not happen.
+        should_retry = False
+        state = JobState.UNCERTAIN if requested_retry else JobState.FAILED
+        delay = 0.0
         bounded_message = str(message)[: self.MAX_ERROR_MESSAGE_CHARS]
         async with self.storage.lock:
             assert self.storage.conn is not None
@@ -550,7 +720,7 @@ class JobEngine:
                     bounded_message,
                     now + delay,
                     now,
-                    None if should_retry else now,
+                    None if requested_retry else now,
                     job.id,
                     JobState.RUNNING.value,
                     job.attempt_count,
@@ -567,18 +737,21 @@ class JobEngine:
                 (job.id, self.worker_id, job.attempt_count),
             )
             await self.storage.conn.execute(
-                "UPDATE job_attempts SET state='FAILED',finished_at=?,error_code=?,error_message=? WHERE job_id=? AND attempt=? AND state='RUNNING'",
-                (now, str(code)[:128], bounded_message, job.id, job.attempt_count),
+                "UPDATE job_attempts SET state=?,finished_at=?,error_code=?,error_message=? WHERE job_id=? AND attempt=? AND state='RUNNING'",
+                ("UNCERTAIN" if requested_retry else "FAILED", now, str(code)[:128], bounded_message, job.id, job.attempt_count),
             )
             await self._event_locked(
                 job.id,
-                "RETRY_SCHEDULED" if should_retry else "FAILED",
+                "RETRY_BLOCKED_UNCERTAIN" if requested_retry else "FAILED",
                 {
                     "retryable": retryable,
                     "attempt": job.attempt_count,
-                    "next_attempt": job.attempt_count + 1 if should_retry else None,
+                    "next_attempt": None,
+                    "reason": "RECONCILIATION_REQUIRED" if requested_retry else None,
                 },
             )
+            if requested_retry:
+                await self._event_locked(job.id, "REPLAY_REFUSED", {"reason": "AUTOMATIC_RETRY_REQUIRES_RECONCILIATION"})
             await self.storage.conn.commit()
             return True
 

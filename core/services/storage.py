@@ -250,6 +250,30 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
     CREATE INDEX IF NOT EXISTS idx_telegram_event_state_time ON telegram_event_journal(processing_state, created_at);
     """,
     ),
+    (
+        10,
+        """
+    CREATE TABLE IF NOT EXISTS job_effects (
+        effect_id TEXT PRIMARY KEY,
+        job_id TEXT NOT NULL,
+        effect_class TEXT NOT NULL,
+        state TEXT NOT NULL DEFAULT 'PENDING',
+        required INTEGER NOT NULL DEFAULT 1,
+        reason TEXT,
+        updated_at REAL NOT NULL,
+        FOREIGN KEY(job_id) REFERENCES jobs(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_job_effects_job_required ON job_effects(job_id, required, effect_id);
+    """,
+    ),
+    (
+        11,
+        """
+    ALTER TABLE job_effects ADD COLUMN reconcile_token TEXT;
+    ALTER TABLE job_effects ADD COLUMN reconcile_lease_until REAL;
+    ALTER TABLE job_effects ADD COLUMN reconcile_fence INTEGER NOT NULL DEFAULT 0;
+    """,
+    ),
 )
 
 
