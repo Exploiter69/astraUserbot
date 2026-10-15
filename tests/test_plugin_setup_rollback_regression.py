@@ -717,3 +717,31 @@ async def test_step2_async_cleanup_timeout_is_recorded_and_later_cleanup_runs():
         assert len(journal.cleanup_errors) == 1
         assert manager.get(plugin_name).error == "setup failed before cleanup timeout"
 
+@pytest.mark.asyncio
+async def test_step2_setup_started_failure_has_empty_journal_and_no_cleanup():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        client = FakeClient()
+        plugin_name = "plugins.phase3c_step2_empty_journal"
+        module = types.ModuleType(plugin_name)
+
+        async def setup(_client):
+            raise RuntimeError("failure before tracked side effects")
+
+        module.setup = setup
+        manager = PluginManager(client, root / "plugins")
+        client.plugin_manager = manager
+        manager.records[plugin_name] = PluginRecord(plugin_name, module=module)
+
+        with pytest.raises(PluginLifecycleError, match="Enable failed") as raised:
+            await manager.enable_plugin(plugin_name)
+
+        assert str(raised.value.__cause__) == "failure before tracked side effects"
+        journal = manager.last_failed_setup_journal
+        assert journal is not None
+        assert journal.frozen
+        assert journal.entries == []
+        assert journal.failure_entries == ()
+        assert journal.cleanup_errors == []
+        assert manager.get(plugin_name).error == "failure before tracked side effects"
+
