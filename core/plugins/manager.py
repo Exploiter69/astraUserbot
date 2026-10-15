@@ -23,6 +23,7 @@ from types import ModuleType
 from typing import Any, TypeVar
 
 from core.plugins.contract import PluginMetadata, metadata_for
+from core.plugins.capabilities import plugin_identity_context
 
 logger = logging.getLogger("astra.plugins")
 
@@ -172,7 +173,8 @@ class PluginManager:
         token_plugin = cls._current_plugin.set(name)
         token_manager = cls._current_manager.set(manager)
         try:
-            yield
+            with plugin_identity_context(name):
+                yield
         finally:
             cls._current_manager.reset(token_manager)
             cls._current_plugin.reset(token_plugin)
