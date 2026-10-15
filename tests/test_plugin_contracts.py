@@ -57,6 +57,8 @@ class Phase16Gate(unittest.TestCase):
             context = ApplicationContext(object(), ROOT)
             expected = {
                 "storage",
+                "capability_grants",
+                "capabilities",
                 "cache",
                 "http",
                 "subprocess",
