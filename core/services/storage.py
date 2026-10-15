@@ -274,6 +274,16 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
     ALTER TABLE job_effects ADD COLUMN reconcile_fence INTEGER NOT NULL DEFAULT 0;
     """,
     ),
+    (
+        12,
+        """
+    ALTER TABLE job_effects ADD COLUMN target_json TEXT;
+    ALTER TABLE job_effects ADD COLUMN external_ref_json TEXT;
+    ALTER TABLE job_effects ADD COLUMN payload_fingerprint TEXT;
+    ALTER TABLE job_effects ADD COLUMN attempt_started_at REAL;
+    ALTER TABLE job_effects ADD COLUMN authoritative_rejection INTEGER NOT NULL DEFAULT 0;
+    """,
+    ),
 )
 
 
