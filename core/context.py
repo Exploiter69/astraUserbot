@@ -190,9 +190,10 @@ class ApplicationContext:
         self.register("flags", FeatureFlagService(self.get("storage")))
 
     async def _project_event(self, _event: Any) -> None:
-        if not self.get("telegram_event_projections")._started:
-            return
-        await self.get("telegram_event_projections").process_pending(limit=1)
+        with trusted_core_context("telegram.event_projection"):
+            if not self.get("telegram_event_projections")._started:
+                return
+            await self.get("telegram_event_projections").process_pending(limit=1)
 
     def register(self, name: str, service: Any) -> Any:
         if not name or name in self.services:
