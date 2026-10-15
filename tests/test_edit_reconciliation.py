@@ -31,6 +31,7 @@ class FakeTelegram:
         self.edits = []
         self.edit_behavior = None
         self.history_error = None
+        self.can_edit = True
 
     async def get_me(self):
         return SimpleNamespace(id=42)
@@ -42,6 +43,9 @@ class FakeTelegram:
             message for mid, message in self.messages.items()
             if (min_id is None or mid > min_id) and (max_id is None or mid < max_id)
         ][:limit]
+
+    async def get_capabilities(self, target):
+        return {"can_edit": self.can_edit}
 
     async def edit_message(self, target, message_id, text):
         self.edits.append((target, message_id, text))
