@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import time
 import unicodedata
-from datetime import datetime, timezone
 from typing import Any
 
 from telethon.errors import RPCError
@@ -182,7 +182,7 @@ class SendJobAdapter:
 
         try:
             sent = await self.telegram.send_message(target, text)
-        except asyncio_cancelled():
+        except asyncio.CancelledError:
             raise
         except (RPCError, AuthoritativeSendRejection) as exc:
             await self._record_authoritative_rejection(job.id, exc)
@@ -270,10 +270,3 @@ class SendJobAdapter:
         if len(eligible) == 1:
             return ReconcileOutcome.HAPPENED
         return ReconcileOutcome.UNKNOWN
-
-
-def asyncio_cancelled():
-    """Return the cancellation exception type without coupling tests to network I/O."""
-    import asyncio
-
-    return asyncio.CancelledError
