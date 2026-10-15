@@ -53,7 +53,7 @@ class StorageAndJobsGateTests(unittest.IsolatedAsyncioTestCase):
         rows = await self.storage.fetchall(
             "SELECT version FROM schema_migrations ORDER BY version"
         )
-        self.assertEqual([row[0] for row in rows], [1, 2, 3, 4, 5, 6, 7, 8, 9])
+        self.assertEqual([row[0] for row in rows], list(range(1, 12)))
 
     async def test_foreign_keys_are_enabled(self):
         row = await self.storage.fetchone("PRAGMA foreign_keys")
@@ -205,7 +205,16 @@ class StorageAndJobsGateTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(recovered_job.error_code, "LEASE_EXPIRED")
 
     async def test_uncertain_job_requires_explicit_requeue(self):
+        from core.services.jobs import ReconcileOutcome
+
+        async def handler(_job):
+            return None
+
+        async def reconciler(_context):
+            return ReconcileOutcome.NOT_HAPPENED
+
         engine = JobEngine(self.storage, worker_id="worker-a", lease_seconds=5)
+        engine.register_handler("TEST", handler, effect_class="TEST_EFFECT", reconciler=reconciler)
         job = await engine.enqueue("TEST")
         await engine.claim()
         await self.storage.execute(
