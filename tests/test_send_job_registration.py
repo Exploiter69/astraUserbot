@@ -7,20 +7,24 @@ from core.context import ApplicationContext
 from core.services.jobs import JobEngine
 from core.services.send_jobs import SendJobAdapter
 from core.services.edit_jobs import EditJobAdapter
+from core.services.delete_jobs import DeleteJobAdapter
 
 
-def test_application_context_registers_only_SEND_and_EDIT_reconciliation_adapters(tmp_path: Path):
+def test_application_context_registers_only_SEND_EDIT_and_DELETE_adapters(tmp_path: Path):
     context = ApplicationContext(SimpleNamespace(), tmp_path)
 
     jobs = context.get("jobs")
     assert isinstance(jobs, JobEngine)
     assert isinstance(context.get("send_jobs"), SendJobAdapter)
     assert isinstance(context.get("edit_jobs"), EditJobAdapter)
+    assert isinstance(context.get("delete_jobs"), DeleteJobAdapter)
     assert jobs.effect_classes["SEND"] == "SEND"
     assert jobs.reconcilers["SEND"] == context.get("send_jobs").reconcile
     assert jobs.effect_classes["EDIT"] == "EDIT"
     assert jobs.reconcilers["EDIT"] == context.get("edit_jobs").reconcile
+    assert jobs.effect_classes["DELETE"] == "DELETE"
+    assert jobs.reconcilers["DELETE"] == context.get("delete_jobs").reconcile
 
-    for job_type in ("DELETE", "UPLOAD", "JOIN"):
+    for job_type in ("UPLOAD", "JOIN"):
         assert jobs.effect_classes.get(job_type) is None
         assert job_type not in jobs.reconcilers
