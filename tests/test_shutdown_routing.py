@@ -27,7 +27,9 @@ class ShutdownRoutingTests(unittest.IsolatedAsyncioTestCase):
 
         loop.handlers[next(iter(loop.handlers))]()
         await asyncio.wait_for(called.wait(), timeout=1)
-        remaining = [task for task in asyncio.all_tasks() if task is not asyncio.current_task()]
+        remaining = [
+            task for task in asyncio.all_tasks() if task is not asyncio.current_task()
+        ]
         for task in remaining:
             if not task.done():
                 task.cancel()

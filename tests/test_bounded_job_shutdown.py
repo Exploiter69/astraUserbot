@@ -41,7 +41,12 @@ class BoundedJobShutdownTests(unittest.IsolatedAsyncioTestCase):
         await engine.close()
         elapsed = time.monotonic() - started
 
-        self.assertLess(elapsed, JobEngine.SHUTDOWN_BUDGET_SECONDS + JobEngine.WORKER_CANCEL_BUDGET_SECONDS + 0.5)
+        self.assertLess(
+            elapsed,
+            JobEngine.SHUTDOWN_BUDGET_SECONDS
+            + JobEngine.WORKER_CANCEL_BUDGET_SECONDS
+            + 0.5,
+        )
         self.assertEqual((await engine.get(job.id)).state, JobState.UNCERTAIN)
         self.assertEqual((await engine.get(job.id)).error_code, "WORKER_SHUTDOWN")
 

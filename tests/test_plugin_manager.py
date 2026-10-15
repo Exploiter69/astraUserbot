@@ -19,15 +19,15 @@ class PluginManagerTests(unittest.TestCase):
             manager.discover()
             manager.records = {
                 "plugins.alpha": manager.records.get("plugins.alpha")
-                or __import__("core.plugins.manager", fromlist=["PluginRecord"]).PluginRecord(
-                    "plugins.alpha", dependencies=("plugins.base",)
-                ),
-                "plugins.base": __import__("core.plugins.manager", fromlist=["PluginRecord"]).PluginRecord(
-                    "plugins.base"
-                ),
-                "plugins.beta": __import__("core.plugins.manager", fromlist=["PluginRecord"]).PluginRecord(
-                    "plugins.beta", dependencies=("plugins.base",)
-                ),
+                or __import__(
+                    "core.plugins.manager", fromlist=["PluginRecord"]
+                ).PluginRecord("plugins.alpha", dependencies=("plugins.base",)),
+                "plugins.base": __import__(
+                    "core.plugins.manager", fromlist=["PluginRecord"]
+                ).PluginRecord("plugins.base"),
+                "plugins.beta": __import__(
+                    "core.plugins.manager", fromlist=["PluginRecord"]
+                ).PluginRecord("plugins.beta", dependencies=("plugins.base",)),
             }
             self.assertEqual(
                 manager._dependency_order(),
@@ -82,11 +82,15 @@ class PluginManagerTests(unittest.TestCase):
                     module.__name__: PluginRecord(module.__name__, module=module)
                 }
                 asyncio.run(manager.load_all())
-                self.assertEqual(manager.get(module.__name__).state, PluginState.RUNNING)
+                self.assertEqual(
+                    manager.get(module.__name__).state, PluginState.RUNNING
+                )
                 self.assertEqual(calls, ["setup"])
 
                 asyncio.run(manager.shutdown())
-                self.assertEqual(manager.get(module.__name__).state, PluginState.UNLOADED)
+                self.assertEqual(
+                    manager.get(module.__name__).state, PluginState.UNLOADED
+                )
                 self.assertEqual(calls, ["setup", "shutdown"])
         finally:
             sys.modules.pop(module.__name__, None)

@@ -12,13 +12,14 @@ import asyncio
 import importlib
 import inspect
 import logging
+from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from types import ModuleType
-from typing import Any, AsyncIterator, Iterator
+from typing import Any
 
 from core.plugins.contract import PluginMetadata, metadata_for
 
@@ -66,17 +67,23 @@ class PluginLifecycleError(PluginError):
 class PluginManager:
     """Own plugin discovery and lifecycle without changing plugin behavior."""
 
-    _QUARANTINED_MODULES = frozenset({
-        "plugins.ai.ask",
-        "plugins.ai.summarize",
-        "plugins.ai.transcribe",
-        "plugins.ai.groq_client",
-    })
+    _QUARANTINED_MODULES = frozenset(
+        {
+            "plugins.ai.ask",
+            "plugins.ai.summarize",
+            "plugins.ai.transcribe",
+            "plugins.ai.groq_client",
+        }
+    )
     _SHUTDOWN_BUDGET_SECONDS = 2.5
     _PLUGIN_MUTATION_TIMEOUT_SECONDS = 5.0
 
-    _current_plugin: ContextVar[str | None] = ContextVar("astra_current_plugin", default=None)
-    _current_manager: ContextVar["PluginManager | None"] = ContextVar("astra_current_plugin_manager", default=None)
+    _current_plugin: ContextVar[str | None] = ContextVar(
+        "astra_current_plugin", default=None
+    )
+    _current_manager: ContextVar[PluginManager | None] = ContextVar(
+        "astra_current_plugin_manager", default=None
+    )
 
     def __init__(self, client: Any, plugin_root: Path):
         self.client = client
@@ -91,12 +98,14 @@ class PluginManager:
         return cls._current_plugin.get()
 
     @classmethod
-    def current_manager(cls) -> "PluginManager | None":
+    def current_manager(cls) -> PluginManager | None:
         return cls._current_manager.get()
 
     @classmethod
     @contextmanager
-    def plugin_context(cls, name: str, manager: "PluginManager | None" = None) -> Iterator[None]:
+    def plugin_context(
+        cls, name: str, manager: PluginManager | None = None
+    ) -> Iterator[None]:
         token_plugin = cls._current_plugin.set(name)
         token_manager = cls._current_manager.set(manager)
         try:
@@ -135,8 +144,14 @@ class PluginManager:
         return ".".join(relative.parts)
 
     def _read_metadata(self, record: PluginRecord) -> PluginMetadata:
-        metadata = metadata_for(record.module, record.name) if record.module else metadata_for(importlib.import_module(record.name), record.name)
-        record.name = metadata.name if metadata.name.startswith("plugins.") else record.name
+        metadata = (
+            metadata_for(record.module, record.name)
+            if record.module
+            else metadata_for(importlib.import_module(record.name), record.name)
+        )
+        record.name = (
+            metadata.name if metadata.name.startswith("plugins.") else record.name
+        )
         record.version = metadata.version
         record.api_version = metadata.api_version
         record.description = metadata.description
@@ -147,15 +162,23 @@ class PluginManager:
         return metadata
 
     def _dependency_order(self) -> list[str]:
-        graph = {name: set(record.dependencies) for name, record in self.records.items()}
-        unknown = sorted({dep for deps in graph.values() for dep in deps if dep not in graph})
+        graph = {
+            name: set(record.dependencies) for name, record in self.records.items()
+        }
+        unknown = sorted(
+            {dep for deps in graph.values() for dep in deps if dep not in graph}
+        )
         if unknown:
-            raise PluginDependencyError("Unknown plugin dependencies: " + ", ".join(unknown))
+            raise PluginDependencyError(
+                "Unknown plugin dependencies: " + ", ".join(unknown)
+            )
         order: list[str] = []
         while graph:
             ready = sorted(name for name, deps in graph.items() if not deps)
             if not ready:
-                raise PluginDependencyError(f"Plugin dependency cycle detected: {', '.join(sorted(graph))}")
+                raise PluginDependencyError(
+                    f"Plugin dependency cycle detected: {', '.join(sorted(graph))}"
+                )
             order.extend(ready)
             for name in ready:
                 graph.pop(name)
@@ -166,7 +189,8 @@ class PluginManager:
     def _validate_dependency_runtime(self, name: str) -> None:
         record = self.records[name]
         missing = [
-            dep for dep in record.dependencies
+            dep
+            for dep in record.dependencies
             if dep not in self.records or self.records[dep].state != PluginState.RUNNING
         ]
         if missing:
@@ -256,6 +280,7 @@ class PluginManager:
                 self._current_plugin.reset(token_plugin)
         if record.registrations:
             from core.registry import get_registration
+
             for registration_id in list(record.registrations):
                 try:
                     registration = get_registration(registration_id)
@@ -288,20 +313,38 @@ class PluginManager:
             return
         task.cancel()
         task.add_done_callback(self._consume_background_result)
-        logger.error("Plugin shutdown timed out after %.3fs: %s; continuing runtime teardown.", timeout, name)
+        logger.error(
+            "Plugin shutdown timed out after %.3fs: %s; continuing runtime teardown.",
+            timeout,
+            name,
+        )
 
     async def shutdown(self) -> None:
-        names = [name for name in reversed(self._load_order) if self.records[name].state == PluginState.RUNNING]
+        names = [
+            name
+            for name in reversed(self._load_order)
+            if self.records[name].state == PluginState.RUNNING
+        ]
         deadline = asyncio.get_running_loop().time() + self._SHUTDOWN_BUDGET_SECONDS
         for name in names:
             remaining = deadline - asyncio.get_running_loop().time()
             if remaining <= 0:
-                logger.error("Plugin shutdown budget exhausted; skipping %d plugin(s).", sum(self.records[item].state == PluginState.RUNNING for item in names))
+                logger.error(
+                    "Plugin shutdown budget exhausted; skipping %d plugin(s).",
+                    sum(
+                        self.records[item].state == PluginState.RUNNING
+                        for item in names
+                    ),
+                )
                 break
             stage_started = asyncio.get_running_loop().time()
             logger.info("Plugin shutdown starting: %s", name)
             await self._bounded_unload(name, remaining)
-            logger.info("Plugin shutdown stage finished: %s in %.3fs", name, asyncio.get_running_loop().time() - stage_started)
+            logger.info(
+                "Plugin shutdown stage finished: %s in %.3fs",
+                name,
+                asyncio.get_running_loop().time() - stage_started,
+            )
 
     async def disable_plugin(self, name: str) -> PluginRecord:
         """Safely disable a plugin and all of its owned command registrations.
@@ -316,7 +359,8 @@ class PluginManager:
         if record.state == PluginState.DISABLED:
             return record
         dependents = sorted(
-            item.name for item in self.records.values()
+            item.name
+            for item in self.records.values()
             if item.state == PluginState.RUNNING and name in item.dependencies
         )
         if dependents:
@@ -325,7 +369,9 @@ class PluginManager:
             )
         if record.state == PluginState.RUNNING:
             try:
-                await asyncio.wait_for(self.unload(name), timeout=self._PLUGIN_MUTATION_TIMEOUT_SECONDS)
+                await asyncio.wait_for(
+                    self.unload(name), timeout=self._PLUGIN_MUTATION_TIMEOUT_SECONDS
+                )
             except Exception as exc:
                 record.error = str(exc)
                 raise PluginLifecycleError(f"Disable failed for {name}: {exc}") from exc
@@ -343,8 +389,16 @@ class PluginManager:
         record = self.records[name]
         if record.state == PluginState.RUNNING:
             return record
-        if record.state not in {PluginState.DISABLED, PluginState.UNLOADED, PluginState.FAILED_SETUP, PluginState.FAILED_IMPORT, PluginState.DISCOVERED}:
-            raise PluginLifecycleError(f"Plugin {name} is not enableable from {record.state.value}")
+        if record.state not in {
+            PluginState.DISABLED,
+            PluginState.UNLOADED,
+            PluginState.FAILED_SETUP,
+            PluginState.FAILED_IMPORT,
+            PluginState.DISCOVERED,
+        }:
+            raise PluginLifecycleError(
+                f"Plugin {name} is not enableable from {record.state.value}"
+            )
         self._validate_dependency_runtime(name)
         old_registration_ids = set(record.registrations)
         self._disabled.discard(name)
@@ -354,13 +408,16 @@ class PluginManager:
             record.state = PluginState.LOADED
             self._read_metadata(record)
             self._validate_dependency_runtime(name)
-            await asyncio.wait_for(self._run_setup(record), timeout=self._PLUGIN_MUTATION_TIMEOUT_SECONDS)
+            await asyncio.wait_for(
+                self._run_setup(record), timeout=self._PLUGIN_MUTATION_TIMEOUT_SECONDS
+            )
             return record
         except Exception as exc:
             record.state = PluginState.FAILED_SETUP
             record.error = str(exc)
             # Remove any registrations created by the failed setup attempt.
             from core.registry import get_registration
+
             for registration_id in list(record.registrations - old_registration_ids):
                 try:
                     get_registration(registration_id).unregister(self.client)
@@ -390,19 +447,22 @@ class PluginManager:
         return self.records[name]
 
     def snapshot(self) -> list[dict[str, Any]]:
-        return [{
-            "name": record.name,
-            "state": record.state.value,
-            "version": record.version,
-            "api_version": record.api_version,
-            "description": record.description,
-            "dependencies": list(record.dependencies),
-            "optional_dependencies": list(record.optional_dependencies),
-            "capabilities": list(record.capabilities),
-            "critical": record.critical,
-            "error": record.error,
-            "registrations": sorted(record.registrations),
-        } for record in sorted(self.records.values(), key=lambda item: item.name)]
+        return [
+            {
+                "name": record.name,
+                "state": record.state.value,
+                "version": record.version,
+                "api_version": record.api_version,
+                "description": record.description,
+                "dependencies": list(record.dependencies),
+                "optional_dependencies": list(record.optional_dependencies),
+                "capabilities": list(record.capabilities),
+                "critical": record.critical,
+                "error": record.error,
+                "registrations": sorted(record.registrations),
+            }
+            for record in sorted(self.records.values(), key=lambda item: item.name)
+        ]
 
     def register_ownership(self, registration: str) -> None:
         owner = self.current_plugin()
@@ -413,11 +473,16 @@ class PluginManager:
         counts: dict[str, int] = {}
         for record in self.records.values():
             counts[record.state.value] = counts.get(record.state.value, 0) + 1
-        logger.info("Plugin startup report: %s", ", ".join(f"{state}={counts[state]}" for state in sorted(counts)))
+        logger.info(
+            "Plugin startup report: %s",
+            ", ".join(f"{state}={counts[state]}" for state in sorted(counts)),
+        )
 
 
 @asynccontextmanager
-async def managed_plugins(client: Any, plugin_root: Path) -> AsyncIterator[PluginManager]:
+async def managed_plugins(
+    client: Any, plugin_root: Path
+) -> AsyncIterator[PluginManager]:
     manager = PluginManager(client, plugin_root)
     await manager.load_all()
     try:

@@ -6,7 +6,6 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-
 SYNCED = "SYNCED"
 RUNNING = "RUNNING"
 GAP_DETECTED = "GAP_DETECTED"
@@ -94,7 +93,11 @@ class TelegramIncrementalSync:
             )
             messages = list(messages or [])
             message_ids = sorted(
-                {int(message.id) for message in messages if getattr(message, "id", None) is not None}
+                {
+                    int(message.id)
+                    for message in messages
+                    if getattr(message, "id", None) is not None
+                }
             )
             newest = max(message_ids) if message_ids else previous_id
             now = time.time()
@@ -120,7 +123,9 @@ class TelegramIncrementalSync:
                 (time.time(), RUNNING, key),
             )
 
-    async def _write_cursor(self, peer: Any, message_id: int | None, synced_at: float, state: str) -> None:
+    async def _write_cursor(
+        self, peer: Any, message_id: int | None, synced_at: float, state: str
+    ) -> None:
         key = self.peer_key(peer)
         await self.storage.execute(
             """UPDATE telegram_dialogs

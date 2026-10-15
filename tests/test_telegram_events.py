@@ -21,7 +21,9 @@ class FakeClient:
 
 
 class TelegramEventCollectorTests(unittest.TestCase):
-    def test_start_registers_supported_event_families_and_close_unregisters(self) -> None:
+    def test_start_registers_supported_event_families_and_close_unregisters(
+        self,
+    ) -> None:
         async def scenario() -> None:
             client = FakeClient()
             collector = TelegramEventCollector(client)
@@ -78,11 +80,15 @@ class TelegramEventCollectorTests(unittest.TestCase):
 
             collector.add_sink(failing_sink)
             collector.add_sink(received.append)
-            await collector._handle_message_delete(SimpleNamespace(chat_id=10, deleted_ids=list(range(150))))
+            await collector._handle_message_delete(
+                SimpleNamespace(chat_id=10, deleted_ids=list(range(150)))
+            )
             self.assertEqual(len(received), 100)
             self.assertEqual(received[0].message_id, 0)
             self.assertEqual(received[-1].message_id, 99)
-            self.assertTrue(all(item.event_type == "MESSAGE_DELETE" for item in received))
+            self.assertTrue(
+                all(item.event_type == "MESSAGE_DELETE" for item in received)
+            )
 
         asyncio.run(scenario())
 

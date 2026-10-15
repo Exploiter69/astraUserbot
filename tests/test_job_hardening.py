@@ -4,7 +4,7 @@ import time
 import unittest
 from pathlib import Path
 
-from core.services.jobs import JobError, JobEngine, JobState
+from core.services.jobs import JobEngine, JobError, JobState
 from core.services.storage import StorageService
 
 
@@ -19,10 +19,16 @@ class JobHardeningTests(unittest.IsolatedAsyncioTestCase):
         self.tmp.cleanup()
 
     async def test_idempotency_is_durable_and_duplicate_enqueue_safe(self):
-        first = await JobEngine(self.storage, worker_id="enqueue-a").enqueue("TEST", {"x": 1}, idempotency_key="same-key")
-        second = await JobEngine(self.storage, worker_id="enqueue-b").enqueue("TEST", {"x": 999}, idempotency_key="same-key")
+        first = await JobEngine(self.storage, worker_id="enqueue-a").enqueue(
+            "TEST", {"x": 1}, idempotency_key="same-key"
+        )
+        second = await JobEngine(self.storage, worker_id="enqueue-b").enqueue(
+            "TEST", {"x": 999}, idempotency_key="same-key"
+        )
         self.assertEqual(first.id, second.id)
-        rows = await self.storage.fetchall("SELECT COUNT(*) AS n FROM jobs WHERE idempotency_key=?", ("same-key",))
+        rows = await self.storage.fetchall(
+            "SELECT COUNT(*) AS n FROM jobs WHERE idempotency_key=?", ("same-key",)
+        )
         self.assertEqual(rows[0]["n"], 1)
 
     async def test_atomic_claim_prevents_duplicate_execution(self):
@@ -38,7 +44,9 @@ class JobHardeningTests(unittest.IsolatedAsyncioTestCase):
         job = await engine.enqueue("TEST")
         claimed = await engine.claim()
         self.assertIsNotNone(claimed)
-        await self.storage.execute("UPDATE leases SET expires_at=? WHERE job_id=?", (time.time() - 1, job.id))
+        await self.storage.execute(
+            "UPDATE leases SET expires_at=? WHERE job_id=?", (time.time() - 1, job.id)
+        )
         recovered = await engine.recover_expired()
         self.assertEqual(recovered, 1)
         recovered_job = await engine.get(job.id)
@@ -51,7 +59,9 @@ class JobHardeningTests(unittest.IsolatedAsyncioTestCase):
         job = await old.enqueue("TEST")
         old_claim = await old.claim()
         self.assertIsNotNone(old_claim)
-        await self.storage.execute("UPDATE leases SET expires_at=? WHERE job_id=?", (time.time() - 1, job.id))
+        await self.storage.execute(
+            "UPDATE leases SET expires_at=? WHERE job_id=?", (time.time() - 1, job.id)
+        )
         await old.recover_expired()
         await old.requeue_uncertain(job.id)
         new_claim = await new.claim()
@@ -68,15 +78,23 @@ class JobHardeningTests(unittest.IsolatedAsyncioTestCase):
         job = await engine.enqueue("TEST", max_attempts=2)
         first = await engine.claim()
         self.assertIsNotNone(first)
-        self.assertTrue(await engine._fail_claimed(first, "TEMP", "temporary", retryable=True))
+        self.assertTrue(
+            await engine._fail_claimed(first, "TEMP", "temporary", retryable=True)
+        )
         retried = await engine.get(job.id)
         self.assertEqual(retried.state, JobState.QUEUED)
         self.assertEqual(retried.attempt_count, 1)
         self.assertEqual(retried.error_code, "TEMP")
-        await self.storage.execute("UPDATE jobs SET available_at=? WHERE id=?", (time.time() - 1, job.id))
+        await self.storage.execute(
+            "UPDATE jobs SET available_at=? WHERE id=?", (time.time() - 1, job.id)
+        )
         second = await engine.claim()
         self.assertIsNotNone(second)
-        self.assertTrue(await engine._fail_claimed(second, "PERMANENT", "final failure", retryable=True))
+        self.assertTrue(
+            await engine._fail_claimed(
+                second, "PERMANENT", "final failure", retryable=True
+            )
+        )
         failed = await engine.get(job.id)
         self.assertEqual(failed.state, JobState.FAILED)
         self.assertEqual(failed.attempt_count, 2)
@@ -118,7 +136,9 @@ class JobHardeningTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(cancelled.error_code, "CANCELLATION_UNCERTAIN")
 
     async def test_cleanup_retains_uncertain_and_deletes_old_terminal_jobs(self):
-        engine = JobEngine(self.storage, worker_id="cleanup-worker", retention_seconds=10)
+        engine = JobEngine(
+            self.storage, worker_id="cleanup-worker", retention_seconds=10
+        )
         completed = await engine.enqueue("TEST")
         await engine.claim()
         await engine.complete(completed.id, {"ok": True})
@@ -129,7 +149,10 @@ class JobHardeningTests(unittest.IsolatedAsyncioTestCase):
         await engine.claim()
         await engine.cancel(uncertain.id)
         cutoff = time.time() + 1
-        await self.storage.execute("UPDATE jobs SET completed_at=?,updated_at=? WHERE id IN (?,?,?)", (cutoff - 20, cutoff - 20, completed.id, failed.id, uncertain.id))
+        await self.storage.execute(
+            "UPDATE jobs SET completed_at=?,updated_at=? WHERE id IN (?,?,?)",
+            (cutoff - 20, cutoff - 20, completed.id, failed.id, uncertain.id),
+        )
         result = await engine.cleanup(now=cutoff)
         self.assertEqual(result["jobs_deleted"], 2)
         with self.assertRaises(KeyError):
@@ -139,7 +162,9 @@ class JobHardeningTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await engine.get(uncertain.id)).state, JobState.UNCERTAIN)
 
     async def test_retryable_job_error_uses_stable_classification(self):
-        self.assertEqual(JobError("x", code="RATE_LIMIT", retryable=True).code, "RATE_LIMIT")
+        self.assertEqual(
+            JobError("x", code="RATE_LIMIT", retryable=True).code, "RATE_LIMIT"
+        )
         self.assertTrue(JobError("x", code="RATE_LIMIT", retryable=True).retryable)
 
 

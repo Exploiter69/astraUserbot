@@ -66,7 +66,9 @@ def extract_zip(
                 continue
             mode = (info.external_attr >> 16) & 0o170000
             if mode and not stat.S_ISREG(mode):
-                raise ArchiveSafetyError("Archive links and special files are not allowed")
+                raise ArchiveSafetyError(
+                    "Archive links and special files are not allowed"
+                )
             if info.file_size < 0 or info.file_size > max_file_bytes:
                 raise ArchiveSafetyError("Archive member exceeds file-size limit")
             total += info.file_size
@@ -78,7 +80,9 @@ def extract_zip(
                 while remaining:
                     chunk = source.read(min(1024 * 1024, remaining))
                     if not chunk:
-                        raise ArchiveSafetyError("Archive member ended before declared size")
+                        raise ArchiveSafetyError(
+                            "Archive member ended before declared size"
+                        )
                     target.write(chunk)
                     remaining -= len(chunk)
     return count
@@ -104,7 +108,9 @@ def extract_tar(
             count += 1
             destination_path = _safe_destination(root, member.name)
             if member.issym() or member.islnk() or member.isdev() or member.isfifo():
-                raise ArchiveSafetyError("Archive links and special files are not allowed")
+                raise ArchiveSafetyError(
+                    "Archive links and special files are not allowed"
+                )
             if member.isdir():
                 destination_path.mkdir(parents=True, exist_ok=True)
                 continue
@@ -122,7 +128,9 @@ def extract_tar(
                 while remaining:
                     chunk = source.read(min(1024 * 1024, remaining))
                     if not chunk:
-                        raise ArchiveSafetyError("Archive member ended before declared size")
+                        raise ArchiveSafetyError(
+                            "Archive member ended before declared size"
+                        )
                     target.write(chunk)
                     remaining -= len(chunk)
     return count

@@ -2,7 +2,7 @@
 
 A modular, service-oriented Telegram userbot platform designed for reliability, explicit safety boundaries, durable background work, observable operations and zero-cost operation.
 
-**Current release:** `1.0.0`  
+**Current release candidate:** `1.0.1`  
 **Architecture:** single-process Python/asyncio modular monolith  
 **Transport:** Telethon  
 **Durable store:** SQLite/WAL  
@@ -13,8 +13,6 @@ A modular, service-oriented Telegram userbot platform designed for reliability, 
 AstraUserbot began as a broad feature-rich userbot. The engineering program extracted shared infrastructure without requiring a framework rewrite. Reliability, safety, compatibility and recovery are platform contracts; plugins remain the feature edge.
 
 The active post-1.0 feature program is defined in **`ROADMAP.md`**. It is the working roadmap for Telegram Core 2.0, product/UX expansion, AI 2.0, durable automation, IntelGraph/IOC intelligence, media intelligence, cases, security intelligence, public-code intelligence and the plugin ecosystem.
-
-**`ROADMAP_COMPETITIVE_ADDENDUM.md`** extends that roadmap with the continuous competitor matrix, Command Bus/command contracts, command discovery, unified search, entity inspection, explicit correlation engine, plugin compatibility API and Astra Control Plane.
 
 ## Core principles
 
@@ -58,7 +56,7 @@ Current production hardening includes deterministic plugin lifecycle and command
 
 Current verified inventory:
 
-- **41 active plugins**
+- **56 active plugins**
 - **4 intentionally quarantined legacy AI modules**
 
 Quarantined:
@@ -77,7 +75,6 @@ Quarantine is intentional. Do not remove it merely because an AI command is unav
 | Document | Purpose |
 |---|---|
 | `ROADMAP.md` | Active Astra 2.x feature and implementation roadmap |
-| `ROADMAP_COMPETITIVE_ADDENDUM.md` | Competitive-completeness extensions and revised dependencies |
 | `ARCHITECTURE.md` | Canonical architecture and production invariants |
 | `DATA_MODEL.md` | Data ownership and persistence |
 | `JOB_MODEL.md` | Durable job lifecycle and recovery semantics |
@@ -95,30 +92,32 @@ Quarantine is intentional. Do not remove it merely because an AI command is unav
 | `DISASTER_RECOVERY.md` | Backup, restore and recovery procedure |
 | `FAILURE_MODE_MATRIX.md` | Failure detection and response |
 | `RELEASE_NOTES_v1.0.0.md` | v1.0.0 release summary |
+| `RELEASE_NOTES_v1.0.1.md` | v1.0.1 release summary |
+| `docs/acceptance/PRODUCT_MATURITY_ACCEPTANCE.md` | Product maturity acceptance ledger |
 
-Audit and verification implementations live under `tools/`; tests live under `tests/`. Historical phase/readiness and one-time release documents are intentionally not kept in the repository root.
+Audit and verification implementations live under `tools/`; tests live under `tests/`. Historical implementation artifacts and one-time release documents are intentionally not kept in the repository root.
 
 ## Verification
 
 The canonical non-destructive verification gate is:
 
 ```bash
-./venv/bin/python tools/production_acceptance_gate.py
+python tools/release_acceptance.py
 ```
 
-Useful individual gates:
+Useful individual checks:
 
 ```bash
-./venv/bin/python -m pytest -q
-./venv/bin/python -m compileall -q core plugins tools
-./venv/bin/python tools/plugin_behavior_audit.py
-./venv/bin/python tools/plugin_ecosystem_audit.py
-./venv/bin/python tools/media_pipeline_audit.py
-./venv/bin/python tools/isolation_security_audit.py
-./venv/bin/python tools/storage_hardening_audit.py
-./venv/bin/python tools/job_hardening_audit.py
-./venv/bin/python tools/phase18_production_audit.py
-./venv/bin/python tools/phase18_shutdown_probe.py
+python -m pytest -q
+python -m compileall -q core plugins tools
+python tools/plugin_behavior_check.py
+python tools/plugin_ecosystem_check.py
+python tools/media_pipeline_check.py
+python tools/isolation_security_check.py
+python tools/storage_hardening_check.py
+python tools/job_hardening_check.py
+python tools/production_hardening_check.py
+python tools/shutdown_probe.py
 ```
 
 The automated gate is non-destructive and does not restart the production system. Manual production checks are covered by the operator runbook.
@@ -143,7 +142,7 @@ Production service lifecycle is managed by systemd. Follow `OPERATIONS_RUNBOOK.m
 
 ## Release model
 
-`VERSION` contains the canonical release version. The current release is `1.0.0` and its Git tag is `v1.0.0`.
+`VERSION` contains the canonical release version. The current release candidate is `1.0.1`. It is not tagged until the owner-host Telegram/systemd acceptance checklist passes.
 
 Release tags are immutable release markers; post-release maintenance commits remain on `main`.
 

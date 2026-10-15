@@ -1,11 +1,11 @@
 import re
 import shlex
 
+from config import config
 from core.context import get_application_context
+from core.errors import CommandError
 from core.registry import register_cmd
 from helpers.hud import render
-from core.errors import CommandError
-from config import config
 
 PATTERN = rf"^{re.escape(config.PREFIX)}ff(?:\s+(.*))?$"
 
@@ -24,7 +24,9 @@ async def handle_ffmpeg(event):
     raw_args = event.pattern_match.group(1) or ""
     reply = await event.get_reply_message()
     if not reply or not reply.media:
-        raise CommandError("Please reply to an audio, video, or photo to process with FFmpeg.")
+        raise CommandError(
+            "Please reply to an audio, video, or photo to process with FFmpeg."
+        )
 
     context = get_application_context()
     if context is None:
@@ -33,7 +35,9 @@ async def handle_ffmpeg(event):
     workspace = await media.create_workspace("ffmpeg")
 
     try:
-        downloaded_path = await media.download_telegram_media(event.client.download_media, reply.media, workspace=workspace)
+        downloaded_path = await media.download_telegram_media(
+            event.client.download_media, reply.media, workspace=workspace
+        )
         if not downloaded_path:
             raise CommandError("Failed to download media file.")
         downloaded = media.validate_input(downloaded_path)

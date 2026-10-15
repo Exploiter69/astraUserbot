@@ -28,7 +28,9 @@ class SubprocessResult:
 class SubprocessService:
     """Execute external programs without shell interpretation or unbounded output."""
 
-    def __init__(self, *, default_timeout: float = 30.0, default_output_bytes: int = 1_048_576):
+    def __init__(
+        self, *, default_timeout: float = 30.0, default_output_bytes: int = 1_048_576
+    ):
         if default_timeout <= 0 or default_output_bytes <= 0:
             raise ValueError("Subprocess limits must be positive")
         self.default_timeout = float(default_timeout)
@@ -44,7 +46,11 @@ class SubprocessService:
         env: Mapping[str, str] | None = None,
     ) -> SubprocessResult:
         args = self._normalize_argv(argv)
-        limit = self.default_output_bytes if max_output_bytes is None else int(max_output_bytes)
+        limit = (
+            self.default_output_bytes
+            if max_output_bytes is None
+            else int(max_output_bytes)
+        )
         if limit <= 0:
             raise ValueError("max_output_bytes must be positive")
         timeout_value = self.default_timeout if timeout is None else float(timeout)
@@ -52,7 +58,12 @@ class SubprocessService:
             raise ValueError("timeout must be positive")
 
         safe_cwd = str(Path(cwd).resolve()) if cwd is not None else None
-        logger.debug("Executing subprocess program=%s argc=%d cwd=%s", args[0], len(args), safe_cwd)
+        logger.debug(
+            "Executing subprocess program=%s argc=%d cwd=%s",
+            args[0],
+            len(args),
+            safe_cwd,
+        )
         process_env = None if env is None else {str(k): str(v) for k, v in env.items()}
 
         try:
@@ -68,8 +79,12 @@ class SubprocessService:
         except OSError as exc:
             raise ExternalServiceError("Unable to start subprocess") from exc
 
-        stdout_task = asyncio.create_task(self._read_stream(process.stdout, limit), name="subprocess.stdout")
-        stderr_task = asyncio.create_task(self._read_stream(process.stderr, limit), name="subprocess.stderr")
+        stdout_task = asyncio.create_task(
+            self._read_stream(process.stdout, limit), name="subprocess.stdout"
+        )
+        stderr_task = asyncio.create_task(
+            self._read_stream(process.stderr, limit), name="subprocess.stderr"
+        )
         wait_task = asyncio.create_task(process.wait(), name="subprocess.wait")
         try:
             try:
@@ -80,7 +95,9 @@ class SubprocessService:
                 )
                 if not done:
                     await self._terminate(process)
-                    await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
+                    await asyncio.gather(
+                        stdout_task, stderr_task, return_exceptions=True
+                    )
                     raise TimeoutError(f"Subprocess timed out after {timeout_value:g}s")
 
                 truncated = any(
@@ -121,7 +138,9 @@ class SubprocessService:
         return args
 
     @staticmethod
-    async def _read_stream(stream: asyncio.StreamReader | None, limit: int) -> tuple[str, bool]:
+    async def _read_stream(
+        stream: asyncio.StreamReader | None, limit: int
+    ) -> tuple[str, bool]:
         if stream is None:
             return "", False
         chunks: list[bytes] = []

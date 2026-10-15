@@ -23,8 +23,12 @@ class AutomationDurabilityTests(unittest.IsolatedAsyncioTestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.storage = StorageService(Path(self.tmp.name))
         await self.storage.start()
-        self.jobs = JobEngine(self.storage, worker_id="automation-durability", poll_seconds=0.05)
-        self.engine = AutomationEngine(self.storage, self.jobs, FakeTelegram(), owner_id=42)
+        self.jobs = JobEngine(
+            self.storage, worker_id="automation-durability", poll_seconds=0.05
+        )
+        self.engine = AutomationEngine(
+            self.storage, self.jobs, FakeTelegram(), owner_id=42
+        )
         await self.engine.start()
 
     async def asyncTearDown(self) -> None:
@@ -51,39 +55,60 @@ class AutomationDurabilityTests(unittest.IsolatedAsyncioTestCase):
         run_id = "pending-run"
         idem = "automation:pending-idempotency"
         now = time.time()
-        await self.storage.transaction([
-            (
-                "INSERT INTO automation_runs(run_id,rule_id,rule_version,trigger_event_id,trigger_type,state,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)",
-                (run_id, rule.id, rule.version, "pending-event", "MESSAGE_NEW", "ENQUEUE_PENDING", now, now),
-            ),
-            (
-                "INSERT INTO audit_events(kind,subject_id,payload_json,created_at) VALUES(?,?,?,?)",
+        await self.storage.transaction(
+            [
                 (
-                    "AUTOMATION_ENQUEUE_INTENT",
-                    run_id,
-                    self.engine._dump({
-                        "rule_id": rule.id,
-                        "rule_version": rule.version,
-                        "trigger_type": "MESSAGE_NEW",
-                        "event": event,
-                        "idempotency_key": idem,
-                    }),
-                    now,
+                    "INSERT INTO automation_runs(run_id,rule_id,rule_version,trigger_event_id,trigger_type,state,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)",
+                    (
+                        run_id,
+                        rule.id,
+                        rule.version,
+                        "pending-event",
+                        "MESSAGE_NEW",
+                        "ENQUEUE_PENDING",
+                        now,
+                        now,
+                    ),
                 ),
-            ),
-        ])
+                (
+                    "INSERT INTO audit_events(kind,subject_id,payload_json,created_at) VALUES(?,?,?,?)",
+                    (
+                        "AUTOMATION_ENQUEUE_INTENT",
+                        run_id,
+                        self.engine._dump(
+                            {
+                                "rule_id": rule.id,
+                                "rule_version": rule.version,
+                                "trigger_type": "MESSAGE_NEW",
+                                "event": event,
+                                "idempotency_key": idem,
+                            }
+                        ),
+                        now,
+                    ),
+                ),
+            ]
+        )
 
         await self.engine._reconcile_enqueue_pending()
 
-        run = await self.storage.fetchone("SELECT state FROM automation_runs WHERE run_id=?", (run_id,))
+        run = await self.storage.fetchone(
+            "SELECT state FROM automation_runs WHERE run_id=?", (run_id,)
+        )
         self.assertEqual(run[0], "QUEUED")
-        job = await self.storage.fetchone("SELECT type,idempotency_key FROM jobs WHERE idempotency_key=?", (idem,))
+        job = await self.storage.fetchone(
+            "SELECT type,idempotency_key FROM jobs WHERE idempotency_key=?", (idem,)
+        )
         self.assertEqual(job[0], AUTOMATION_JOB_TYPE)
 
     async def test_schedule_guard_uses_durable_last_run(self):
         rule = await self.engine.create_rule(
             rule_id="scheduled",
-            trigger={"type": "SCHEDULED", "at": time.time() - 1, "interval_seconds": 3600},
+            trigger={
+                "type": "SCHEDULED",
+                "at": time.time() - 1,
+                "interval_seconds": 3600,
+            },
             scope={"chat_id": 123},
             match={},
             actions=[{"type": "TAG", "tag": "scheduled"}],

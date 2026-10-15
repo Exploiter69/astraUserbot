@@ -34,7 +34,7 @@ def schedule_job(
                 await coro_func()
             except asyncio.CancelledError:
                 raise
-            except Exception:  # noqa: BLE001 - scheduled jobs are isolated from the supervisor
+            except Exception:
                 logger.exception("Scheduled job '%s' failed", name)
 
     return supervise(loop_runner(), name=f"scheduler_{name}")

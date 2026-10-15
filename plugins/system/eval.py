@@ -48,7 +48,9 @@ def _trim(text: str) -> list[str]:
 async def handle_eval(event):
     code = (event.pattern_match.group(1) or "").strip()
     if not code:
-        await event.edit(render("EVAL", ["Error: No code provided."], footer="system | eval"))
+        await event.edit(
+            render("EVAL", ["Error: No code provided."], footer="system | eval")
+        )
         return
     if len(code) > _MAX_CODE:
         await event.edit(
@@ -85,7 +87,13 @@ async def handle_eval(event):
                 )
             except Exception as exc:  # noqa: BLE001 - isolated execution failures are user-facing
                 message = str(exc).strip() or "isolated execution failed"
-                await event.edit(render("EVAL", ["Execution failed:", "---", *_trim(message)], footer="system | eval"))
+                await event.edit(
+                    render(
+                        "EVAL",
+                        ["Execution failed:", "---", *_trim(message)],
+                        footer="system | eval",
+                    )
+                )
                 return
 
             if result.returncode == 0:

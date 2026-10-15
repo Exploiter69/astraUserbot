@@ -21,16 +21,23 @@ LOG_FILE = LOG_DIR / "astra.log"
 
 class SecretFilter(logging.Filter):
     """Prevent common credential-shaped values from entering Astra logs."""
+
     def filter(self, record: logging.LogRecord) -> bool:
         message = record.getMessage()
-        message = re.sub(r"(?i)(api[_-]?hash|api[_-]?id|token|secret|password|authorization|session)[^\n:=]*[:=]\s*[^\n]+", r"\1=[REDACTED]", message)
+        message = re.sub(
+            r"(?i)(api[_-]?hash|api[_-]?id|token|secret|password|authorization|session)[^\n:=]*[:=]\s*[^\n]+",
+            r"\1=[REDACTED]",
+            message,
+        )
         record.msg = message
         record.args = ()
         return True
 
 
 formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-file_handler = RotatingFileHandler(LOG_FILE, maxBytes=2 * 1024 * 1024, backupCount=5, encoding="utf-8")
+file_handler = RotatingFileHandler(
+    LOG_FILE, maxBytes=2 * 1024 * 1024, backupCount=5, encoding="utf-8"
+)
 file_handler.setFormatter(formatter)
 console_handler = logging.StreamHandler()
 console_handler.setFormatter(formatter)
@@ -54,7 +61,7 @@ def _command_count() -> int:
         names: list[str] = []
         expression = registration.pattern
         if expression.startswith(f"^{prefix}"):
-            expression = expression[len(f"^{prefix}"):]
+            expression = expression[len(f"^{prefix}") :]
             if expression.startswith("("):
                 end = expression.find(")")
                 group = expression[1:end] if end > 0 else ""
@@ -79,21 +86,25 @@ async def _startup_hud(context: ApplicationContext, plugin_manager, client) -> s
     ai = context.get("ai")
     database_ok = await context.get("storage").integrity_check()
     telegram = client.is_connected()
-    return "\n".join([
-        "ASTRA USERBOT",
-        "─────────────────────────",
-        "Runtime       READY",
-        f"Telegram      {'CONNECTED' if telegram else 'DISCONNECTED'}",
-        f"Database      {'PASS' if database_ok else 'FAIL'}",
-        f"Services      {services}/{services}",
-        f"Plugins       {running} RUNNING",
-        f"Commands      {_command_count()}",
-        f"Jobs          {'READY' if jobs_ready else 'STOPPED'}",
-        f"Isolation     {str(isolation.backend).upper()}",
-        f"AI Gateway    {str(ai.provider_name).upper()} READY",
-        "─────────────────────────",
-        "SYSTEM READY" if telegram and database_ok and services and running else "SYSTEM DEGRADED",
-    ])
+    return "\n".join(
+        [
+            "ASTRA USERBOT",
+            "─────────────────────────",
+            "Runtime       READY",
+            f"Telegram      {'CONNECTED' if telegram else 'DISCONNECTED'}",
+            f"Database      {'PASS' if database_ok else 'FAIL'}",
+            f"Services      {services}/{services}",
+            f"Plugins       {running} RUNNING",
+            f"Commands      {_command_count()}",
+            f"Jobs          {'READY' if jobs_ready else 'STOPPED'}",
+            f"Isolation     {str(isolation.backend).upper()}",
+            f"AI Gateway    {str(ai.provider_name).upper()} READY",
+            "─────────────────────────",
+            "SYSTEM READY"
+            if telegram and database_ok and services and running
+            else "SYSTEM DEGRADED",
+        ]
+    )
 
 
 async def main():
@@ -115,16 +126,28 @@ async def main():
             if plugin_manager is not None:
                 stage_started = asyncio.get_running_loop().time()
                 await plugin_manager.shutdown()
-                logger.info("Plugin shutdown completed in %.3fs", asyncio.get_running_loop().time() - stage_started)
+                logger.info(
+                    "Plugin shutdown completed in %.3fs",
+                    asyncio.get_running_loop().time() - stage_started,
+                )
             if context is not None:
                 stage_started = asyncio.get_running_loop().time()
                 await context.close()
-                logger.info("ApplicationContext shutdown completed in %.3fs", asyncio.get_running_loop().time() - stage_started)
+                logger.info(
+                    "ApplicationContext shutdown completed in %.3fs",
+                    asyncio.get_running_loop().time() - stage_started,
+                )
             stage_started = asyncio.get_running_loop().time()
             await bootstrap.shutdown(client)
-            logger.info("Bootstrap teardown completed in %.3fs", asyncio.get_running_loop().time() - stage_started)
+            logger.info(
+                "Bootstrap teardown completed in %.3fs",
+                asyncio.get_running_loop().time() - stage_started,
+            )
             shutdown_complete = True
-            logger.info("Full runtime shutdown completed in %.3fs", asyncio.get_running_loop().time() - shutdown_started)
+            logger.info(
+                "Full runtime shutdown completed in %.3fs",
+                asyncio.get_running_loop().time() - shutdown_started,
+            )
 
     try:
         await client.start()
@@ -136,7 +159,9 @@ async def main():
         set_application_context(context)
         client.application_context = context
         await context.start()
-        logger.info("Shared runtime services initialized: %s", context.snapshot()["services"])
+        logger.info(
+            "Shared runtime services initialized: %s", context.snapshot()["services"]
+        )
 
         plugin_manager = await loader.load_plugins(client)
         logger.info("\n%s", await _startup_hud(context, plugin_manager, client))

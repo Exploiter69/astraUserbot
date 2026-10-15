@@ -8,11 +8,11 @@ import json
 import logging
 import time
 import uuid
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
-from core.services.ioc import IOC, extract as extract_iocs
+from core.services.ioc import extract as extract_iocs
 from core.services.storage import StorageService
-
 
 EVIDENCE_STATES = frozenset(
     {"OBSERVED", "DERIVED", "CORRELATED", "INFERRED", "UNKNOWN", "CONTRADICTED"}
@@ -82,7 +82,9 @@ class IntelGraph:
         provider = provider.strip()
         source_type = source_type.strip()
         if not source_id or not source_family or not provider or not source_type:
-            raise ValueError("source_id, source_family, provider and source_type are required")
+            raise ValueError(
+                "source_id, source_family, provider and source_type are required"
+            )
         now = time.time()
         await self.storage.execute(
             """INSERT INTO intel_sources(source_id,source_family,provider,dataset_id,dataset_version,source_type,uri,lineage_class,lineage_confidence,metadata_json,created_at,updated_at)
@@ -118,7 +120,10 @@ class IntelGraph:
         canonical = canonical_value.strip()
         if not entity_type or not canonical:
             raise ValueError("entity_type and canonical_value must not be empty")
-        entity_id = entity_id or hashlib.sha256(f"{entity_type}\0{canonical}".encode()).hexdigest()
+        entity_id = (
+            entity_id
+            or hashlib.sha256(f"{entity_type}\0{canonical}".encode()).hexdigest()
+        )
         now = time.time()
         await self.storage.execute(
             """INSERT INTO intel_entities(entity_id,entity_type,canonical_value,display_value,created_at,updated_at)
@@ -343,7 +348,9 @@ class IntelGraph:
             "has_more": bounded_offset + len(edges) < total,
         }
 
-    async def neighbors(self, entity_id: str, *, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+    async def neighbors(
+        self, entity_id: str, *, limit: int = 100, offset: int = 0
+    ) -> list[dict[str, Any]]:
         """Return bounded adjacent entities and explainable edge metadata in both directions."""
         self._require_started()
         bounded_limit = max(1, min(int(limit), self.MAX_QUERY_ROWS))
@@ -381,7 +388,9 @@ class IntelGraph:
             for row in rows
         ]
 
-    async def evidence(self, entity_id: str, *, limit: int = 100) -> list[dict[str, Any]]:
+    async def evidence(
+        self, entity_id: str, *, limit: int = 100
+    ) -> list[dict[str, Any]]:
         self._require_started()
         bounded = max(1, min(int(limit), self.MAX_QUERY_ROWS))
         rows = await self.storage.fetchall(
@@ -390,7 +399,9 @@ class IntelGraph:
         )
         return [dict(row) for row in rows]
 
-    async def timeline(self, entity_id: str, *, limit: int = 100) -> list[dict[str, Any]]:
+    async def timeline(
+        self, entity_id: str, *, limit: int = 100
+    ) -> list[dict[str, Any]]:
         """Build a bounded chronological intelligence timeline from durable evidence."""
         self._require_started()
         bounded = max(1, min(int(limit), self.MAX_QUERY_ROWS))
@@ -408,7 +419,10 @@ class IntelGraph:
             (entity_id, entity_id),
         )
         merged = [dict(row) for row in (*observations, *relationships)]
-        merged.sort(key=lambda item: (float(item["timestamp"]), item["kind"], str(item["id"])), reverse=True)
+        merged.sort(
+            key=lambda item: (float(item["timestamp"]), item["kind"], str(item["id"])),
+            reverse=True,
+        )
         return merged[:bounded]
 
     async def ingest_text(

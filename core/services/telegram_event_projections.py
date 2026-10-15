@@ -32,7 +32,9 @@ class TelegramEventProjections:
     async def process_pending(self, *, limit: int = MAX_BATCH) -> int:
         if not self._started:
             raise RuntimeError("TelegramEventProjections is not started")
-        rows = await self.journal.list_pending(limit=min(max(1, int(limit)), self.MAX_BATCH))
+        rows = await self.journal.list_pending(
+            limit=min(max(1, int(limit)), self.MAX_BATCH)
+        )
         processed = 0
         for row in rows:
             event_id = str(row["event_id"])
@@ -52,28 +54,75 @@ class TelegramEventProjections:
         payload_json = row["payload_json"]
         payload = json.loads(payload_json)
         statements = [
-            ("INSERT OR IGNORE INTO telegram_timeline(event_id,event_type,source_peer,entity_id,message_id,observed_at,payload_json) VALUES (?,?,?,?,?,?,?)",
-             (row["event_id"], row["event_type"], row["source_peer"], row["entity_id"], row["message_id"], row["observed_at"], payload_json)),
+            (
+                "INSERT OR IGNORE INTO telegram_timeline(event_id,event_type,source_peer,entity_id,message_id,observed_at,payload_json) VALUES (?,?,?,?,?,?,?)",
+                (
+                    row["event_id"],
+                    row["event_type"],
+                    row["source_peer"],
+                    row["entity_id"],
+                    row["message_id"],
+                    row["observed_at"],
+                    payload_json,
+                ),
+            ),
         ]
         if row["entity_id"] is not None:
-            statements.append(("INSERT OR IGNORE INTO telegram_entity_observations(event_id,entity_id,source_peer,event_type,observed_at,payload_json) VALUES (?,?,?,?,?,?)",
-                (row["event_id"], row["entity_id"], row["source_peer"], row["event_type"], row["observed_at"], payload_json)))
-        if row["event_type"] in {"MESSAGE_NEW", "MESSAGE_EDIT"} and row["message_id"] is not None:
-            statements.append(("DELETE FROM telegram_latest_messages WHERE source_peer IS ? AND message_id=?", (row["source_peer"], row["message_id"])))
-            statements.append(("INSERT INTO telegram_latest_messages(message_id,source_peer,event_id,event_type,entity_id,payload_json,observed_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
-                (row["message_id"], row["source_peer"], row["event_id"], row["event_type"], row["entity_id"], json.dumps(payload, sort_keys=True, separators=(",", ":")), row["observed_at"], time.time())))
+            statements.append(
+                (
+                    "INSERT OR IGNORE INTO telegram_entity_observations(event_id,entity_id,source_peer,event_type,observed_at,payload_json) VALUES (?,?,?,?,?,?)",
+                    (
+                        row["event_id"],
+                        row["entity_id"],
+                        row["source_peer"],
+                        row["event_type"],
+                        row["observed_at"],
+                        payload_json,
+                    ),
+                )
+            )
+        if (
+            row["event_type"] in {"MESSAGE_NEW", "MESSAGE_EDIT"}
+            and row["message_id"] is not None
+        ):
+            statements.append(
+                (
+                    "DELETE FROM telegram_latest_messages WHERE source_peer IS ? AND message_id=?",
+                    (row["source_peer"], row["message_id"]),
+                )
+            )
+            statements.append(
+                (
+                    "INSERT INTO telegram_latest_messages(message_id,source_peer,event_id,event_type,entity_id,payload_json,observed_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
+                    (
+                        row["message_id"],
+                        row["source_peer"],
+                        row["event_id"],
+                        row["event_type"],
+                        row["entity_id"],
+                        json.dumps(payload, sort_keys=True, separators=(",", ":")),
+                        row["observed_at"],
+                        time.time(),
+                    ),
+                )
+            )
         await self.storage.transaction(statements)
 
     async def rebuild(self) -> int:
         """Rebuild all Telegram projections in one bounded journal window."""
         if not self._started:
             raise RuntimeError("TelegramEventProjections is not started")
-        await self.storage.transaction([
-            ("DELETE FROM telegram_latest_messages", ()),
-            ("DELETE FROM telegram_entity_observations", ()),
-            ("DELETE FROM telegram_timeline", ()),
-        ])
-        rows = await self.storage.fetchall("SELECT * FROM telegram_event_journal ORDER BY id LIMIT ?", (TelegramEventJournal.MAX_EVENTS,))
+        await self.storage.transaction(
+            [
+                ("DELETE FROM telegram_latest_messages", ()),
+                ("DELETE FROM telegram_entity_observations", ()),
+                ("DELETE FROM telegram_timeline", ()),
+            ]
+        )
+        rows = await self.storage.fetchall(
+            "SELECT * FROM telegram_event_journal ORDER BY id LIMIT ?",
+            (TelegramEventJournal.MAX_EVENTS,),
+        )
         count = 0
         for row in rows:
             await self.apply_row(row)
@@ -82,7 +131,12 @@ class TelegramEventProjections:
         return count
 
     async def _prune_timeline(self) -> None:
-        row = await self.storage.fetchone("SELECT COUNT(*) AS count FROM telegram_timeline")
+        row = await self.storage.fetchone(
+            "SELECT COUNT(*) AS count FROM telegram_timeline"
+        )
         count = int(row["count"]) if row else 0
         if count > self.MAX_TIMELINE:
-            await self.storage.execute("DELETE FROM telegram_timeline WHERE id IN (SELECT id FROM telegram_timeline ORDER BY id LIMIT ?)", (min(count - self.MAX_TIMELINE, 1000),))
+            await self.storage.execute(
+                "DELETE FROM telegram_timeline WHERE id IN (SELECT id FROM telegram_timeline ORDER BY id LIMIT ?)",
+                (min(count - self.MAX_TIMELINE, 1000),),
+            )

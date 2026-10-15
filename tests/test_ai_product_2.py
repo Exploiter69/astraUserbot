@@ -46,8 +46,12 @@ class FakeJobs:
 
 @pytest.mark.asyncio
 async def test_history_context_is_bounded_and_facade_owned(monkeypatch):
-    telegram = FakeTelegram([Message("x" * 10000, 3), Message("second", 4), Message("third", 5)])
-    monkeypatch.setattr(unified, "get_application_context", lambda: FakeContext(telegram=telegram))
+    telegram = FakeTelegram(
+        [Message("x" * 10000, 3), Message("second", 4), Message("third", 5)]
+    )
+    monkeypatch.setattr(
+        unified, "get_application_context", lambda: FakeContext(telegram=telegram)
+    )
     rows = await unified._history_context(Event(), 3)
     assert telegram.calls == [(123, 3)]
     assert len(rows) == 3
@@ -82,7 +86,15 @@ def test_telegram_media_kind_prefers_explicit_mime():
 
 def test_unified_surface_has_required_commands():
     source = Path(unified.__file__).read_text(encoding="utf-8")
-    for name in (".ai", ".explain", ".rewrite", ".translate", ".extract", ".code", ".aidiag"):
+    for name in (
+        ".ai",
+        ".explain",
+        ".rewrite",
+        ".translate",
+        ".extract",
+        ".code",
+        ".aidiag",
+    ):
         assert name[1:] in source
     assert source.count("register_cmd(") >= 7
 
@@ -98,13 +110,29 @@ def test_ai_job_surface_is_single_registered_handler():
 async def test_ai_job_handler_returns_provider_neutral_result(monkeypatch):
     class AI:
         async def chat(self, messages):
-            return type("Response", (), {"text": "answer", "provider": "fake", "model": "fake-model", "input_chars": 6, "output_chars": 6})()
+            return type(
+                "Response",
+                (),
+                {
+                    "text": "answer",
+                    "provider": "fake",
+                    "model": "fake-model",
+                    "input_chars": 6,
+                    "output_chars": 6,
+                },
+            )()
 
     context = FakeContext(ai=AI(), jobs=FakeJobs())
     monkeypatch.setattr(jobs, "get_application_context", lambda: context)
     job = type("Job", (), {"id": "job-1", "payload": {"prompt": "hello"}})()
     result = await jobs._handle_ai_chat(job)
-    assert result == {"text": "answer", "provider": "fake", "model": "fake-model", "input_chars": 6, "output_chars": 6}
+    assert result == {
+        "text": "answer",
+        "provider": "fake",
+        "model": "fake-model",
+        "input_chars": 6,
+        "output_chars": 6,
+    }
 
 
 def test_ai_job_invalid_payload_is_non_retryable():
@@ -115,8 +143,12 @@ def test_ai_job_invalid_payload_is_non_retryable():
 
 
 def test_ai_diagnostics_contract_is_non_sensitive():
-    source = Path(__import__("core.services.ai", fromlist=["AIService"]).__file__).read_text(encoding="utf-8")
+    source = Path(
+        __import__("core.services.ai", fromlist=["AIService"]).__file__
+    ).read_text(encoding="utf-8")
     assert "def diagnostics" in source
     assert "remote_requests_remaining" in source
-    block = source[source.find("def diagnostics"):source.find("def diagnostics") + 2500]
+    block = source[
+        source.find("def diagnostics") : source.find("def diagnostics") + 2500
+    ]
     assert "api_key" not in block.lower()

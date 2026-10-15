@@ -14,7 +14,6 @@ import unicodedata
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
-
 _MAX_URL = 2048
 _MAX_DOMAIN = 253
 _MAX_REPUTATION_BYTES = 256 * 1024
@@ -98,11 +97,7 @@ class SecurityIntelService:
                 continue
             name = unicodedata.name(char, "")
             script = next(
-                (
-                    script_names[item]
-                    for item in script_names
-                    if item in name
-                ),
+                (script_names[item] for item in script_names if item in name),
                 "Other",
             )
             scripts.add(script)
@@ -110,8 +105,17 @@ class SecurityIntelService:
         labels = ascii_host.split(".")
         visual_similarity: list[str] = []
         confusables = {
-            "а": "a", "е": "e", "о": "o", "р": "p", "с": "c", "х": "x",
-            "у": "y", "і": "i", "ј": "j", "ο": "o", "ρ": "p",
+            "а": "a",
+            "е": "e",
+            "о": "o",
+            "р": "p",
+            "с": "c",
+            "х": "x",
+            "у": "y",
+            "і": "i",
+            "ј": "j",
+            "ο": "o",
+            "ρ": "p",
         }
         skeleton = "".join(confusables.get(char, char) for char in unicode_host)
         if skeleton != unicode_host:
@@ -129,7 +133,6 @@ class SecurityIntelService:
             visual_similarity=tuple(visual_similarity),
         )
 
-
     @staticmethod
     def extract_urls(text: str) -> list[str]:
         if not text:
@@ -144,7 +147,9 @@ class SecurityIntelService:
             assessments.append(await self.assess_url(url))
         return {"urls": urls, "assessments": tuple(assessments)}
 
-    async def assess_url(self, target: str, *, follow_redirects: bool = True) -> RiskAssessment:
+    async def assess_url(
+        self, target: str, *, follow_redirects: bool = True
+    ) -> RiskAssessment:
         value = target.strip()
         if not value:
             raise ValueError("A URL is required.")
@@ -201,7 +206,9 @@ class SecurityIntelService:
                         redirect_hops.append(row.strip())
                 if len(redirect_hops) >= 3:
                     score += 10
-                    signals.append(f"Long redirect chain ({len(redirect_hops)} observed hops)")
+                    signals.append(
+                        f"Long redirect chain ({len(redirect_hops)} observed hops)"
+                    )
             except Exception:  # noqa: BLE001 - redirect enrichment is optional
                 signals.append("Redirect analysis unavailable")
 
@@ -223,11 +230,19 @@ class SecurityIntelService:
             retries=1,
         )
         if response.status not in {200, 404}:
-            return {"provider": "URLhaus", "status": "UNKNOWN", "detail": f"HTTP {response.status}"}
+            return {
+                "provider": "URLhaus",
+                "status": "UNKNOWN",
+                "detail": f"HTTP {response.status}",
+            }
         try:
             payload = json.loads(response.text)
         except json.JSONDecodeError:
-            return {"provider": "URLhaus", "status": "UNKNOWN", "detail": "Invalid provider response"}
+            return {
+                "provider": "URLhaus",
+                "status": "UNKNOWN",
+                "detail": "Invalid provider response",
+            }
         query_status = str(payload.get("query_status", "unknown")).upper()
         if query_status == "OK":
             return {
@@ -244,7 +259,9 @@ class SecurityIntelService:
     async def reputation_hash(self, digest: str) -> dict:
         value = digest.strip().lower()
         if not _HASH_RE.fullmatch(value):
-            raise ValueError("Hash must be a bounded MD5, SHA-1 or SHA-256 hexadecimal digest.")
+            raise ValueError(
+                "Hash must be a bounded MD5, SHA-1 or SHA-256 hexadecimal digest."
+            )
         response = await self.http.post(
             "https://mb-api.abuse.ch/api/v1/",
             data={"query": "get_info", "hash": value},
@@ -253,15 +270,27 @@ class SecurityIntelService:
             retries=1,
         )
         if response.status != 200:
-            return {"provider": "MalwareBazaar", "status": "UNKNOWN", "detail": f"HTTP {response.status}"}
+            return {
+                "provider": "MalwareBazaar",
+                "status": "UNKNOWN",
+                "detail": f"HTTP {response.status}",
+            }
         try:
             payload = json.loads(response.text)
         except json.JSONDecodeError:
-            return {"provider": "MalwareBazaar", "status": "UNKNOWN", "detail": "Invalid provider response"}
+            return {
+                "provider": "MalwareBazaar",
+                "status": "UNKNOWN",
+                "detail": "Invalid provider response",
+            }
         query_status = str(payload.get("query_status", "unknown")).upper()
         if query_status == "OK":
             rows = payload.get("data") or []
-            first = rows[0] if isinstance(rows, list) and rows and isinstance(rows[0], dict) else {}
+            first = (
+                rows[0]
+                if isinstance(rows, list) and rows and isinstance(rows[0], dict)
+                else {}
+            )
             return {
                 "provider": "MalwareBazaar",
                 "status": "FOUND",
@@ -271,7 +300,11 @@ class SecurityIntelService:
             }
         if query_status in {"NO_RESULTS", "NOT_FOUND"}:
             return {"provider": "MalwareBazaar", "status": "NOT_FOUND"}
-        return {"provider": "MalwareBazaar", "status": "UNKNOWN", "detail": query_status}
+        return {
+            "provider": "MalwareBazaar",
+            "status": "UNKNOWN",
+            "detail": query_status,
+        }
 
     async def inspect(self, target: str) -> dict:
         value = target.strip()
@@ -285,7 +318,12 @@ class SecurityIntelService:
         if url_like:
             assessment = await self.assess_url(value)
             reputation = await self.reputation_urlhaus(value)
-            return {"kind": "url", "target": value, "assessment": assessment, "reputation": reputation}
+            return {
+                "kind": "url",
+                "target": value,
+                "assessment": assessment,
+                "reputation": reputation,
+            }
 
         idn = self.analyze_idn(value)
         return {"kind": "domain", "target": value, "idn": idn}

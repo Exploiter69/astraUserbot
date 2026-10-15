@@ -1,16 +1,17 @@
 import json
 import re
 
-from core.context import get_application_context
-from core.registry import register_cmd
-from core.errors import CommandError
-from helpers.hud import render
 from config import config
+from core.context import get_application_context
+from core.errors import CommandError
+from core.registry import register_cmd
+from helpers.hud import render
 
 PATTERN = rf"^{re.escape(config.PREFIX)}dns(?:\s+(\S+))?(?:\s+(\S+))?$"
 ALLOWED_TYPES = frozenset({"A", "AAAA", "MX", "TXT", "NS", "CNAME"})
 _MAX_DOMAIN = 253
 _MAX_ANSWERS = 20
+
 
 async def setup(client):
     register_cmd(
@@ -18,21 +19,26 @@ async def setup(client):
         pattern=PATTERN,
         handler=handle_dns,
         category="network_osint",
-        description="Query DNS records over HTTPS (DoH). Usage: .dns <domain> [type]"
+        description="Query DNS records over HTTPS (DoH). Usage: .dns <domain> [type]",
     )
+
 
 async def handle_dns(event):
     domain = (event.pattern_match.group(1) or "").strip()
     record_type = (event.pattern_match.group(2) or "A").upper()
 
     if not domain:
-        raise CommandError("Please provide a domain. Usage: .dns <domain> [A|AAAA|MX|TXT|NS|CNAME]")
+        raise CommandError(
+            "Please provide a domain. Usage: .dns <domain> [A|AAAA|MX|TXT|NS|CNAME]"
+        )
     if len(domain) > _MAX_DOMAIN:
         raise CommandError("Domain name is too long.")
     if any(char.isspace() for char in domain):
         raise CommandError("Domain name must not contain whitespace.")
     if record_type not in ALLOWED_TYPES:
-        raise CommandError("Unsupported DNS record type. Use A, AAAA, MX, TXT, NS, or CNAME.")
+        raise CommandError(
+            "Unsupported DNS record type. Use A, AAAA, MX, TXT, NS, or CNAME."
+        )
 
     context = get_application_context()
     if context is None:
@@ -62,11 +68,16 @@ async def handle_dns(event):
 
     answers = data.get("Answer", [])
     if not answers:
-        await event.edit(render(
-            title=f"DNS // {domain}",
-            rows=[f"Query Type: {record_type}", "Status: NOERROR (No records found)"],
-            footer="network_osint | dns"
-        ))
+        await event.edit(
+            render(
+                title=f"DNS // {domain}",
+                rows=[
+                    f"Query Type: {record_type}",
+                    "Status: NOERROR (No records found)",
+                ],
+                footer="network_osint | dns",
+            )
+        )
         return
 
     rows = [f"Domain: {domain}", f"Type: {record_type}", "---"]
@@ -77,8 +88,6 @@ async def handle_dns(event):
     if len(answers) > _MAX_ANSWERS:
         rows.append(f"[truncated: {len(answers) - _MAX_ANSWERS} more records]")
 
-    await event.edit(render(
-        title="DNS LOOKUP",
-        rows=rows,
-        footer="network_osint | dns"
-    ))
+    await event.edit(
+        render(title="DNS LOOKUP", rows=rows, footer="network_osint | dns")
+    )

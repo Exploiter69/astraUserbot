@@ -13,7 +13,6 @@ from typing import Any
 
 from core.errors import ResourceError
 
-
 # Lower numeric value means higher priority.
 P0_OWNER = 0
 P1_INTERACTIVE = 1
@@ -122,7 +121,10 @@ class AdaptiveTelegramGovernor:
 
     def can_admit(self, method: str, *, peer_key: str | None = None) -> bool:
         now = time.monotonic()
-        for key in (f"method:{method}", f"peer:{peer_key}" if peer_key is not None else None):
+        for key in (
+            f"method:{method}",
+            f"peer:{peer_key}" if peer_key is not None else None,
+        ):
             if key is None:
                 continue
             scope = self._scope(key)
@@ -310,7 +312,9 @@ class TelegramTrafficController:
             "queued": len(self._queue),
             "active": self._active,
             "max_concurrency": self.max_concurrency,
-            "effective_concurrency": self.governor.concurrency_limit(self.max_concurrency),
+            "effective_concurrency": self.governor.concurrency_limit(
+                self.max_concurrency
+            ),
             "per_method_limit": self.per_method_limit,
             "per_peer_limit": self.per_peer_limit,
             "max_queue": self.max_queue,
@@ -326,7 +330,10 @@ class TelegramTrafficController:
     def _eligible(self, item: _QueuedCall, now: float) -> bool:
         if self._method_active[item.method] >= self.per_method_limit:
             return False
-        if item.peer_key is not None and self._peer_active[item.peer_key] >= self.per_peer_limit:
+        if (
+            item.peer_key is not None
+            and self._peer_active[item.peer_key] >= self.per_peer_limit
+        ):
             return False
         if not self.governor.can_admit(item.method, peer_key=item.peer_key):
             return False
@@ -365,7 +372,8 @@ class TelegramTrafficController:
         while not self._closed:
             async with self._condition:
                 while not self._closed and (
-                    self._active >= self.governor.concurrency_limit(self.max_concurrency)
+                    self._active
+                    >= self.governor.concurrency_limit(self.max_concurrency)
                     or not self._queue
                 ):
                     await self._condition.wait()

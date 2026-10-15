@@ -4,7 +4,11 @@ import unittest
 
 from aiohttp import web
 
-from core.context import ApplicationContext, get_application_context, set_application_context
+from core.context import (
+    ApplicationContext,
+    get_application_context,
+    set_application_context,
+)
 from core.errors import ErrorCode, ResourceError, TimeoutError
 from core.services.http import HttpService
 from core.services.subprocess import SubprocessService
@@ -59,11 +63,33 @@ class RuntimeServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(
                 set(context.services),
                 {
-                    "storage", "cache", "http", "subprocess", "telegram_state", "telegram",
-                    "telegram_event_journal", "telegram_events", "telegram_event_projections",
-                    "telegram_event_replay", "intelgraph", "intel_correlation", "public_intel", "security_intel", "workspace", "media",
-                    "jobs", "automation", "secrets", "ai", "search", "telegram_archive", "media_intel",
-                    "cases", "metrics", "flags", "isolation",
+                    "storage",
+                    "cache",
+                    "http",
+                    "subprocess",
+                    "telegram_state",
+                    "telegram",
+                    "telegram_event_journal",
+                    "telegram_events",
+                    "telegram_event_projections",
+                    "telegram_event_replay",
+                    "intelgraph",
+                    "intel_correlation",
+                    "public_intel",
+                    "security_intel",
+                    "workspace",
+                    "media",
+                    "jobs",
+                    "automation",
+                    "secrets",
+                    "ai",
+                    "search",
+                    "telegram_archive",
+                    "media_intel",
+                    "cases",
+                    "metrics",
+                    "flags",
+                    "isolation",
                 },
             )
             self.assertIsNotNone(context.get("http").session)
@@ -85,7 +111,9 @@ class RuntimeServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(context.get("telegram_archive")._started)
             self.assertTrue(context.get("media_intel")._started)
             self.assertTrue(context.get("cases")._started)
-            self.assertIs(context.get("intel_correlation").graph, context.get("intelgraph"))
+            self.assertIs(
+                context.get("intel_correlation").graph, context.get("intelgraph")
+            )
             await context.close()
             self.assertEqual(context.snapshot()["state"], "CLOSED")
             self.assertIsNone(context.get("http").session)
@@ -106,7 +134,9 @@ class RuntimeServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_subprocess_timeout_is_controlled(self):
         service = SubprocessService()
         with self.assertRaises(TimeoutError) as raised:
-            await service.run(["python", "-c", "import time; time.sleep(5)"], timeout=0.05)
+            await service.run(
+                ["python", "-c", "import time; time.sleep(5)"], timeout=0.05
+            )
         self.assertEqual(raised.exception.code, ErrorCode.TIMEOUT)
 
     async def test_workspace_isolated_and_path_safe(self):
@@ -136,7 +166,9 @@ class RuntimeServiceTests(unittest.IsolatedAsyncioTestCase):
         client = FakeTelegram()
         facade = TelegramFacade(client, retries=0)
         await facade.get_messages("-1001234567890", limit=5)
-        self.assertEqual(client.calls[0], ("get_messages", -1001234567890, {"limit": 5}))
+        self.assertEqual(
+            client.calls[0], ("get_messages", -1001234567890, {"limit": 5})
+        )
         await facade.get_messages("123456789", limit=2)
         self.assertEqual(client.calls[1], ("get_messages", 123456789, {"limit": 2}))
         await facade.get_messages("@example", limit=1)

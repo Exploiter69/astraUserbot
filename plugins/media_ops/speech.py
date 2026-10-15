@@ -1,12 +1,12 @@
 import re
 import shutil
 
+from config import config
 from core.context import get_application_context
-from core.registry import register_cmd
 from core.errors import CommandError
+from core.registry import register_cmd
 from helpers.hud import render
 from helpers.reply import get_text_and_media
-from config import config
 
 PATTERN = rf"^{re.escape(config.PREFIX)}(tts|toaudio)(?:\s+(.*))?$"
 
@@ -14,7 +14,9 @@ PATTERN = rf"^{re.escape(config.PREFIX)}(tts|toaudio)(?:\s+(.*))?$"
 async def setup(client):
     if not shutil.which("edge-tts"):
         return
-    register_cmd(client, PATTERN, handle_speech, "media_ops", "Neural TTS and Audio extraction.")
+    register_cmd(
+        client, PATTERN, handle_speech, "media_ops", "Neural TTS and Audio extraction."
+    )
 
 
 async def handle_speech(event):
@@ -57,7 +59,9 @@ async def handle_speech(event):
             if not (getattr(media, "video", False) or mime_type.startswith("video/")):
                 raise CommandError("The replied media is not a video.")
             await event.edit(render("FFMPEG AUDIO", ["Extracting..."]))
-            in_file = await service.download_telegram_media(event.client.download_media, media, workspace=workspace)
+            in_file = await service.download_telegram_media(
+                event.client.download_media, media, workspace=workspace
+            )
             if not in_file:
                 raise CommandError("Failed to download media.")
             await service.run_ffmpeg(
@@ -71,7 +75,12 @@ async def handle_speech(event):
         else:
             raise CommandError("Unsupported speech operation.")
 
-        await event.client.send_file(event.chat_id, file=artifact.path, voice_note=True, reply_to=event.reply_to_msg_id)
+        await event.client.send_file(
+            event.chat_id,
+            file=artifact.path,
+            voice_note=True,
+            reply_to=event.reply_to_msg_id,
+        )
         await event.delete()
     finally:
         await service.cleanup(workspace)

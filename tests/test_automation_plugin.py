@@ -30,18 +30,27 @@ class AutomationPluginRegistrationTests(unittest.TestCase):
 
         self.assertEqual(len(self.client.handlers), 2)
         patterns = set(COMMANDS)
-        self.assertIn(r"^\.autorule\s+(list|show|create|enable|disable|delete|run)(?:\s+(\S+))?(?:\s+(.+))?$", patterns)
+        self.assertIn(
+            r"^\.autorule\s+(list|show|create|enable|disable|delete|run)(?:\s+(\S+))?(?:\s+(.+))?$",
+            patterns,
+        )
         self.assertIn(r"^\.autostatus$", patterns)
 
     def test_autorule_pattern_preserves_all_subcommands(self):
         asyncio.run(automation.setup(self.client))
-        autorule_pattern = next(pattern for pattern in COMMANDS if "autorule" in pattern)
+        autorule_pattern = next(
+            pattern for pattern in COMMANDS if "autorule" in pattern
+        )
 
         matcher = re.compile(autorule_pattern)
         cases = {
             ".autorule list": ("list", None, None),
             ".autorule show rule1": ("show", "rule1", None),
-            ".autorule create rule1 {\"actions\": []}": ("create", "rule1", '{"actions": []}'),
+            '.autorule create rule1 {"actions": []}': (
+                "create",
+                "rule1",
+                '{"actions": []}',
+            ),
             ".autorule enable rule1": ("enable", "rule1", None),
             ".autorule disable rule1": ("disable", "rule1", None),
             ".autorule delete rule1": ("delete", "rule1", None),

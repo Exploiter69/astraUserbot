@@ -1,11 +1,11 @@
 import asyncio
 import re
 
+from config import config
 from core.context import get_application_context
+from core.errors import CommandError
 from core.registry import register_cmd
 from helpers.hud import render
-from core.errors import CommandError
-from config import config
 
 PATTERN = rf"^{re.escape(config.PREFIX)}sysinfo$"
 
@@ -39,24 +39,37 @@ async def handle_sysinfo(event):
 
     uname_result, uptime_result, mem_result = results
     os_info = uname_result.stdout.strip() if uname_result.returncode == 0 else "Unknown"
-    uptime_info = uptime_result.stdout.strip() if uptime_result.returncode == 0 else "Unknown"
+    uptime_info = (
+        uptime_result.stdout.strip() if uptime_result.returncode == 0 else "Unknown"
+    )
 
     if mem_result.returncode == 0:
-        mem_line = next((line for line in mem_result.stdout.splitlines() if line.startswith("Mem:")), "")
+        mem_line = next(
+            (
+                line
+                for line in mem_result.stdout.splitlines()
+                if line.startswith("Mem:")
+            ),
+            "",
+        )
         mem_parts = mem_line.split()
-        mem_info = f"{mem_parts[2]}MB / {mem_parts[1]}MB" if len(mem_parts) >= 3 else "Unknown"
+        mem_info = (
+            f"{mem_parts[2]}MB / {mem_parts[1]}MB" if len(mem_parts) >= 3 else "Unknown"
+        )
     else:
         mem_info = "Unknown"
 
-    await event.edit(render(
-        title="SYSINFO",
-        rows=[
-            f"Kernel: {os_info}",
-            f"Uptime: {uptime_info}",
-            f"Memory: {mem_info}",
-            "---",
-            "Engine: Astra Userbot",
-            "Environment: Linux/systemd",
-        ],
-        footer="system | sysinfo",
-    ))
+    await event.edit(
+        render(
+            title="SYSINFO",
+            rows=[
+                f"Kernel: {os_info}",
+                f"Uptime: {uptime_info}",
+                f"Memory: {mem_info}",
+                "---",
+                "Engine: Astra Userbot",
+                "Environment: Linux/systemd",
+            ],
+            footer="system | sysinfo",
+        )
+    )

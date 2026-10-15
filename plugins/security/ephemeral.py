@@ -1,15 +1,23 @@
 import re
 
-from core.context import get_application_context
-from core.registry import register_cmd
-from core.errors import CommandError
-from helpers.hud import render
 from config import config
+from core.context import get_application_context
+from core.errors import CommandError
+from core.registry import register_cmd
+from helpers.hud import render
 
 PATTERN = rf"^{re.escape(config.PREFIX)}savevo$"
 
+
 async def setup(client):
-    register_cmd(client, PATTERN, handle_savevo, "security", "Save View-Once media without triggering destruction.")
+    register_cmd(
+        client,
+        PATTERN,
+        handle_savevo,
+        "security",
+        "Save View-Once media without triggering destruction.",
+    )
+
 
 async def handle_savevo(event):
     if not event.is_reply:
@@ -25,7 +33,13 @@ async def handle_savevo(event):
     if media_service is None:
         raise CommandError("Required runtime services are unavailable.")
 
-    await event.edit(render("EPHEMERAL BYPASS", ["Intercepting payload..."], footer="security | ephemeral"))
+    await event.edit(
+        render(
+            "EPHEMERAL BYPASS",
+            ["Intercepting payload..."],
+            footer="security | ephemeral",
+        )
+    )
     workspace = await media_service.create_workspace("view-once")
     downloaded = None
     try:
@@ -37,7 +51,15 @@ async def handle_savevo(event):
         if not downloaded:
             raise CommandError("Failed to intercept payload.")
         artifact = media_service.artifact(workspace, downloaded)
-        await event.client.send_file("me", file=artifact.path, caption="Intercepted View-Once Media")
-        await event.edit(render("EPHEMERAL BYPASS", ["Payload secured in Saved Messages."], footer="security | ephemeral"))
+        await event.client.send_file(
+            "me", file=artifact.path, caption="Intercepted View-Once Media"
+        )
+        await event.edit(
+            render(
+                "EPHEMERAL BYPASS",
+                ["Payload secured in Saved Messages."],
+                footer="security | ephemeral",
+            )
+        )
     finally:
         await media_service.cleanup(workspace)

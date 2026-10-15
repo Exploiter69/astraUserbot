@@ -14,7 +14,9 @@ def test_schedule_job_returns_owned_task_and_cancels_cleanly():
         task = schedule_job(3600, worker, "test_scheduler")
         try:
             assert isinstance(task, asyncio.Task)
-            assert task in [record.task for record in bootstrap.get_task_supervisor().active()]
+            assert task in [
+                record.task for record in bootstrap.get_task_supervisor().active()
+            ]
         finally:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
@@ -34,7 +36,9 @@ def test_legacy_supervisor_shutdown_is_bounded():
                 while True:
                     await asyncio.sleep(0)
 
-        bootstrap.get_task_supervisor().create_task(stubborn(), name="stubborn_scheduler")
+        bootstrap.get_task_supervisor().create_task(
+            stubborn(), name="stubborn_scheduler"
+        )
         started = asyncio.get_running_loop().time()
         await bootstrap.get_task_supervisor().shutdown(timeout=0.05)
         elapsed = asyncio.get_running_loop().time() - started

@@ -5,7 +5,10 @@ from pathlib import Path
 
 from core.services.storage import StorageService
 from core.services.telegram import TelegramFacade
-from core.services.telegram_recorder import TelegramOperationRecorder, request_fingerprint
+from core.services.telegram_recorder import (
+    TelegramOperationRecorder,
+    request_fingerprint,
+)
 
 
 class FakeTelegram:
@@ -33,7 +36,9 @@ class TelegramFlightRecorderTests(unittest.IsolatedAsyncioTestCase):
     async def test_recorder_is_bounded_and_does_not_store_request_contents(self):
         recorder = TelegramOperationRecorder(self.storage, max_rows=2)
         for index in range(3):
-            digest, size = request_fingerprint("send_message", ("chat:1", f"secret-{index}"), {})
+            digest, size = request_fingerprint(
+                "send_message", ("chat:1", f"secret-{index}"), {}
+            )
             await recorder.record(
                 operation_id=str(index),
                 started_at=float(index),
@@ -48,7 +53,9 @@ class TelegramFlightRecorderTests(unittest.IsolatedAsyncioTestCase):
 
         row = await self.storage.fetchone("SELECT COUNT(*) FROM telegram_operations")
         self.assertEqual(row[0], 2)
-        rows = await self.storage.fetchall("SELECT request_hash FROM telegram_operations")
+        rows = await self.storage.fetchall(
+            "SELECT request_hash FROM telegram_operations"
+        )
         self.assertTrue(all("secret-" not in row[0] for row in rows))
 
     async def test_facade_records_success_without_breaking_raw_operation(self):
@@ -61,7 +68,9 @@ class TelegramFlightRecorderTests(unittest.IsolatedAsyncioTestCase):
                 "SELECT method, peer_id, operation_class, result_classification, retry_count "
                 "FROM telegram_operations ORDER BY id DESC LIMIT 1"
             )
-            self.assertEqual(tuple(row), ("send_message", "chat:9", "WRITE", "SUCCESS", 0))
+            self.assertEqual(
+                tuple(row), ("send_message", "chat:9", "WRITE", "SUCCESS", 0)
+            )
         finally:
             await facade.close()
 

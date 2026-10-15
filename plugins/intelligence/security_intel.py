@@ -46,17 +46,27 @@ async def handle(event):
         text = getattr(reply, "raw_text", "") if reply is not None else ""
         result = await service.assess_text(text)
         if not result["assessments"]:
-            raise CommandError("Usage: .secrisk <url> or reply to a message containing a URL.")
+            raise CommandError(
+                "Usage: .secrisk <url> or reply to a message containing a URL."
+            )
         rows = [f"URLs analyzed: {len(result['assessments'])}"]
         for assessment in result["assessments"]:
-            rows.extend([
-                f"{assessment.target[:150]}",
-                f"  Risk: {assessment.level} ({assessment.score}/100)",
-                *[f"  · {signal[:170]}" for signal in assessment.signals[:5]],
-            ])
+            rows.extend(
+                [
+                    f"{assessment.target[:150]}",
+                    f"  Risk: {assessment.level} ({assessment.score}/100)",
+                    *[f"  · {signal[:170]}" for signal in assessment.signals[:5]],
+                ]
+            )
         rows = rows[:18]
         rows.append("Defensive signal only; risk is not proof of maliciousness.")
-        await event.edit(render("SECURITY // MESSAGE RISK", rows, footer="security | secrisk | bounded | public-only"))
+        await event.edit(
+            render(
+                "SECURITY // MESSAGE RISK",
+                rows,
+                footer="security | secrisk | bounded | public-only",
+            )
+        )
         return
     if not target:
         raise CommandError(f"Usage: .{command} <url|domain|hash>")
@@ -122,6 +132,6 @@ async def handle(event):
 
     rows = rows[:20]
     rows.append("Defensive signal only; similarity/risk is not proof of maliciousness.")
-    await event.edit(render(title, rows, footer=f"security | {command} | bounded | public-only"))
-
-
+    await event.edit(
+        render(title, rows, footer=f"security | {command} | bounded | public-only")
+    )

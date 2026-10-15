@@ -11,9 +11,10 @@ import sqlite3
 import tempfile
 import time
 from collections import OrderedDict
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from core.errors import ResourceError
 
@@ -83,7 +84,11 @@ class CacheService:
         max_artifact_bytes_per_item: int = 512 * 1024 * 1024,
     ) -> None:
         self.project_root = Path(project_root).resolve()
-        self.root = (self.project_root / "data" / "cache").resolve() if cache_dir is None else Path(cache_dir).resolve()
+        self.root = (
+            (self.project_root / "data" / "cache").resolve()
+            if cache_dir is None
+            else Path(cache_dir).resolve()
+        )
         self.db_path = self.root / "cache.sqlite3"
         self.artifact_root = self.root / "artifacts"
         limits = {
@@ -178,10 +183,17 @@ class CacheService:
         self._key_locks.clear()
         self._closed = True
 
-    def _validate_identity(self, namespace: str, key: str, version: str) -> tuple[str, str, str]:
+    def _validate_identity(
+        self, namespace: str, key: str, version: str
+    ) -> tuple[str, str, str]:
         values = (namespace, key, version)
-        if any(not isinstance(value, str) or not value or len(value) > 256 for value in values):
-            raise ValueError("Cache namespace, key, and version must be non-empty strings of <= 256 characters")
+        if any(
+            not isinstance(value, str) or not value or len(value) > 256
+            for value in values
+        ):
+            raise ValueError(
+                "Cache namespace, key, and version must be non-empty strings of <= 256 characters"
+            )
         return values
 
     def _expiry(self, ttl: float | None) -> float | None:
@@ -193,7 +205,9 @@ class CacheService:
         return time.time() + ttl
 
     def _expired(self, expires_at: float | None, now: float | None = None) -> bool:
-        return expires_at is not None and expires_at <= (time.time() if now is None else now)
+        return expires_at is not None and expires_at <= (
+            time.time() if now is None else now
+        )
 
     async def _key_lock(self, identity: tuple[str, str, str]) -> asyncio.Lock:
         async with self._key_locks_guard:
@@ -203,7 +217,9 @@ class CacheService:
                 self._key_locks[identity] = lock
             return lock
 
-    async def get(self, namespace: str, key: str, *, version: str = "1") -> CacheEntry | None:
+    async def get(
+        self, namespace: str, key: str, *, version: str = "1"
+    ) -> CacheEntry | None:
         identity = self._validate_identity(namespace, key, version)
         await self.start()
         item = self._l1.get(identity)
@@ -211,7 +227,15 @@ class CacheService:
             if not self._expired(item.expires_at):
                 self._l1.move_to_end(identity)
                 self._stats["hits"] += 1
-                return CacheEntry(namespace, key, version, json.loads(item.payload), item.source, item.content_type, item.expires_at)
+                return CacheEntry(
+                    namespace,
+                    key,
+                    version,
+                    json.loads(item.payload),
+                    item.source,
+                    item.content_type,
+                    item.expires_at,
+                )
             self._remove_l1(identity)
 
         row = await self._fetch_l2(identity)
@@ -224,10 +248,21 @@ class CacheService:
             self._stats["misses"] += 1
             return None
         payload = bytes(row["value"])
-        self._put_l1(identity, _MemoryItem(payload, expires_at, row["source"], row["content_type"]))
+        self._put_l1(
+            identity,
+            _MemoryItem(payload, expires_at, row["source"], row["content_type"]),
+        )
         await self._touch_l2(identity)
         self._stats["hits"] += 1
-        return CacheEntry(namespace, key, version, json.loads(payload), row["source"], row["content_type"], expires_at)
+        return CacheEntry(
+            namespace,
+            key,
+            version,
+            json.loads(payload),
+            row["source"],
+            row["content_type"],
+            expires_at,
+        )
 
     async def set(
         self,
@@ -245,7 +280,9 @@ class CacheService:
             raise ValueError("Cache source is invalid")
         if not isinstance(content_type, str) or len(content_type) > 256:
             raise ValueError("Cache content_type is invalid")
-        payload = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        payload = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode(
+            "utf-8"
+        )
         if len(payload) > self.max_value_bytes:
             raise ResourceError("Cache value exceeds the configured size limit.")
         expires_at = self._expiry(ttl)
@@ -264,7 +301,18 @@ class CacheService:
                    value=excluded.value, source=excluded.source, content_type=excluded.content_type,
                    size_bytes=excluded.size_bytes, created_at=excluded.created_at,
                    accessed_at=excluded.accessed_at, expires_at=excluded.expires_at""",
-                (namespace, key, version, payload, source, content_type, len(payload), now, now, expires_at),
+                (
+                    namespace,
+                    key,
+                    version,
+                    payload,
+                    source,
+                    content_type,
+                    len(payload),
+                    now,
+                    now,
+                    expires_at,
+                ),
             )
             db.commit()
             self._evict_l2_locked(now)
@@ -292,7 +340,15 @@ class CacheService:
             value = factory()
             if asyncio.iscoroutine(value) or isinstance(value, Awaitable):
                 value = await value
-            await self.set(namespace, key, value, version=version, ttl=ttl, source=source, content_type=content_type)
+            await self.set(
+                namespace,
+                key,
+                value,
+                version=version,
+                ttl=ttl,
+                source=source,
+                content_type=content_type,
+            )
             created = await self.get(namespace, key, version=version)
             if created is None:
                 raise ResourceError("Cache value could not be persisted.")
@@ -304,7 +360,10 @@ class CacheService:
         removed = self._remove_l1(identity)
         async with self._db_lock:
             db = self._require_db()
-            cursor = db.execute("DELETE FROM cache_entries WHERE namespace=? AND cache_key=? AND version=?", identity)
+            cursor = db.execute(
+                "DELETE FROM cache_entries WHERE namespace=? AND cache_key=? AND version=?",
+                identity,
+            )
             db.commit()
             return removed or cursor.rowcount > 0
 
@@ -317,7 +376,9 @@ class CacheService:
                 self._remove_l1(identity)
         async with self._db_lock:
             db = self._require_db()
-            cursor = db.execute("DELETE FROM cache_entries WHERE namespace=?", (namespace,))
+            cursor = db.execute(
+                "DELETE FROM cache_entries WHERE namespace=?", (namespace,)
+            )
             db.commit()
             return max(0, cursor.rowcount)
 
@@ -363,22 +424,40 @@ class CacheService:
                    relative_path=excluded.relative_path, size_bytes=excluded.size_bytes,
                    content_type=excluded.content_type, created_at=excluded.created_at,
                    accessed_at=excluded.accessed_at, expires_at=excluded.expires_at""",
-                (namespace, key, version, str(relative), len(data), content_type, now, now, expires_at),
+                (
+                    namespace,
+                    key,
+                    version,
+                    str(relative),
+                    len(data),
+                    content_type,
+                    now,
+                    now,
+                    expires_at,
+                ),
             )
             db.commit()
             self._evict_artifacts_locked(now)
         return Artifact(namespace, key, target, len(data), content_type, expires_at)
 
-    async def get_artifact(self, namespace: str, key: str, *, version: str = "1") -> Artifact | None:
+    async def get_artifact(
+        self, namespace: str, key: str, *, version: str = "1"
+    ) -> Artifact | None:
         identity = self._validate_identity(namespace, key, version)
         await self.start()
         async with self._db_lock:
             db = self._require_db()
-            row = db.execute("SELECT * FROM cache_artifacts WHERE namespace=? AND cache_key=? AND version=?", identity).fetchone()
+            row = db.execute(
+                "SELECT * FROM cache_artifacts WHERE namespace=? AND cache_key=? AND version=?",
+                identity,
+            ).fetchone()
             if row is None:
                 return None
             if self._expired(row["expires_at"]):
-                db.execute("DELETE FROM cache_artifacts WHERE namespace=? AND cache_key=? AND version=?", identity)
+                db.execute(
+                    "DELETE FROM cache_artifacts WHERE namespace=? AND cache_key=? AND version=?",
+                    identity,
+                )
                 db.commit()
                 self._unlink_relative(row["relative_path"])
                 return None
@@ -386,18 +465,36 @@ class CacheService:
             try:
                 path.relative_to(self.artifact_root)
             except ValueError:
-                db.execute("DELETE FROM cache_artifacts WHERE namespace=? AND cache_key=? AND version=?", identity)
+                db.execute(
+                    "DELETE FROM cache_artifacts WHERE namespace=? AND cache_key=? AND version=?",
+                    identity,
+                )
                 db.commit()
                 return None
             if not path.is_file():
-                db.execute("DELETE FROM cache_artifacts WHERE namespace=? AND cache_key=? AND version=?", identity)
+                db.execute(
+                    "DELETE FROM cache_artifacts WHERE namespace=? AND cache_key=? AND version=?",
+                    identity,
+                )
                 db.commit()
                 return None
-            db.execute("UPDATE cache_artifacts SET accessed_at=? WHERE namespace=? AND cache_key=? AND version=?", (time.time(), *identity))
+            db.execute(
+                "UPDATE cache_artifacts SET accessed_at=? WHERE namespace=? AND cache_key=? AND version=?",
+                (time.time(), *identity),
+            )
             db.commit()
-            return Artifact(namespace, key, path, row["size_bytes"], row["content_type"], row["expires_at"])
+            return Artifact(
+                namespace,
+                key,
+                path,
+                row["size_bytes"],
+                row["content_type"],
+                row["expires_at"],
+            )
 
-    async def read_artifact(self, namespace: str, key: str, *, version: str = "1") -> bytes | None:
+    async def read_artifact(
+        self, namespace: str, key: str, *, version: str = "1"
+    ) -> bytes | None:
         artifact = await self.get_artifact(namespace, key, version=version)
         if artifact is None:
             self._stats["misses"] += 1
@@ -406,15 +503,23 @@ class CacheService:
         self._stats["hits"] += 1
         return data
 
-    async def delete_artifact(self, namespace: str, key: str, *, version: str = "1") -> bool:
+    async def delete_artifact(
+        self, namespace: str, key: str, *, version: str = "1"
+    ) -> bool:
         identity = self._validate_identity(namespace, key, version)
         await self.start()
         async with self._db_lock:
             db = self._require_db()
-            row = db.execute("SELECT relative_path FROM cache_artifacts WHERE namespace=? AND cache_key=? AND version=?", identity).fetchone()
+            row = db.execute(
+                "SELECT relative_path FROM cache_artifacts WHERE namespace=? AND cache_key=? AND version=?",
+                identity,
+            ).fetchone()
             if row is None:
                 return False
-            db.execute("DELETE FROM cache_artifacts WHERE namespace=? AND cache_key=? AND version=?", identity)
+            db.execute(
+                "DELETE FROM cache_artifacts WHERE namespace=? AND cache_key=? AND version=?",
+                identity,
+            )
             db.commit()
             self._unlink_relative(row["relative_path"])
             return True
@@ -437,9 +542,18 @@ class CacheService:
         now = time.time()
         async with self._db_lock:
             db = self._require_db()
-            rows = db.execute("SELECT relative_path FROM cache_artifacts WHERE expires_at IS NOT NULL AND expires_at <= ?", (now,)).fetchall()
-            db.execute("DELETE FROM cache_entries WHERE expires_at IS NOT NULL AND expires_at <= ?", (now,))
-            db.execute("DELETE FROM cache_artifacts WHERE expires_at IS NOT NULL AND expires_at <= ?", (now,))
+            rows = db.execute(
+                "SELECT relative_path FROM cache_artifacts WHERE expires_at IS NOT NULL AND expires_at <= ?",
+                (now,),
+            ).fetchall()
+            db.execute(
+                "DELETE FROM cache_entries WHERE expires_at IS NOT NULL AND expires_at <= ?",
+                (now,),
+            )
+            db.execute(
+                "DELETE FROM cache_artifacts WHERE expires_at IS NOT NULL AND expires_at <= ?",
+                (now,),
+            )
             self._evict_l2_locked(now)
             self._evict_artifacts_locked(now)
             db.commit()
@@ -453,9 +567,22 @@ class CacheService:
         await self.start()
         async with self._db_lock:
             db = self._require_db()
-            l2 = db.execute("SELECT COUNT(*) AS n, COALESCE(SUM(size_bytes),0) AS b FROM cache_entries").fetchone()
-            artifacts = db.execute("SELECT COUNT(*) AS n, COALESCE(SUM(size_bytes),0) AS b FROM cache_artifacts").fetchone()
-        return CacheStats(self._stats["hits"], self._stats["misses"], len(self._l1), self._l1_bytes, l2["n"], l2["b"], artifacts["n"], artifacts["b"])
+            l2 = db.execute(
+                "SELECT COUNT(*) AS n, COALESCE(SUM(size_bytes),0) AS b FROM cache_entries"
+            ).fetchone()
+            artifacts = db.execute(
+                "SELECT COUNT(*) AS n, COALESCE(SUM(size_bytes),0) AS b FROM cache_artifacts"
+            ).fetchone()
+        return CacheStats(
+            self._stats["hits"],
+            self._stats["misses"],
+            len(self._l1),
+            self._l1_bytes,
+            l2["n"],
+            l2["b"],
+            artifacts["n"],
+            artifacts["b"],
+        )
 
     def _require_db(self) -> sqlite3.Connection:
         if self._db is None:
@@ -464,12 +591,22 @@ class CacheService:
 
     async def _fetch_l2(self, identity: tuple[str, str, str]) -> sqlite3.Row | None:
         async with self._db_lock:
-            return self._require_db().execute("SELECT * FROM cache_entries WHERE namespace=? AND cache_key=? AND version=?", identity).fetchone()
+            return (
+                self._require_db()
+                .execute(
+                    "SELECT * FROM cache_entries WHERE namespace=? AND cache_key=? AND version=?",
+                    identity,
+                )
+                .fetchone()
+            )
 
     async def _touch_l2(self, identity: tuple[str, str, str]) -> None:
         async with self._db_lock:
             db = self._require_db()
-            db.execute("UPDATE cache_entries SET accessed_at=? WHERE namespace=? AND cache_key=? AND version=?", (time.time(), *identity))
+            db.execute(
+                "UPDATE cache_entries SET accessed_at=? WHERE namespace=? AND cache_key=? AND version=?",
+                (time.time(), *identity),
+            )
             db.commit()
 
     def _put_l1(self, identity: tuple[str, str, str], item: _MemoryItem) -> None:
@@ -494,29 +631,58 @@ class CacheService:
 
     def _evict_l2_locked(self, now: float) -> None:
         db = self._require_db()
-        db.execute("DELETE FROM cache_entries WHERE expires_at IS NOT NULL AND expires_at <= ?", (now,))
-        row = db.execute("SELECT COUNT(*) AS n, COALESCE(SUM(size_bytes),0) AS b FROM cache_entries").fetchone()
+        db.execute(
+            "DELETE FROM cache_entries WHERE expires_at IS NOT NULL AND expires_at <= ?",
+            (now,),
+        )
+        row = db.execute(
+            "SELECT COUNT(*) AS n, COALESCE(SUM(size_bytes),0) AS b FROM cache_entries"
+        ).fetchone()
         while row["n"] > self.max_l2_entries or row["b"] > self.max_l2_bytes:
-            victim = db.execute("SELECT namespace, cache_key, version FROM cache_entries ORDER BY accessed_at ASC LIMIT 1").fetchone()
+            victim = db.execute(
+                "SELECT namespace, cache_key, version FROM cache_entries ORDER BY accessed_at ASC LIMIT 1"
+            ).fetchone()
             if victim is None:
                 break
-            db.execute("DELETE FROM cache_entries WHERE namespace=? AND cache_key=? AND version=?", tuple(victim))
-            row = db.execute("SELECT COUNT(*) AS n, COALESCE(SUM(size_bytes),0) AS b FROM cache_entries").fetchone()
+            db.execute(
+                "DELETE FROM cache_entries WHERE namespace=? AND cache_key=? AND version=?",
+                tuple(victim),
+            )
+            row = db.execute(
+                "SELECT COUNT(*) AS n, COALESCE(SUM(size_bytes),0) AS b FROM cache_entries"
+            ).fetchone()
 
     def _evict_artifacts_locked(self, now: float) -> None:
         db = self._require_db()
-        expired = db.execute("SELECT relative_path FROM cache_artifacts WHERE expires_at IS NOT NULL AND expires_at <= ?", (now,)).fetchall()
+        expired = db.execute(
+            "SELECT relative_path FROM cache_artifacts WHERE expires_at IS NOT NULL AND expires_at <= ?",
+            (now,),
+        ).fetchall()
         for row in expired:
             self._unlink_relative(row["relative_path"])
-        db.execute("DELETE FROM cache_artifacts WHERE expires_at IS NOT NULL AND expires_at <= ?", (now,))
-        row = db.execute("SELECT COUNT(*) AS n, COALESCE(SUM(size_bytes),0) AS b FROM cache_artifacts").fetchone()
-        while row["n"] > self.max_artifact_entries or row["b"] > self.max_artifact_bytes:
-            victim = db.execute("SELECT namespace, cache_key, version, relative_path FROM cache_artifacts ORDER BY accessed_at ASC LIMIT 1").fetchone()
+        db.execute(
+            "DELETE FROM cache_artifacts WHERE expires_at IS NOT NULL AND expires_at <= ?",
+            (now,),
+        )
+        row = db.execute(
+            "SELECT COUNT(*) AS n, COALESCE(SUM(size_bytes),0) AS b FROM cache_artifacts"
+        ).fetchone()
+        while (
+            row["n"] > self.max_artifact_entries or row["b"] > self.max_artifact_bytes
+        ):
+            victim = db.execute(
+                "SELECT namespace, cache_key, version, relative_path FROM cache_artifacts ORDER BY accessed_at ASC LIMIT 1"
+            ).fetchone()
             if victim is None:
                 break
             self._unlink_relative(victim["relative_path"])
-            db.execute("DELETE FROM cache_artifacts WHERE namespace=? AND cache_key=? AND version=?", (victim["namespace"], victim["cache_key"], victim["version"]))
-            row = db.execute("SELECT COUNT(*) AS n, COALESCE(SUM(size_bytes),0) AS b FROM cache_artifacts").fetchone()
+            db.execute(
+                "DELETE FROM cache_artifacts WHERE namespace=? AND cache_key=? AND version=?",
+                (victim["namespace"], victim["cache_key"], victim["version"]),
+            )
+            row = db.execute(
+                "SELECT COUNT(*) AS n, COALESCE(SUM(size_bytes),0) AS b FROM cache_artifacts"
+            ).fetchone()
 
     def _unlink_relative(self, relative: str) -> None:
         path = (self.root / relative).resolve()
@@ -527,4 +693,6 @@ class CacheService:
         try:
             path.unlink(missing_ok=True)
         except OSError:
-            logger.warning("Failed to remove cache artifact path=%s", path, exc_info=True)
+            logger.warning(
+                "Failed to remove cache artifact path=%s", path, exc_info=True
+            )

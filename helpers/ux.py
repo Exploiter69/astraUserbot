@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 from telethon import Button
 
@@ -21,19 +21,25 @@ def progress_bar(progress: float, width: int = 10) -> str:
 
 def job_buttons(job_id: str, *, state: str) -> list[list[Button]]:
     """Build compact controls; callbacks carry only a bounded job identifier."""
-    buttons: list[Button] = [Button.inline("↻ Status", f"ux:job:status:{job_id}".encode())]
+    buttons: list[Button] = [
+        Button.inline("↻ Status", f"ux:job:status:{job_id}".encode())
+    ]
     if state in {"QUEUED", "RUNNING", "VERIFYING", "PAUSED"}:
-        buttons.append(Button.inline("■ Cancel", f"ux:job:confirm_cancel:{job_id}".encode()))
+        buttons.append(
+            Button.inline("■ Cancel", f"ux:job:confirm_cancel:{job_id}".encode())
+        )
     if state in {"FAILED", "CANCELLED"}:
         buttons.append(Button.inline("↺ Retry", f"ux:job:retry:{job_id}".encode()))
     return [buttons]
 
 
 def confirmation_buttons(action: str, job_id: str) -> list[list[Button]]:
-    return [[
-        Button.inline("Confirm", f"ux:job:{action}:{job_id}".encode()),
-        Button.inline("Keep", f"ux:job:status:{job_id}".encode()),
-    ]]
+    return [
+        [
+            Button.inline("Confirm", f"ux:job:{action}:{job_id}".encode()),
+            Button.inline("Keep", f"ux:job:status:{job_id}".encode()),
+        ]
+    ]
 
 
 def page_buttons(kind: str, page: int, *, has_next: bool) -> list[list[Button]]:
@@ -57,7 +63,13 @@ def render_job(job, *, footer: str = "system | job") -> str:
         f"Priority: P{job.priority}  ·  resource: {job.resource_class}",
     ]
     if job.error_code:
-        rows.extend(["---", f"Error: `{job.error_code}`", job.error_message or "No further error detail."])
+        rows.extend(
+            [
+                "---",
+                f"Error: `{job.error_code}`",
+                job.error_message or "No further error detail.",
+            ]
+        )
     return render("JOB", rows, footer=footer)
 
 
@@ -71,21 +83,29 @@ def render_jobs(jobs: Iterable, page: int, *, has_next: bool) -> str:
     return render("JOBS", rows, footer="system | jobs")
 
 
-def list_buttons(kind: str, page: int, *, has_next: bool, prefix: str = "ux") -> list[list[Button]]:
+def list_buttons(
+    kind: str, page: int, *, has_next: bool, prefix: str = "ux"
+) -> list[list[Button]]:
     """Generic bounded list navigation; callback contains only a small page token."""
     return page_buttons(f"{prefix}:{kind}", page, has_next=has_next)
 
 
-def form_buttons(form_id: str, *, submit_label: str = "Submit", cancel_label: str = "Cancel") -> list[list[Button]]:
+def form_buttons(
+    form_id: str, *, submit_label: str = "Submit", cancel_label: str = "Cancel"
+) -> list[list[Button]]:
     """Reusable form action row; payload contains only a bounded form identifier."""
     safe = str(form_id)[:64]
-    return [[
-        Button.inline(submit_label[:32], f"ux:form:submit:{safe}".encode()),
-        Button.inline(cancel_label[:32], f"ux:form:cancel:{safe}".encode()),
-    ]]
+    return [
+        [
+            Button.inline(submit_label[:32], f"ux:form:submit:{safe}".encode()),
+            Button.inline(cancel_label[:32], f"ux:form:cancel:{safe}".encode()),
+        ]
+    ]
 
 
-def gallery_buttons(gallery_id: str, page: int, *, has_next: bool) -> list[list[Button]]:
+def gallery_buttons(
+    gallery_id: str, page: int, *, has_next: bool
+) -> list[list[Button]]:
     """Reusable bounded gallery navigation."""
     safe = str(gallery_id)[:64]
     return page_buttons(f"gallery:{safe}", page, has_next=has_next)
@@ -99,7 +119,9 @@ def bounded_callback_token(*parts: str, max_length: int = 96) -> bytes:
 
 def parse_callback_token(data: bytes | str, *, max_parts: int = 8) -> tuple[str, ...]:
     """Parse a bounded namespaced callback token without accepting arbitrary payloads."""
-    raw = data.decode("utf-8", errors="strict") if isinstance(data, bytes) else str(data)
+    raw = (
+        data.decode("utf-8", errors="strict") if isinstance(data, bytes) else str(data)
+    )
     if len(raw) > 96:
         raise ValueError("Callback token exceeds the bounded UI contract.")
     parts = tuple(item for item in raw.split(":") if item)

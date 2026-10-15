@@ -79,7 +79,9 @@ class HttpService:
                 ttl_dns_cache=300,
                 keepalive_timeout=30,
             )
-            self._session = aiohttp.ClientSession(timeout=self._timeout, connector=self._connector)
+            self._session = aiohttp.ClientSession(
+                timeout=self._timeout, connector=self._connector
+            )
             return self._session
 
     async def close(self) -> None:
@@ -113,11 +115,15 @@ class HttpService:
             raise ValueError("HTTP URL has no host")
         session = await self.start()
         host_limit = self._host_limits[host]
-        request_timeout = aiohttp.ClientTimeout(total=timeout) if timeout is not None else None
+        request_timeout = (
+            aiohttp.ClientTimeout(total=timeout) if timeout is not None else None
+        )
 
         for attempt in range(attempts + 1):
             try:
-                async with host_limit, session.request(
+                async with (
+                    host_limit,
+                    session.request(
                         method.upper(),
                         url,
                         headers=headers,
@@ -125,13 +131,16 @@ class HttpService:
                         data=data,
                         allow_redirects=allow_redirects,
                         timeout=request_timeout,
-                    ) as response:
-                        body = await self._read_bounded(response, limit)
-                        result = HttpResponse(response.status, dict(response.headers), body, str(response.url))
-                        if response.status in self.RETRY_STATUSES and attempt < attempts:
-                            await asyncio.sleep(self._retry_delay(attempt))
-                            continue
-                        return result
+                    ) as response,
+                ):
+                    body = await self._read_bounded(response, limit)
+                    result = HttpResponse(
+                        response.status, dict(response.headers), body, str(response.url)
+                    )
+                    if response.status in self.RETRY_STATUSES and attempt < attempts:
+                        await asyncio.sleep(self._retry_delay(attempt))
+                        continue
+                    return result
             except asyncio.TimeoutError as exc:
                 if attempt < attempts:
                     await asyncio.sleep(self._retry_delay(attempt))
@@ -156,7 +165,9 @@ class HttpService:
     async def head(self, url: str, **kwargs) -> HttpResponse:
         return await self.request("HEAD", url, **kwargs)
 
-    async def _read_bounded(self, response: aiohttp.ClientResponse, limit: int) -> bytes:
+    async def _read_bounded(
+        self, response: aiohttp.ClientResponse, limit: int
+    ) -> bytes:
         chunks: list[bytes] = []
         total = 0
         async for chunk in response.content.iter_chunked(65_536):

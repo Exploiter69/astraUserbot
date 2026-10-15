@@ -43,7 +43,7 @@ class Database:
         self.lock = asyncio.Lock()
 
     @classmethod
-    def get(cls, name: str) -> "Database":
+    def get(cls, name: str) -> Database:
         if not name or "/" in name or "\\" in name or name in {".", ".."}:
             raise DatabaseError("Invalid database name")
         if name not in cls._instances:
@@ -66,7 +66,9 @@ class Database:
                 await conn.commit()
                 self.conn = conn
             except (sqlite3.Error, OSError) as exc:
-                raise DatabaseError(f"Unable to open database {self.name}: {exc}") from exc
+                raise DatabaseError(
+                    f"Unable to open database {self.name}: {exc}"
+                ) from exc
 
     async def init_schema(self, ddl: str):
         await self._connect()
@@ -76,7 +78,9 @@ class Database:
                 await self.conn.commit()
             except sqlite3.Error as exc:
                 await self.conn.rollback()
-                raise DatabaseError(f"Schema initialization failed for {self.name}: {exc}") from exc
+                raise DatabaseError(
+                    f"Schema initialization failed for {self.name}: {exc}"
+                ) from exc
 
     async def execute(self, sql: str, parameters: tuple[Any, ...] = ()):
         await self._connect()
@@ -87,7 +91,9 @@ class Database:
                 return cursor
             except sqlite3.Error as exc:
                 await self.conn.rollback()
-                raise DatabaseError(f"Database write failed for {self.name}: {exc}") from exc
+                raise DatabaseError(
+                    f"Database write failed for {self.name}: {exc}"
+                ) from exc
 
     async def transaction(self, statements: list[tuple[str, tuple[Any, ...]]]) -> None:
         await self._connect()
@@ -99,7 +105,9 @@ class Database:
                 await self.conn.commit()
             except sqlite3.Error as exc:
                 await self.conn.rollback()
-                raise DatabaseError(f"Database transaction failed for {self.name}: {exc}") from exc
+                raise DatabaseError(
+                    f"Database transaction failed for {self.name}: {exc}"
+                ) from exc
 
     async def fetchall(self, sql: str, parameters: tuple[Any, ...] = ()):
         await self._connect()
@@ -108,7 +116,9 @@ class Database:
                 async with self.conn.execute(sql, parameters) as cursor:
                     return await cursor.fetchall()
             except sqlite3.Error as exc:
-                raise DatabaseError(f"Database read failed for {self.name}: {exc}") from exc
+                raise DatabaseError(
+                    f"Database read failed for {self.name}: {exc}"
+                ) from exc
 
     async def fetchone(self, sql: str, parameters: tuple[Any, ...] = ()):
         await self._connect()
@@ -117,7 +127,9 @@ class Database:
                 async with self.conn.execute(sql, parameters) as cursor:
                     return await cursor.fetchone()
             except sqlite3.Error as exc:
-                raise DatabaseError(f"Database read failed for {self.name}: {exc}") from exc
+                raise DatabaseError(
+                    f"Database read failed for {self.name}: {exc}"
+                ) from exc
 
     async def integrity_check(self) -> bool:
         row = await self.fetchone("PRAGMA integrity_check")
@@ -142,7 +154,9 @@ class Database:
             try:
                 await self.conn.execute(f"PRAGMA wal_checkpoint({mode})")
             except sqlite3.Error as exc:
-                raise DatabaseError(f"WAL checkpoint failed for {self.name}: {exc}") from exc
+                raise DatabaseError(
+                    f"WAL checkpoint failed for {self.name}: {exc}"
+                ) from exc
 
     async def backup(self, destination: str | Path) -> Path:
         await self._connect()
@@ -158,13 +172,18 @@ class Database:
         temp: Path | None = None
         async with self.lock:
             try:
-                fd, raw_temp = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=target.parent)
+                fd, raw_temp = tempfile.mkstemp(
+                    prefix=f".{target.name}.", suffix=".tmp", dir=target.parent
+                )
                 os.close(fd)
                 temp = Path(raw_temp)
                 target_conn = sqlite3.connect(temp)
                 try:
                     await self.conn.commit()
-                    await asyncio.wait_for(self.conn.backup(target_conn), timeout=self.BACKUP_TIMEOUT_SECONDS)
+                    await asyncio.wait_for(
+                        self.conn.backup(target_conn),
+                        timeout=self.BACKUP_TIMEOUT_SECONDS,
+                    )
                     target_conn.commit()
                     check = target_conn.execute("PRAGMA integrity_check").fetchone()
                     if not check or str(check[0]).lower() != "ok":
@@ -175,7 +194,9 @@ class Database:
                 temp = None
                 return target
             except (sqlite3.Error, asyncio.TimeoutError, OSError) as exc:
-                raise DatabaseError(f"Database backup failed for {self.name}: {exc}") from exc
+                raise DatabaseError(
+                    f"Database backup failed for {self.name}: {exc}"
+                ) from exc
             finally:
                 if temp is not None:
                     try:

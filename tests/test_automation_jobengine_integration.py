@@ -5,7 +5,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core.services.automation import AUTOMATION_JOB_TYPE, AutomationEngine, AutomationError
+from core.services.automation import (
+    AUTOMATION_JOB_TYPE,
+    AutomationEngine,
+    AutomationError,
+)
 from core.services.jobs import JobEngine, JobError
 from core.services.storage import StorageService
 
@@ -34,8 +38,12 @@ class AutomationJobEngineIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.storage = StorageService(Path(self.tmp.name))
         await self.storage.start()
         self.telegram = FakeTelegram()
-        self.jobs = JobEngine(self.storage, worker_id="automation-integration", poll_seconds=0.05)
-        self.engine = AutomationEngine(self.storage, self.jobs, self.telegram, owner_id=42)
+        self.jobs = JobEngine(
+            self.storage, worker_id="automation-integration", poll_seconds=0.05
+        )
+        self.engine = AutomationEngine(
+            self.storage, self.jobs, self.telegram, owner_id=42
+        )
 
     async def asyncTearDown(self) -> None:
         await self.engine.close()

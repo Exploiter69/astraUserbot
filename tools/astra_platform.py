@@ -44,7 +44,12 @@ async def selftest() -> int:
         await storage.start()
         search = SearchService(storage, root)
         await search.start()
-        await search.upsert(source="selftest", ref="fixture", title="fixture", content="astra platform selftest")
+        await search.upsert(
+            source="selftest",
+            ref="fixture",
+            title="fixture",
+            content="astra platform selftest",
+        )
         found = bool(await search.search("selftest"))
         integrity = await storage.integrity_check()
         await search.close()
@@ -60,12 +65,23 @@ def benchmark() -> int:
     for _ in range(loops):
         _ = json.dumps({"operation": "benchmark", "value": 1}, separators=(",", ":"))
     elapsed = time.perf_counter() - started
-    print(json.dumps({"operation": "json_serialization", "iterations": loops, "elapsed_ms": elapsed * 1000, "ops_per_second": loops / elapsed}))
+    print(
+        json.dumps(
+            {
+                "operation": "json_serialization",
+                "iterations": loops,
+                "elapsed_ms": elapsed * 1000,
+                "ops_per_second": loops / elapsed,
+            }
+        )
+    )
     return 0
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="AstraUserbot platform maintenance tools")
+    parser = argparse.ArgumentParser(
+        description="AstraUserbot platform maintenance tools"
+    )
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("migrate")
     sub.add_parser("selftest")

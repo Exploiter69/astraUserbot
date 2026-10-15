@@ -7,7 +7,13 @@ import shutil
 
 from config import config
 from core.context import get_application_context
-from core.errors import CommandError, ConfigurationError, ExternalServiceError, ResourceError, TimeoutError
+from core.errors import (
+    CommandError,
+    ConfigurationError,
+    ExternalServiceError,
+    ResourceError,
+    TimeoutError,
+)
 from core.registry import register_cmd
 from helpers.hud import render
 from helpers.reply import get_text_and_media
@@ -33,7 +39,9 @@ def _context_limit(raw: str | None) -> int:
     try:
         value = int(raw)
     except ValueError as exc:
-        raise CommandError("Context message count must be an integer between 1 and 32.") from exc
+        raise CommandError(
+            "Context message count must be an integer between 1 and 32."
+        ) from exc
     if not 1 <= value <= _MAX_CONTEXT_MESSAGES:
         raise CommandError("Context message count must be between 1 and 32.")
     return value
@@ -57,13 +65,19 @@ def _media_kind(media) -> str | None:
     mime = str(getattr(media, "mime_type", "") or "").lower()
     if mime.startswith("image/") or getattr(media, "photo", None) is not None:
         return "image"
-    if mime.startswith("audio/") or mime in {"application/ogg", "application/octet-stream"}:
+    if mime.startswith("audio/") or mime in {
+        "application/ogg",
+        "application/octet-stream",
+    }:
         return "audio"
     document = getattr(media, "document", None)
     document_mime = str(getattr(document, "mime_type", "") or "").lower()
     if document_mime.startswith("image/"):
         return "image"
-    if document_mime.startswith("audio/") or document_mime in {"application/ogg", "application/octet-stream"}:
+    if document_mime.startswith("audio/") or document_mime in {
+        "application/ogg",
+        "application/octet-stream",
+    }:
         return "audio"
     return None
 
@@ -121,13 +135,29 @@ async def _reply_media_context(event, prompt: str) -> str | None:
             raise CommandError("Tesseract is unavailable for image-to-AI context.")
         workspace = await media_service.create_workspace("ai_ocr")
         try:
-            downloaded = await media_service.download_telegram_media(event.client.download_media, media, workspace=workspace)
+            downloaded = await media_service.download_telegram_media(
+                event.client.download_media, media, workspace=workspace
+            )
             if not downloaded:
                 raise CommandError("Failed to download image media.")
             artifact = media_service.artifact(workspace, downloaded)
-            result = await media_service.run_isolated(["tesseract", "/workspace/" + artifact.path.relative_to(workspace.path).as_posix(), "stdout", "-l", "eng"], workspace=workspace, timeout=60, max_output_bytes=512 * 1024)
+            result = await media_service.run_isolated(
+                [
+                    "tesseract",
+                    "/workspace/"
+                    + artifact.path.relative_to(workspace.path).as_posix(),
+                    "stdout",
+                    "-l",
+                    "eng",
+                ],
+                workspace=workspace,
+                timeout=60,
+                max_output_bytes=512 * 1024,
+            )
             if result.returncode != 0:
-                raise CommandError("Image OCR failed: " + (result.stderr.strip() or "unknown error"))
+                raise CommandError(
+                    "Image OCR failed: " + (result.stderr.strip() or "unknown error")
+                )
             text = result.stdout.strip()[:_MAX_CONTEXT_CHARS]
             return f"The replied image was OCR-extracted as:\n{text or '[no text detected]'}\n\nUser request:\n{prompt}"
         finally:
@@ -135,7 +165,9 @@ async def _reply_media_context(event, prompt: str) -> str | None:
     if kind == "audio":
         workspace = await media_service.create_workspace("ai_stt")
         try:
-            downloaded = await media_service.download_telegram_media(event.client.download_media, media, workspace=workspace)
+            downloaded = await media_service.download_telegram_media(
+                event.client.download_media, media, workspace=workspace
+            )
             if not downloaded:
                 raise CommandError("Failed to download audio media.")
             artifact = media_service.artifact(workspace, downloaded)
@@ -147,7 +179,14 @@ async def _reply_media_context(event, prompt: str) -> str | None:
     return None
 
 
-async def _run_chat(event, prompt: str, *, title: str = "AI RESPONSE", system: str | None = None, history: int = 0) -> None:
+async def _run_chat(
+    event,
+    prompt: str,
+    *,
+    title: str = "AI RESPONSE",
+    system: str | None = None,
+    history: int = 0,
+) -> None:
     context = get_application_context()
     if context is None:
         raise CommandError("AI service is unavailable.")
@@ -163,28 +202,89 @@ async def _run_chat(event, prompt: str, *, title: str = "AI RESPONSE", system: s
         reply_text = _reply_text(reply)
         if reply_text:
             reply_text = _bounded_text(reply_text, _MAX_CONTEXT_CHARS)
-            prompt = f"Replied message context:\n{reply_text}\n\nUser request:\n{prompt}"
+            prompt = (
+                f"Replied message context:\n{reply_text}\n\nUser request:\n{prompt}"
+            )
     messages: list[dict[str, str]] = []
     if system:
         messages.append({"role": "system", "content": system[:_MAX_INSTRUCTION_CHARS]})
     messages.extend(await _history_context(event, history))
     messages.append({"role": "user", "content": prompt})
-    await event.edit(render(title="LLM INFERENCE", rows=[f"Routing to {service.provider_name}..."], footer="ai | unified"))
+    await event.edit(
+        render(
+            title="LLM INFERENCE",
+            rows=[f"Routing to {service.provider_name}..."],
+            footer="ai | unified",
+        )
+    )
     try:
         response = await service.chat(messages)
-    except (ConfigurationError, ExternalServiceError, ResourceError, TimeoutError) as exc:
+    except (
+        ConfigurationError,
+        ExternalServiceError,
+        ResourceError,
+        TimeoutError,
+    ) as exc:
         raise CommandError(str(exc)) from exc
-    await event.edit(render(title=title, rows=response.text.splitlines() or [response.text], footer=f"ai | {response.provider}"))
+    await event.edit(
+        render(
+            title=title,
+            rows=response.text.splitlines() or [response.text],
+            footer=f"ai | {response.provider}",
+        )
+    )
 
 
 async def setup(client):
-    register_cmd(client, PATTERN, handle_ai, "ai", "Unified AI surface. Usage: .ai <prompt> or .ai --last N <prompt>.")
-    register_cmd(client, EXPLAIN_PATTERN, handle_explain, "ai", "Explain text or a replied message with bounded AI context.")
-    register_cmd(client, REWRITE_PATTERN, handle_rewrite, "ai", "Rewrite replied text or supplied text.")
-    register_cmd(client, TRANSLATE_PATTERN, handle_translate, "ai", "Translate replied text or supplied text.")
-    register_cmd(client, EXTRACT_PATTERN, handle_extract, "ai", "Extract requested information from replied text.")
-    register_cmd(client, CODE_PATTERN, handle_code, "ai", "Use the AI gateway for bounded coding help.")
-    register_cmd(client, DIAG_PATTERN, handle_diag, "ai", "Show non-sensitive AI provider, capability and budget diagnostics.")
+    register_cmd(
+        client,
+        PATTERN,
+        handle_ai,
+        "ai",
+        "Unified AI surface. Usage: .ai <prompt> or .ai --last N <prompt>.",
+    )
+    register_cmd(
+        client,
+        EXPLAIN_PATTERN,
+        handle_explain,
+        "ai",
+        "Explain text or a replied message with bounded AI context.",
+    )
+    register_cmd(
+        client,
+        REWRITE_PATTERN,
+        handle_rewrite,
+        "ai",
+        "Rewrite replied text or supplied text.",
+    )
+    register_cmd(
+        client,
+        TRANSLATE_PATTERN,
+        handle_translate,
+        "ai",
+        "Translate replied text or supplied text.",
+    )
+    register_cmd(
+        client,
+        EXTRACT_PATTERN,
+        handle_extract,
+        "ai",
+        "Extract requested information from replied text.",
+    )
+    register_cmd(
+        client,
+        CODE_PATTERN,
+        handle_code,
+        "ai",
+        "Use the AI gateway for bounded coding help.",
+    )
+    register_cmd(
+        client,
+        DIAG_PATTERN,
+        handle_diag,
+        "ai",
+        "Show non-sensitive AI provider, capability and budget diagnostics.",
+    )
 
 
 async def handle_ai(event):
@@ -194,9 +294,11 @@ async def handle_ai(event):
             reply = await event.get_reply_message()
             args = _reply_text(reply)
         if not args:
-            raise CommandError("Usage: `.ai <prompt>` or `.ai --last N <prompt>`. You may also reply to text/media.")
+            raise CommandError(
+                "Usage: `.ai <prompt>` or `.ai --last N <prompt>`. You may also reply to text/media."
+            )
     history = 0
-    match = re.match(r"^--last\s+(\d+)\s+(.+)$", args, flags=re.S)
+    match = re.match(r"^--last\s+(\d+)\s+(.+)$", args, flags=re.DOTALL)
     if match:
         history = _context_limit(match.group(1))
         args = match.group(2).strip()
@@ -214,17 +316,30 @@ async def _text_target(event, supplied: str | None) -> str:
 
 async def handle_explain(event):
     text = await _text_target(event, event.pattern_match.group(1))
-    await _run_chat(event, text, title="EXPLANATION", system="Explain clearly, accurately, and at the user's apparent level. Do not invent facts.")
+    await _run_chat(
+        event,
+        text,
+        title="EXPLANATION",
+        system="Explain clearly, accurately, and at the user's apparent level. Do not invent facts.",
+    )
 
 
 async def handle_rewrite(event):
     text = await _text_target(event, event.pattern_match.group(1))
-    await _run_chat(event, f"Rewrite the following text while preserving its meaning and improving clarity:\n\n{text}", title="REWRITE")
+    await _run_chat(
+        event,
+        f"Rewrite the following text while preserving its meaning and improving clarity:\n\n{text}",
+        title="REWRITE",
+    )
 
 
 async def handle_translate(event):
     text = await _text_target(event, event.pattern_match.group(1))
-    await _run_chat(event, f"Translate the following text. If a target language is specified before a colon, use it; otherwise preserve the source language context:\n\n{text}", title="TRANSLATION")
+    await _run_chat(
+        event,
+        f"Translate the following text. If a target language is specified before a colon, use it; otherwise preserve the source language context:\n\n{text}",
+        title="TRANSLATION",
+    )
 
 
 async def handle_extract(event):
@@ -239,12 +354,23 @@ async def handle_extract(event):
     if not instruction:
         instruction = "Extract the key facts as concise bullet points."
     response = await service.extract(text, instruction)
-    await event.edit(render(title="EXTRACTION", rows=response.text.splitlines() or [response.text], footer=f"ai | extract | {response.provider}"))
+    await event.edit(
+        render(
+            title="EXTRACTION",
+            rows=response.text.splitlines() or [response.text],
+            footer=f"ai | extract | {response.provider}",
+        )
+    )
 
 
 async def handle_code(event):
     prompt = await _text_target(event, event.pattern_match.group(1))
-    await _run_chat(event, prompt, title="CODE ASSIST", system="You are a careful coding assistant. Prefer correct, minimal, actionable answers. Do not claim to have executed code you did not execute.")
+    await _run_chat(
+        event,
+        prompt,
+        title="CODE ASSIST",
+        system="You are a careful coding assistant. Prefer correct, minimal, actionable answers. Do not claim to have executed code you did not execute.",
+    )
 
 
 async def handle_diag(event):
@@ -255,5 +381,20 @@ async def handle_diag(event):
     if service is None:
         raise CommandError("AI service is unavailable.")
     diagnostics = service.diagnostics()
-    rows = [f"Default provider: {diagnostics['provider']}", f"Remote enabled: {diagnostics['remote_enabled']}", f"Providers: {', '.join(diagnostics['providers'])}", f"Modes: {', '.join(f'{k}={v}' for k, v in diagnostics['modes'].items())}", f"Remote budget: {diagnostics['remote_requests_used']}/{diagnostics['remote_requests_limit']}", f"Budget remaining: {diagnostics['remote_requests_remaining']}", f"Window: {int(diagnostics['remote_window_seconds'])}s", f"Input cap: {diagnostics['max_input_chars']:,} chars", f"Output cap: {diagnostics['max_output_chars']:,} chars", f"Message cap: {diagnostics['max_message_count']} x {diagnostics['max_message_chars']:,} chars"][:_MAX_DIAGNOSTIC_ROWS]
-    await event.edit(render(title="AI DIAGNOSTICS", rows=rows, footer="ai | diagnostics | no secrets"))
+    rows = [
+        f"Default provider: {diagnostics['provider']}",
+        f"Remote enabled: {diagnostics['remote_enabled']}",
+        f"Providers: {', '.join(diagnostics['providers'])}",
+        f"Modes: {', '.join(f'{k}={v}' for k, v in diagnostics['modes'].items())}",
+        f"Remote budget: {diagnostics['remote_requests_used']}/{diagnostics['remote_requests_limit']}",
+        f"Budget remaining: {diagnostics['remote_requests_remaining']}",
+        f"Window: {int(diagnostics['remote_window_seconds'])}s",
+        f"Input cap: {diagnostics['max_input_chars']:,} chars",
+        f"Output cap: {diagnostics['max_output_chars']:,} chars",
+        f"Message cap: {diagnostics['max_message_count']} x {diagnostics['max_message_chars']:,} chars",
+    ][:_MAX_DIAGNOSTIC_ROWS]
+    await event.edit(
+        render(
+            title="AI DIAGNOSTICS", rows=rows, footer="ai | diagnostics | no secrets"
+        )
+    )

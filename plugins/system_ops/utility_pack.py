@@ -3,17 +3,17 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import re
 import time
 import urllib.parse
 import uuid
 import xml.etree.ElementTree as ET
-import re
 
+from config import config
 from core.context import get_application_context
 from core.errors import CommandError
 from core.registry import register_cmd
 from helpers.hud import render
-from config import config
 
 PATTERN = rf"^{re.escape(config.PREFIX)}(uuid|sha256|jsonfmt|b64|urlencode|timestamp|head|rss)(?:\s+([\s\S]+))?$"
 
@@ -26,7 +26,13 @@ def _ctx():
 
 
 async def setup(client):
-    register_cmd(client, PATTERN, handle, "utilities", "Bounded developer, web and feed utilities using shared services.")
+    register_cmd(
+        client,
+        PATTERN,
+        handle,
+        "utilities",
+        "Bounded developer, web and feed utilities using shared services.",
+    )
 
 
 async def handle(event):
@@ -55,7 +61,9 @@ async def handle(event):
         parsed = urllib.parse.urlparse(arg)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             raise CommandError("Only absolute HTTP(S) URLs are accepted")
-        response = await ctx.get("http").get(arg, timeout=10, response_limit=64 * 1024, allow_redirects=False)
+        response = await ctx.get("http").get(
+            arg, timeout=10, response_limit=64 * 1024, allow_redirects=False
+        )
         value = f"HTTP {response.status}\nContent-Type: {response.headers.get('Content-Type', 'unknown')}\nLength: {response.headers.get('Content-Length', 'unknown')}"
     elif cmd == "rss":
         ctx = _ctx()
@@ -82,4 +90,10 @@ async def handle(event):
     else:
         raise CommandError("Unsupported utility")
 
-    await event.edit(render(f"{cmd.upper()} // RESULT", value.splitlines()[:40], footer=f"utilities | {cmd}"))
+    await event.edit(
+        render(
+            f"{cmd.upper()} // RESULT",
+            value.splitlines()[:40],
+            footer=f"utilities | {cmd}",
+        )
+    )

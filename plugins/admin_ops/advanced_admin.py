@@ -1,18 +1,28 @@
-import re
 import asyncio
-from telethon.tl.functions.channels import EditBannedRequest, EditAdminRequest, ToggleSlowModeRequest
-from telethon.tl.types import ChatBannedRights, ChatAdminRights
-from core.registry import register_cmd
-from core.errors import CommandError
-from helpers.hud import render
-from helpers.entity import resolve_target
+import re
+
+from telethon.tl.functions.channels import (
+    EditAdminRequest,
+    EditBannedRequest,
+    ToggleSlowModeRequest,
+)
+from telethon.tl.types import ChatAdminRights, ChatBannedRights
+
 from config import config
+from core.errors import CommandError
+from core.registry import register_cmd
+from helpers.entity import resolve_target
+from helpers.hud import render
 
 PATTERN = rf"^{re.escape(config.PREFIX)}(purge|purgeme|zombies|promote|demote|slow|kickme)(?:\s+(.*))?$"
 _MAX_PURGE = 1000
 
+
 async def setup(client):
-    register_cmd(client, PATTERN, handle_admin, "admin_ops", "Advanced group administration.")
+    register_cmd(
+        client, PATTERN, handle_admin, "admin_ops", "Advanced group administration."
+    )
+
 
 async def handle_admin(event):
     cmd = event.pattern_match.group(1).lower()
@@ -35,7 +45,9 @@ async def handle_admin(event):
                 messages.append(msg.id)
         if messages:
             await event.client.delete_messages(event.chat_id, messages)
-        msg = await event.respond(render("PURGE", [f"Cleared {len(messages)} messages."]))
+        msg = await event.respond(
+            render("PURGE", [f"Cleared {len(messages)} messages."])
+        )
         await asyncio.sleep(2)
         await msg.delete()
 
@@ -49,19 +61,26 @@ async def handle_admin(event):
         failed = 0
         for zombie in zombies:
             try:
-                await event.client(EditBannedRequest(
-                    event.chat_id,
-                    zombie.id,
-                    ChatBannedRights(until_date=None, view_messages=True),
-                ))
+                await event.client(
+                    EditBannedRequest(
+                        event.chat_id,
+                        zombie.id,
+                        ChatBannedRights(until_date=None, view_messages=True),
+                    )
+                )
                 purged += 1
             except Exception:  # noqa: BLE001 - bounded admin probe records per-target failures
                 failed += 1
-        await event.edit(render("ZOMBIE SCAN", [
-            f"Found: {len(zombies)}",
-            f"Purged: {purged}",
-            f"Failed: {failed}",
-        ]))
+        await event.edit(
+            render(
+                "ZOMBIE SCAN",
+                [
+                    f"Found: {len(zombies)}",
+                    f"Purged: {purged}",
+                    f"Failed: {failed}",
+                ],
+            )
+        )
 
     elif cmd in ("promote", "demote"):
         target = await resolve_target(event)
@@ -79,7 +98,9 @@ async def handle_admin(event):
             rank = arg or "Admin"
             if len(rank) > 32:
                 raise CommandError("Admin rank must be 32 characters or fewer.")
-            await event.client(EditAdminRequest(event.chat_id, target.id, rights, rank=rank))
+            await event.client(
+                EditAdminRequest(event.chat_id, target.id, rights, rank=rank)
+            )
             await event.edit(render("ADMIN OPS", [f"Promoted {target.id}"]))
         else:
             rights = ChatAdminRights(
@@ -90,7 +111,9 @@ async def handle_admin(event):
                 delete_messages=False,
                 pin_messages=False,
             )
-            await event.client(EditAdminRequest(event.chat_id, target.id, rights, rank=""))
+            await event.client(
+                EditAdminRequest(event.chat_id, target.id, rights, rank="")
+            )
             await event.edit(render("ADMIN OPS", [f"Demoted {target.id}"]))
 
     elif cmd == "slow":
@@ -100,7 +123,16 @@ async def handle_admin(event):
         if seconds < 0 or seconds > 86400:
             raise CommandError("Slow mode must be between 0 and 86400 seconds.")
         await event.client(ToggleSlowModeRequest(event.chat_id, seconds))
-        await event.edit(render("ADMIN OPS", ["Slow mode disabled." if seconds == 0 else f"Slow mode set to {seconds}s."]))
+        await event.edit(
+            render(
+                "ADMIN OPS",
+                [
+                    "Slow mode disabled."
+                    if seconds == 0
+                    else f"Slow mode set to {seconds}s."
+                ],
+            )
+        )
 
     elif cmd == "kickme":
         await event.edit(render("ADMIN OPS", ["Leaving chat..."]))

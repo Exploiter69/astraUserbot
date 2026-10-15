@@ -1,4 +1,5 @@
 """Operator surface for the durable Automation Engine (Program G)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -33,10 +34,20 @@ async def setup(client):
         "automation",
         "List, inspect, create, enable, disable, delete or run an automation rule.",
     )
-    register_cmd(client, rf"^{p}autostatus$", handle_status, "automation", "Show Automation Engine status.")
+    register_cmd(
+        client,
+        rf"^{p}autostatus$",
+        handle_status,
+        "automation",
+        "Show Automation Engine status.",
+    )
     context = get_application_context()
     if context is not None:
-        _job_task = context.tasks.create_task(_job_completion_worker(context), name="automation.job_completion_worker", owner="automation")
+        _job_task = context.tasks.create_task(
+            _job_completion_worker(context),
+            name="automation.job_completion_worker",
+            owner="automation",
+        )
 
 
 async def shutdown(_client):
@@ -64,8 +75,17 @@ async def handle_autorule(event):
 async def handle_list(event):
     engine, _ = _engine()
     rules = await engine.list_rules(limit=100)
-    rows = [f"`{r.id}` · {'ON' if r.enabled else 'OFF'} · v{r.version} · {r.trigger.get('type')} · {len(r.actions)} action(s)" for r in rules]
-    await event.edit(render("AUTOMATION RULES", rows or ["No automation rules."], footer="automation | autorule list"))
+    rows = [
+        f"`{r.id}` · {'ON' if r.enabled else 'OFF'} · v{r.version} · {r.trigger.get('type')} · {len(r.actions)} action(s)"
+        for r in rules
+    ]
+    await event.edit(
+        render(
+            "AUTOMATION RULES",
+            rows or ["No automation rules."],
+            footer="automation | autorule list",
+        )
+    )
 
 
 async def handle_show(event):
@@ -100,7 +120,19 @@ async def handle_create(event):
         cooldown_seconds=float(spec.get("cooldown_seconds", 0)),
         max_runs=int(spec.get("max_runs", 0)),
     )
-    await event.edit(render("AUTOMATION RULE", [f"ID: `{rule.id}`", f"Version: `{rule.version}`", f"Trigger: `{rule.trigger.get('type')}`", f"Actions: `{len(rule.actions)}`", "State: `ENABLED`"], footer="automation | rule saved"))
+    await event.edit(
+        render(
+            "AUTOMATION RULE",
+            [
+                f"ID: `{rule.id}`",
+                f"Version: `{rule.version}`",
+                f"Trigger: `{rule.trigger.get('type')}`",
+                f"Actions: `{len(rule.actions)}`",
+                "State: `ENABLED`",
+            ],
+            footer="automation | rule saved",
+        )
+    )
 
 
 async def handle_state(event):
@@ -112,10 +144,22 @@ async def handle_state(event):
     rule_id = rule_id.lower()
     if action == "delete":
         await engine.delete_rule(rule_id)
-        await event.edit(render("AUTOMATION RULE", [f"Deleted `{rule_id}`."], footer="automation | rule delete"))
+        await event.edit(
+            render(
+                "AUTOMATION RULE",
+                [f"Deleted `{rule_id}`."],
+                footer="automation | rule delete",
+            )
+        )
         return
     await engine.set_enabled(rule_id, action == "enable")
-    await event.edit(render("AUTOMATION RULE", [f"`{rule_id}` → `{'ENABLED' if action == 'enable' else 'DISABLED'}`"], footer="automation | rule state"))
+    await event.edit(
+        render(
+            "AUTOMATION RULE",
+            [f"`{rule_id}` → `{'ENABLED' if action == 'enable' else 'DISABLED'}`"],
+            footer="automation | rule state",
+        )
+    )
 
 
 async def handle_run(event):
@@ -124,8 +168,24 @@ async def handle_run(event):
     if not rule_id:
         raise CommandError("Usage: .autorule run <id>")
     rule_id = rule_id.lower()
-    accepted = await engine.run_owner_command(rule_id, {"source_peer": str(event.chat_id) if event.chat_id is not None else None, "command": "autorule run"})
-    await event.edit(render("AUTOMATION RUN", [f"Rule: `{rule_id}`", f"Accepted: `{accepted}`", "Execution: `DURABLE JOB`"], footer="automation | autorule run"))
+    accepted = await engine.run_owner_command(
+        rule_id,
+        {
+            "source_peer": str(event.chat_id) if event.chat_id is not None else None,
+            "command": "autorule run",
+        },
+    )
+    await event.edit(
+        render(
+            "AUTOMATION RUN",
+            [
+                f"Rule: `{rule_id}`",
+                f"Accepted: `{accepted}`",
+                "Execution: `DURABLE JOB`",
+            ],
+            footer="automation | autorule run",
+        )
+    )
 
 
 async def handle_status(event):
@@ -134,7 +194,13 @@ async def handle_status(event):
     enabled = sum(1 for r in rules if r.enabled)
     jobs = await context.get("jobs").list(limit=100)
     automation_jobs = [j for j in jobs if j.type == "AUTOMATION_RUN"]
-    rows = [f"Rules: `{len(rules)}`", f"Enabled: `{enabled}`", f"Recent automation jobs: `{len(automation_jobs)}`", "Triggers: `MESSAGE_NEW MESSAGE_EDIT MEDIA_OBSERVED SCHEDULED JOB_COMPLETED INTELLIGENCE_OBSERVED OWNER_COMMAND`", "Actions: `REPLY FORWARD TAG INDEX ARCHIVE NOTIFY_OWNER PLUGIN_ACTION START_JOB`"]
+    rows = [
+        f"Rules: `{len(rules)}`",
+        f"Enabled: `{enabled}`",
+        f"Recent automation jobs: `{len(automation_jobs)}`",
+        "Triggers: `MESSAGE_NEW MESSAGE_EDIT MEDIA_OBSERVED SCHEDULED JOB_COMPLETED INTELLIGENCE_OBSERVED OWNER_COMMAND`",
+        "Actions: `REPLY FORWARD TAG INDEX ARCHIVE NOTIFY_OWNER PLUGIN_ACTION START_JOB`",
+    ]
     await event.edit(render("AUTOMATION", rows, footer="automation | status"))
 
 
@@ -146,7 +212,10 @@ async def _job_completion_worker(context):
     cursor = int(row[0]) if row else 0
     while True:
         try:
-            rows = await storage.fetchall("SELECT id, job_id FROM job_events WHERE id>? AND event_type IN ('COMPLETED','FAILED') ORDER BY id LIMIT 100", (cursor,))
+            rows = await storage.fetchall(
+                "SELECT id, job_id FROM job_events WHERE id>? AND event_type IN ('COMPLETED','FAILED') ORDER BY id LIMIT 100",
+                (cursor,),
+            )
             for row in rows:
                 cursor = max(cursor, int(row[0]))
                 try:

@@ -42,7 +42,9 @@ class TelegramStateCacheTests(unittest.IsolatedAsyncioTestCase):
 
     @staticmethod
     def dialog(entity_id: int, title: str) -> SimpleNamespace:
-        entity = SimpleNamespace(id=entity_id, username=None, title=title, first_name=None, last_name=None)
+        entity = SimpleNamespace(
+            id=entity_id, username=None, title=title, first_name=None, last_name=None
+        )
         message = SimpleNamespace(id=entity_id * 1000)
         return SimpleNamespace(entity=entity, message=message)
 
@@ -117,7 +119,10 @@ class TelegramStateCacheTests(unittest.IsolatedAsyncioTestCase):
             await release.wait()
             return entity
 
-        tasks = [asyncio.create_task(self.cache.resolve_entity("@alice", resolver)) for _ in range(8)]
+        tasks = [
+            asyncio.create_task(self.cache.resolve_entity("@alice", resolver))
+            for _ in range(8)
+        ]
         await started.wait()
         await asyncio.sleep(0.01)
         self.assertEqual(calls, 1)

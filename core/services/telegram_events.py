@@ -7,8 +7,9 @@ import inspect
 import logging
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from telethon import events, types
 
@@ -82,7 +83,9 @@ class TelegramEventCollector:
         remove_handler = getattr(self.client, "remove_event_handler", None)
         if not callable(add_handler) or not callable(remove_handler):
             self._started = True
-            logger.debug("Telegram event collector started without Telegram handler-capable client")
+            logger.debug(
+                "Telegram event collector started without Telegram handler-capable client"
+            )
             return
         registrations = (
             (self._handle_new_message, events.NewMessage()),
@@ -141,31 +144,59 @@ class TelegramEventCollector:
     async def _handle_new_message(self, event: Any) -> None:
         message = getattr(event, "message", None)
         payload = self._message_payload(message)
-        await self._emit("MESSAGE_NEW", event, payload=payload, message_id=self._message_id(message))
+        await self._emit(
+            "MESSAGE_NEW", event, payload=payload, message_id=self._message_id(message)
+        )
         if payload.get("has_media"):
-            await self._emit("MEDIA_OBSERVED", event, payload=payload, message_id=self._message_id(message))
+            await self._emit(
+                "MEDIA_OBSERVED",
+                event,
+                payload=payload,
+                message_id=self._message_id(message),
+            )
 
     async def _handle_message_edit(self, event: Any) -> None:
         message = getattr(event, "message", None)
-        await self._emit("MESSAGE_EDIT", event, payload=self._message_payload(message), message_id=self._message_id(message))
+        await self._emit(
+            "MESSAGE_EDIT",
+            event,
+            payload=self._message_payload(message),
+            message_id=self._message_id(message),
+        )
 
     async def _handle_message_delete(self, event: Any) -> None:
         ids = getattr(event, "deleted_ids", None) or ()
         for message_id in tuple(ids)[:100]:
-            await self._emit("MESSAGE_DELETE", event, payload={"deleted": True}, message_id=int(message_id))
+            await self._emit(
+                "MESSAGE_DELETE",
+                event,
+                payload={"deleted": True},
+                message_id=int(message_id),
+            )
 
     async def _handle_reaction(self, event: Any) -> None:
         message_id = getattr(event, "msg_id", None)
         await self._emit(
             "REACTION_CHANGED",
             event,
-            payload={"message": int(message_id) if isinstance(message_id, int) else None, "update": type(event).__name__},
+            payload={
+                "message": int(message_id) if isinstance(message_id, int) else None,
+                "update": type(event).__name__,
+            },
             message_id=int(message_id) if isinstance(message_id, int) else None,
         )
 
     async def _handle_chat_action(self, event: Any) -> None:
         action = getattr(event, "action_message", None)
-        await self._emit("CHAT_MEMBER_CHANGED", event, payload={"action": type(action).__name__ if action is not None else type(event).__name__})
+        await self._emit(
+            "CHAT_MEMBER_CHANGED",
+            event,
+            payload={
+                "action": type(action).__name__
+                if action is not None
+                else type(event).__name__
+            },
+        )
 
     async def _handle_raw(self, update: Any) -> None:
         if not isinstance(update, self._CALL_UPDATE_TYPES):
@@ -219,7 +250,9 @@ class TelegramEventCollector:
             "text": text,
             "has_media": bool(getattr(message, "media", None)),
             "out": bool(getattr(message, "out", False)),
-            "reply_to": getattr(getattr(message, "reply_to", None), "reply_to_msg_id", None),
+            "reply_to": getattr(
+                getattr(message, "reply_to", None), "reply_to_msg_id", None
+            ),
         }
 
     @classmethod

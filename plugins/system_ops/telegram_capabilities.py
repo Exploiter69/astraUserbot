@@ -53,14 +53,20 @@ async def handle(event):
         target = await telegram.get_entity(arg)
     else:
         reply = await event.get_reply_message()
-        target = reply.chat if reply is not None and getattr(reply, "chat", None) is not None else event.chat_id
+        target = (
+            reply.chat
+            if reply is not None and getattr(reply, "chat", None) is not None
+            else event.chat_id
+        )
 
     capabilities = await telegram.get_capabilities(target)
     observed_at = capabilities.get("observed_at")
     target_label = _target_label(target)
     rows = [
         f"Target        {target_label}",
-        f"Observed      {observed_at:.0f}" if isinstance(observed_at, (int, float)) else "Observed      UNKNOWN",
+        f"Observed      {observed_at:.0f}"
+        if isinstance(observed_at, (int, float))
+        else "Observed      UNKNOWN",
         "",
         f"Can read      {_fmt(capabilities.get('can_read'))}",
         f"Can send      {_fmt(capabilities.get('can_send'))}",
@@ -74,8 +80,20 @@ async def handle(event):
     if capabilities.get("permissions_observation"):
         rows += ["", f"Permissions   {capabilities['permissions_observation']}"]
     rows += ["", "OBSERVATION ONLY · NOT MUTATION AUTHORITY"]
-    await event.edit(render("TELEGRAM // CAPABILITIES", rows, footer="system_ops | tgcap | observed state"))
+    await event.edit(
+        render(
+            "TELEGRAM // CAPABILITIES",
+            rows,
+            footer="system_ops | tgcap | observed state",
+        )
+    )
 
 
 async def setup(client):
-    register_cmd(client, PATTERN, handle, "system_ops", "Observe Telegram peer capabilities without treating cache state as authority.")
+    register_cmd(
+        client,
+        PATTERN,
+        handle,
+        "system_ops",
+        "Observe Telegram peer capabilities without treating cache state as authority.",
+    )

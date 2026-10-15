@@ -6,7 +6,13 @@ import unittest
 from pathlib import Path
 
 from core.plugins.contract import PLUGIN_API_VERSION, metadata_for
-from core.plugins.manager import PluginDependencyError, PluginLifecycleError, PluginManager, PluginRecord, PluginState
+from core.plugins.manager import (
+    PluginDependencyError,
+    PluginLifecycleError,
+    PluginManager,
+    PluginRecord,
+    PluginState,
+)
 
 
 class PluginEcosystemTests(unittest.TestCase):
@@ -49,7 +55,11 @@ class PluginEcosystemTests(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 manager = PluginManager(object(), Path(tmp) / "plugins")
-                manager.records = {module.__name__: PluginRecord(module.__name__, module=module, state=PluginState.RUNNING)}
+                manager.records = {
+                    module.__name__: PluginRecord(
+                        module.__name__, module=module, state=PluginState.RUNNING
+                    )
+                }
                 manager._load_order = [module.__name__]
                 result = asyncio.run(manager.disable_plugin(module.__name__))
                 self.assertEqual(result.state, PluginState.DISABLED)
@@ -61,7 +71,11 @@ class PluginEcosystemTests(unittest.TestCase):
             manager = PluginManager(object(), Path(tmp) / "plugins")
             manager.records = {
                 "plugins.base": PluginRecord("plugins.base", state=PluginState.RUNNING),
-                "plugins.child": PluginRecord("plugins.child", dependencies=("plugins.base",), state=PluginState.RUNNING),
+                "plugins.child": PluginRecord(
+                    "plugins.child",
+                    dependencies=("plugins.base",),
+                    state=PluginState.RUNNING,
+                ),
             }
             with self.assertRaises(PluginDependencyError):
                 asyncio.run(manager.disable_plugin("plugins.base"))
@@ -70,25 +84,35 @@ class PluginEcosystemTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             manager = PluginManager(object(), Path(tmp) / "plugins")
             manager.records = {
-                "plugins.ai.ask": PluginRecord("plugins.ai.ask", state=PluginState.DISABLED)
+                "plugins.ai.ask": PluginRecord(
+                    "plugins.ai.ask", state=PluginState.DISABLED
+                )
             }
             with self.assertRaises(PluginLifecycleError):
                 asyncio.run(manager.enable_plugin("plugins.ai.ask"))
 
     def test_enable_rolls_back_failed_setup(self):
         module = types.ModuleType("plugins.enable_contract")
+
         def setup(client):
             raise RuntimeError("setup failed")
+
         module.setup = setup
         sys.modules[module.__name__] = module
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 manager = PluginManager(object(), Path(tmp) / "plugins")
-                manager.records = {module.__name__: PluginRecord(module.__name__, module=module, state=PluginState.DISABLED)}
+                manager.records = {
+                    module.__name__: PluginRecord(
+                        module.__name__, module=module, state=PluginState.DISABLED
+                    )
+                }
                 manager._disabled.add(module.__name__)
                 with self.assertRaises(PluginLifecycleError):
                     asyncio.run(manager.enable_plugin(module.__name__))
-                self.assertEqual(manager.get(module.__name__).state, PluginState.FAILED_SETUP)
+                self.assertEqual(
+                    manager.get(module.__name__).state, PluginState.FAILED_SETUP
+                )
                 self.assertIn(module.__name__, manager._disabled)
         finally:
             sys.modules.pop(module.__name__, None)
@@ -98,8 +122,12 @@ class PluginEcosystemTests(unittest.TestCase):
             manager = PluginManager(object(), Path(tmp) / "plugins")
             manager.records = {
                 "plugins.example": PluginRecord(
-                    "plugins.example", state=PluginState.RUNNING, version="1.0.0",
-                    api_version=1, description="Example", optional_dependencies=("plugins.opt",),
+                    "plugins.example",
+                    state=PluginState.RUNNING,
+                    version="1.0.0",
+                    api_version=1,
+                    description="Example",
+                    optional_dependencies=("plugins.opt",),
                     capabilities=("telegram.read",),
                 )
             }

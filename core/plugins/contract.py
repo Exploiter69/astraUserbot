@@ -56,7 +56,9 @@ def metadata_for(module: ModuleType, module_name: str | None = None) -> PluginMe
         raise ValueError("plugin_api_version must be an integer") from exc
     if api_version != PLUGIN_API_VERSION:
         raise ValueError(f"unsupported plugin api version: {api_version}")
-    description = str(getattr(module, "plugin_description", getattr(module, "description", ""))).strip()
+    description = str(
+        getattr(module, "plugin_description", getattr(module, "description", ""))
+    ).strip()
     if len(description) > 512:
         raise ValueError("plugin description exceeds 512 characters")
     dependencies = _tuple_strings(getattr(module, "dependencies", ()))

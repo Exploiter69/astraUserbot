@@ -30,7 +30,9 @@ async def _ensure_schema() -> None:
     """)
     columns = {row[1] for row in await db.fetchall("PRAGMA table_info(posts)")}
     if "peer_type" not in columns:
-        await db.execute("ALTER TABLE posts ADD COLUMN peer_type TEXT NOT NULL DEFAULT 'id'")
+        await db.execute(
+            "ALTER TABLE posts ADD COLUMN peer_type TEXT NOT NULL DEFAULT 'id'"
+        )
     if "access_hash" not in columns:
         await db.execute("ALTER TABLE posts ADD COLUMN access_hash INTEGER")
 
@@ -87,16 +89,26 @@ async def shutdown(client):
 async def handle_autopost(event):
     msg = event.pattern_match.group(1)
     if not msg:
-        rows = await db.fetchall("SELECT id, message FROM posts WHERE chat_id = ?", (event.chat_id,))
+        rows = await db.fetchall(
+            "SELECT id, message FROM posts WHERE chat_id = ?", (event.chat_id,)
+        )
         if not rows:
-            await event.edit(render(title="AUTOPOST", rows=["No scheduled posts for this chat."], footer="media | autopost"))
+            await event.edit(
+                render(
+                    title="AUTOPOST",
+                    rows=["No scheduled posts for this chat."],
+                    footer="media | autopost",
+                )
+            )
             return
 
         display = ["Scheduled Posts:", "---"]
         for r in rows[:50]:
             preview = r[1][:30] + ("..." if len(r[1]) > 30 else "")
             display.append(f"[{r[0]}] {preview}")
-        await event.edit(render(title="AUTOPOST", rows=display, footer="media | autopost"))
+        await event.edit(
+            render(title="AUTOPOST", rows=display, footer="media | autopost")
+        )
         return
 
     if msg.startswith("rm "):
@@ -111,7 +123,13 @@ async def handle_autopost(event):
         )
         if cursor.rowcount == 0:
             raise CommandError(f"No scheduled post {pid} exists in this chat.")
-        await event.edit(render(title="AUTOPOST", rows=[f"Deleted post ID {pid}."], footer="media | autopost"))
+        await event.edit(
+            render(
+                title="AUTOPOST",
+                rows=[f"Deleted post ID {pid}."],
+                footer="media | autopost",
+            )
+        )
         return
 
     msg = msg.strip()
@@ -126,15 +144,19 @@ async def handle_autopost(event):
         "INSERT INTO posts (chat_id, message, peer_type, access_hash) VALUES (?, ?, ?, ?)",
         (event.chat_id, msg, peer_type, access_hash),
     )
-    await event.edit(render(
-        title="AUTOPOST",
-        rows=["Scheduled new hourly auto-post.", f"Preview: {msg[:30]}..."],
-        footer="media | autopost",
-    ))
+    await event.edit(
+        render(
+            title="AUTOPOST",
+            rows=["Scheduled new hourly auto-post.", f"Preview: {msg[:30]}..."],
+            footer="media | autopost",
+        )
+    )
 
 
 async def autopost_worker():
-    rows = await db.fetchall("SELECT id, chat_id, message, peer_type, access_hash FROM posts")
+    rows = await db.fetchall(
+        "SELECT id, chat_id, message, peer_type, access_hash FROM posts"
+    )
     for post_id, chat_id, message, peer_type, access_hash in rows:
         try:
             target = _input_peer(chat_id, peer_type, access_hash)

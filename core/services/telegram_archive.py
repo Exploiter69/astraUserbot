@@ -43,7 +43,9 @@ class TelegramArchiveRequest:
 
     @property
     def idempotency_key(self) -> str:
-        canonical = json.dumps(self.payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        canonical = json.dumps(
+            self.payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        )
         digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
         return f"telegram-archive:v1:{digest}"
 
@@ -56,8 +58,20 @@ class TelegramArchiveJobModel:
     PRIORITY = 4
 
     @classmethod
-    def request(cls, peer: str, *, limit: int = 100, min_message_id: int = 0, include_media: bool = False) -> TelegramArchiveRequest:
-        return TelegramArchiveRequest(peer=peer, limit=limit, min_message_id=min_message_id, include_media=include_media)
+    def request(
+        cls,
+        peer: str,
+        *,
+        limit: int = 100,
+        min_message_id: int = 0,
+        include_media: bool = False,
+    ) -> TelegramArchiveRequest:
+        return TelegramArchiveRequest(
+            peer=peer,
+            limit=limit,
+            min_message_id=min_message_id,
+            include_media=include_media,
+        )
 
     @classmethod
     def enqueue_kwargs(cls, request: TelegramArchiveRequest) -> dict[str, Any]:

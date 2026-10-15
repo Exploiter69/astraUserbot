@@ -22,7 +22,10 @@ class PluginMetadata:
             raise ValueError("Plugin name is required and bounded")
         if self.api_version.split(".")[0] != SDK_API_VERSION.split(".")[0]:
             raise ValueError(f"Unsupported plugin API version: {self.api_version}")
-        if any(not item or len(item) > 120 for item in self.dependencies + self.optional_dependencies):
+        if any(
+            not item or len(item) > 120
+            for item in self.dependencies + self.optional_dependencies
+        ):
             raise ValueError("Plugin dependency names must be bounded")
 
 

@@ -60,6 +60,7 @@ class CommandRouterTests(unittest.TestCase):
         self.client.plugin_manager = manager
         token = PluginManager._current_plugin.set("plugins.example")
         try:
+
             async def handler(event):
                 pass
 
@@ -78,7 +79,10 @@ class CommandRouterTests(unittest.TestCase):
         self.assertEqual(registration.owner, "plugins.example")
         self.assertEqual(registration.aliases, ("p",))
         self.assertEqual(COMMANDS[registration.pattern]["owner"], "plugins.example")
-        self.assertIn(registration.registration_id, manager.records["plugins.example"].registrations)
+        self.assertIn(
+            registration.registration_id,
+            manager.records["plugins.example"].registrations,
+        )
 
     def test_registered_command_is_outgoing_only(self):
         async def handler(event):

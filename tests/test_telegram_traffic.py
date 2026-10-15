@@ -5,10 +5,10 @@ import unittest
 from core.errors import ResourceError
 from core.services.telegram_traffic import (
     NORMAL,
-    PRESSURE,
     P0_OWNER,
     P2_NORMAL,
     P5_MAINTENANCE,
+    PRESSURE,
     PROBE,
     THROTTLED,
     TelegramTrafficController,
@@ -143,9 +143,7 @@ class TelegramTrafficControllerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(order[:2], ["first", "older"])
 
     async def test_per_peer_limit_prevents_same_peer_overlap(self):
-        self.controller = TelegramTrafficController(
-            max_concurrency=4, per_peer_limit=1
-        )
+        self.controller = TelegramTrafficController(max_concurrency=4, per_peer_limit=1)
         first_started = asyncio.Event()
         release = asyncio.Event()
         second_started = asyncio.Event()
@@ -194,9 +192,7 @@ class TelegramTrafficControllerTests(unittest.IsolatedAsyncioTestCase):
         snapshot = self.controller.snapshot()
         self.assertEqual(snapshot["governor"]["account"]["state"], PRESSURE)
         self.assertEqual(snapshot["effective_concurrency"], 7)
-        self.assertEqual(
-            snapshot["governor"]["method:send_message"]["state"], PRESSURE
-        )
+        self.assertEqual(snapshot["governor"]["method:send_message"]["state"], PRESSURE)
 
     async def test_repeated_flood_wait_enters_throttled_state(self):
         self.controller = TelegramTrafficController(max_concurrency=8)

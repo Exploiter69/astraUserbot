@@ -23,23 +23,34 @@ class JobResourceBoundsTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_payload_is_bounded(self):
         with self.assertRaises(ValueError):
-            await self.engine.enqueue("TEST", {"data": "x" * self.engine.MAX_PAYLOAD_BYTES})
+            await self.engine.enqueue(
+                "TEST", {"data": "x" * self.engine.MAX_PAYLOAD_BYTES}
+            )
 
     async def test_result_is_bounded(self):
         job = await self.engine.enqueue("TEST")
         await self.engine.claim()
         with self.assertRaises(ValueError):
-            await self.engine.complete(job.id, {"data": "x" * self.engine.MAX_RESULT_BYTES})
+            await self.engine.complete(
+                job.id, {"data": "x" * self.engine.MAX_RESULT_BYTES}
+            )
 
     async def test_job_metadata_is_bounded(self):
         with self.assertRaises(ValueError):
             await self.engine.enqueue("x" * (self.engine.MAX_JOB_TYPE_CHARS + 1))
         with self.assertRaises(ValueError):
-            await self.engine.enqueue("TEST", owner="x" * (self.engine.MAX_OWNER_CHARS + 1))
+            await self.engine.enqueue(
+                "TEST", owner="x" * (self.engine.MAX_OWNER_CHARS + 1)
+            )
         with self.assertRaises(ValueError):
-            await self.engine.enqueue("TEST", resource_class="x" * (self.engine.MAX_RESOURCE_CLASS_CHARS + 1))
+            await self.engine.enqueue(
+                "TEST", resource_class="x" * (self.engine.MAX_RESOURCE_CLASS_CHARS + 1)
+            )
         with self.assertRaises(ValueError):
-            await self.engine.enqueue("TEST", idempotency_key="x" * (self.engine.MAX_IDEMPOTENCY_KEY_CHARS + 1))
+            await self.engine.enqueue(
+                "TEST",
+                idempotency_key="x" * (self.engine.MAX_IDEMPOTENCY_KEY_CHARS + 1),
+            )
 
 
 if __name__ == "__main__":

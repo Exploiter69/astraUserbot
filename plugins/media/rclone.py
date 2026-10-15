@@ -2,11 +2,12 @@ import logging
 import re
 import shlex
 import shutil
-from core.context import get_application_context
-from core.registry import register_cmd
-from core.errors import CommandError
-from helpers.hud import render
+
 from config import config
+from core.context import get_application_context
+from core.errors import CommandError
+from core.registry import register_cmd
+from helpers.hud import render
 
 logger = logging.getLogger(__name__)
 PATTERN = rf"^{re.escape(config.PREFIX)}rclone(?:\s+(.*))?$"
@@ -16,13 +17,21 @@ async def setup(client):
     if not shutil.which("rclone"):
         logger.warning("rclone missing. Rclone plugin disabled.")
         return
-    register_cmd(client, pattern=PATTERN, handler=handle_rclone, category="media", description="Run an rclone copy/sync job. Usage: .rclone copy <src> <dest>")
+    register_cmd(
+        client,
+        pattern=PATTERN,
+        handler=handle_rclone,
+        category="media",
+        description="Run an rclone copy/sync job. Usage: .rclone copy <src> <dest>",
+    )
 
 
 async def handle_rclone(event):
     args = event.pattern_match.group(1)
     if not args:
-        raise CommandError("Please provide rclone arguments (e.g. copy /src remote:dest)")
+        raise CommandError(
+            "Please provide rclone arguments (e.g. copy /src remote:dest)"
+        )
     try:
         tokens = shlex.split(args)
     except ValueError as exc:
@@ -45,12 +54,31 @@ async def handle_rclone(event):
     service = context.get("media")
     workspace = await service.create_workspace("rclone")
 
-    await event.edit(render("RCLONE", ["Executing permitted rclone operation.", "Running with bounded subprocess policy..."], footer="media | rclone"))
+    await event.edit(
+        render(
+            "RCLONE",
+            [
+                "Executing permitted rclone operation.",
+                "Running with bounded subprocess policy...",
+            ],
+            footer="media | rclone",
+        )
+    )
     try:
-        result = await service.run_rclone(["rclone", *tokens], workspace=workspace, timeout=900)
+        result = await service.run_rclone(
+            ["rclone", *tokens], workspace=workspace, timeout=900
+        )
         if result.returncode != 0:
-            raise CommandError(f"Rclone failed with code {result.returncode}.\n{result.stderr[-500:]}")
-        result_lines = result.stdout.strip().splitlines() if result.stdout else ["Job completed successfully with no output."]
-        await event.edit(render("RCLONE", ["---"] + result_lines[-10:], footer="media | rclone"))
+            raise CommandError(
+                f"Rclone failed with code {result.returncode}.\n{result.stderr[-500:]}"
+            )
+        result_lines = (
+            result.stdout.strip().splitlines()
+            if result.stdout
+            else ["Job completed successfully with no output."]
+        )
+        await event.edit(
+            render("RCLONE", ["---"] + result_lines[-10:], footer="media | rclone")
+        )
     finally:
         await service.cleanup(workspace)

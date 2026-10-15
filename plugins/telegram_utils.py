@@ -1,4 +1,5 @@
 """Practical bounded Telegram inspection and message utilities for Program E."""
+
 from __future__ import annotations
 
 import re
@@ -15,13 +16,51 @@ _MAX_REPLY = 4000
 
 async def setup(client):
     p = re.escape(config.PREFIX)
-    register_cmd(client, rf"^{p}(msg|tginspect)$", handle_inspect, "telegram", "Inspect the replied Telegram message; use .inspect for unified entity inspection.")
-    register_cmd(client, rf"^{p}(id|ref)$", handle_id, "telegram", "Show chat and message IDs.")
-    register_cmd(client, rf"^{p}link$", handle_link, "telegram", "Build a message link when Telegram exposes one.")
-    register_cmd(client, rf"^{p}entity(?:\s+(.+))?$", handle_entity, "telegram", "Inspect a Telegram entity.")
-    register_cmd(client, rf"^{p}chatdiag$", handle_chatdiag, "telegram", "Show bounded chat diagnostics.")
-    register_cmd(client, rf"^{p}reply\s+(.+)$", handle_reply, "telegram", "Reply to the current message with bounded text.")
-    register_cmd(client, rf"^{p}bulkdel(?:\s+(\d+))?$", handle_bulkdel, "telegram", "Delete a bounded number of recent messages.")
+    register_cmd(
+        client,
+        rf"^{p}(msg|tginspect)$",
+        handle_inspect,
+        "telegram",
+        "Inspect the replied Telegram message; use .inspect for unified entity inspection.",
+    )
+    register_cmd(
+        client, rf"^{p}(id|ref)$", handle_id, "telegram", "Show chat and message IDs."
+    )
+    register_cmd(
+        client,
+        rf"^{p}link$",
+        handle_link,
+        "telegram",
+        "Build a message link when Telegram exposes one.",
+    )
+    register_cmd(
+        client,
+        rf"^{p}entity(?:\s+(.+))?$",
+        handle_entity,
+        "telegram",
+        "Inspect a Telegram entity.",
+    )
+    register_cmd(
+        client,
+        rf"^{p}chatdiag$",
+        handle_chatdiag,
+        "telegram",
+        "Show bounded chat diagnostics.",
+    )
+    register_cmd(
+        client,
+        rf"^{p}reply\s+(.+)$",
+        handle_reply,
+        "telegram",
+        "Reply to the current message with bounded text.",
+    )
+    register_cmd(
+        client,
+        rf"^{p}bulkdel(?:\s+(\d+))?$",
+        handle_bulkdel,
+        "telegram",
+        "Delete a bounded number of recent messages.",
+    )
 
 
 async def handle_inspect(event):
@@ -30,7 +69,19 @@ async def handle_inspect(event):
         raise CommandError("Reply to a message to inspect it.")
     media = type(msg.media).__name__ if msg.media else "none"
     text = (msg.raw_text or "").replace("\n", " ")[:300]
-    await event.edit(render("MESSAGE", [f"ID: `{msg.id}`", f"Sender: `{msg.sender_id}`", f"Date: `{msg.date}`", f"Media: `{media}`", f"Text: {text or '—'}"], footer="telegram | inspect"))
+    await event.edit(
+        render(
+            "MESSAGE",
+            [
+                f"ID: `{msg.id}`",
+                f"Sender: `{msg.sender_id}`",
+                f"Date: `{msg.date}`",
+                f"Media: `{media}`",
+                f"Text: {text or '—'}",
+            ],
+            footer="telegram | inspect",
+        )
+    )
 
 
 async def handle_id(event):
@@ -48,7 +99,9 @@ async def handle_link(event):
     try:
         link = await event.client.get_message_link(msg)
     except Exception as exc:
-        raise CommandError(f"Telegram did not expose a message link: {type(exc).__name__}.") from exc
+        raise CommandError(
+            f"Telegram did not expose a message link: {type(exc).__name__}."
+        ) from exc
     await event.edit(render("MESSAGE LINK", [link], footer="telegram | link"))
 
 
@@ -65,17 +118,48 @@ async def handle_reply(event):
 
 async def handle_entity(event):
     target = await resolve_target(event)
-    name = getattr(target, "title", None) or getattr(target, "first_name", None) or getattr(target, "username", None) or "—"
+    name = (
+        getattr(target, "title", None)
+        or getattr(target, "first_name", None)
+        or getattr(target, "username", None)
+        or "—"
+    )
     username = getattr(target, "username", None) or "—"
-    await event.edit(render("ENTITY", [f"ID: `{target.id}`", f"Name: {name}", f"Username: @{username}" if username != "—" else "Username: —", f"Type: `{type(target).__name__}`"], footer="telegram | entity"))
+    await event.edit(
+        render(
+            "ENTITY",
+            [
+                f"ID: `{target.id}`",
+                f"Name: {name}",
+                f"Username: @{username}" if username != "—" else "Username: —",
+                f"Type: `{type(target).__name__}`",
+            ],
+            footer="telegram | entity",
+        )
+    )
 
 
 async def handle_chatdiag(event):
     chat = await event.get_chat()
-    title = getattr(chat, "title", None) or getattr(chat, "first_name", None) or "Private chat"
+    title = (
+        getattr(chat, "title", None)
+        or getattr(chat, "first_name", None)
+        or "Private chat"
+    )
     username = getattr(chat, "username", None) or "—"
     participants = getattr(chat, "participants_count", None)
-    await event.edit(render("CHAT DIAGNOSTICS", [f"ID: `{event.chat_id}`", f"Title: {title}", f"Username: @{username}" if username != "—" else "Username: —", f"Participants: {participants if participants is not None else 'unknown'}"], footer="telegram | chatdiag"))
+    await event.edit(
+        render(
+            "CHAT DIAGNOSTICS",
+            [
+                f"ID: `{event.chat_id}`",
+                f"Title: {title}",
+                f"Username: @{username}" if username != "—" else "Username: —",
+                f"Participants: {participants if participants is not None else 'unknown'}",
+            ],
+            footer="telegram | chatdiag",
+        )
+    )
 
 
 async def handle_bulkdel(event):
@@ -89,4 +173,10 @@ async def handle_bulkdel(event):
             messages.append(msg.id)
     if messages:
         await event.client.delete_messages(event.chat_id, messages)
-    await event.respond(render("BULK DELETE", [f"Deleted: {len(messages)}", f"Limit: {count}"], footer="telegram | bulkdel"))
+    await event.respond(
+        render(
+            "BULK DELETE",
+            [f"Deleted: {len(messages)}", f"Limit: {count}"],
+            footer="telegram | bulkdel",
+        )
+    )
