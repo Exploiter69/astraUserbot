@@ -539,7 +539,7 @@ class CapabilityCoreTests(unittest.IsolatedAsyncioTestCase):
 
 
 class CapabilityMigrationTests(unittest.IsolatedAsyncioTestCase):
-    async def test_migration_13_is_additive_and_idempotent_for_existing_rows(self):
+    async def test_plugin_capability_grants_migration_is_additive_and_idempotent(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             db_path = root / "data" / "databases" / "platform.db"
@@ -549,7 +549,7 @@ class CapabilityMigrationTests(unittest.IsolatedAsyncioTestCase):
                 conn.execute(
                     "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, checksum TEXT NOT NULL, applied_at REAL NOT NULL)"
                 )
-                for version, sql in MIGRATIONS[:13]:
+                for version, sql in MIGRATIONS[:-1]:
                     for statement in (part.strip() for part in sql.split(";") if part.strip()):
                         conn.execute(statement)
                     conn.execute(
@@ -580,7 +580,10 @@ class CapabilityMigrationTests(unittest.IsolatedAsyncioTestCase):
             versions = await storage.fetchall(
                 "SELECT version FROM schema_migrations ORDER BY version"
             )
-            self.assertEqual([row[0] for row in versions], list(range(1, 14)))
+            current_max = max(version for version, _sql in MIGRATIONS)
+            self.assertEqual(
+                [row[0] for row in versions], list(range(1, current_max + 1))
+            )
             row = await storage.fetchone(
                 "SELECT payload_json FROM audit_events WHERE kind='pre-phase4' AND subject_id='preserve-me'"
             )
