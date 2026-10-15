@@ -133,6 +133,12 @@ class SendJobAdapter:
     async def _record_attempt(
         self, job: Job, target: Any, fingerprint: str | None, started_at: float
     ) -> None:
+        effect_ids = await self._effect_ids(job.id)
+        if len(effect_ids) != 1:
+            raise JobError(
+                "SEND adapter requires exactly one required SEND effect per job",
+                code="SEND_EFFECT_CARDINALITY",
+            )
         target_json = json.dumps(target, separators=(",", ":"), ensure_ascii=False)
         async with self.storage.lock:
             assert self.storage.conn is not None
