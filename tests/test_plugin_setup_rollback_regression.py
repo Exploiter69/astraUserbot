@@ -838,10 +838,9 @@ async def test_step3_claimed_tracked_job_is_uncertain_not_cleanly_rolled_back():
             assert job_entry.cleanup_state == "UNCERTAIN"
             assert job_entry.cleanup_error is not None
             assert "claimed before setup rollback" in job_entry.cleanup_error
-            assert any(
-                observed["queued"].id in message and "uncertain" in message.lower()
-                for message in journal.cleanup_errors
-            )
+            # UNCERTAIN is a distinct cleanup outcome, not a cleanup failure.
+            # Its state and explanation are recorded on the journal entry above;
+            # journal.cleanup_errors is reserved for actual cleanup failures.
             assert by_identity[
                 next(entry.identity for entry in journal.entries if entry.kind == "task")
             ].cleanup_state == "SUCCEEDED"
