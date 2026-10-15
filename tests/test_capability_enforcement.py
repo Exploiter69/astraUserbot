@@ -147,7 +147,6 @@ class CapabilityCoreTests(unittest.IsolatedAsyncioTestCase):
                 await self.runtime.authorize(
                     "plugins.cache", "telegram.read", "after-revoke"
                 )
-        return
 
     async def test_protected_call_does_not_read_grants_from_storage(self):
         await self._replace_grants(
