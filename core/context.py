@@ -40,6 +40,7 @@ from core.services.send_jobs import SendJobAdapter
 from core.services.edit_jobs import EditJobAdapter
 from core.services.delete_jobs import DeleteJobAdapter
 from core.services.upload_jobs import UploadJobAdapter
+from core.services.join_jobs import JoinJobAdapter
 from core.services.telegram_recorder import TelegramOperationRecorder
 from core.tasks import TaskSupervisor
 
@@ -134,6 +135,10 @@ class ApplicationContext:
         self.register(
             "upload_jobs",
             UploadJobAdapter(self.get("jobs"), self.get("telegram"), self.get("storage")),
+        )
+        self.register(
+            "join_jobs",
+            JoinJobAdapter(self.get("jobs"), self.get("telegram"), self.get("storage")),
         )
         self.register(
             "automation",
