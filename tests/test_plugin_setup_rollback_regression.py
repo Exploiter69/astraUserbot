@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import sqlite3
 import tempfile
 import types
@@ -198,7 +199,7 @@ async def test_setup_tracking_api_records_entries_in_attempt_order_and_discards_
             manager = PluginManager.current_manager()
             assert manager is not None
             observed["signature_parameters"] = len(
-                __import__("inspect").signature(setup).parameters
+                inspect.signature(setup).parameters
             )
             scheduled_task = manager.tracked_task(
                 tasks,
