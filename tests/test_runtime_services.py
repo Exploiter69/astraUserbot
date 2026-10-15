@@ -80,6 +80,7 @@ class RuntimeServiceTests(unittest.IsolatedAsyncioTestCase):
                     "workspace",
                     "media",
                     "jobs",
+                    "send_jobs",
                     "automation",
                     "secrets",
                     "ai",
