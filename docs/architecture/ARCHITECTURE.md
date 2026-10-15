@@ -23,7 +23,7 @@ The platform foundation and hardening program are implemented. The owner-host ve
 - observability: health/plugins/tasks/jobs/cache/stats/diagnostics plus operator status/attention views;
 - release/recovery: compatibility policy, disaster recovery, upgrade procedure, failure-mode matrix, release checklist and production acceptance gate.
 
-Current verified active-plugin inventory: **41 active, 4 intentionally quarantined**. The quarantined modules are `plugins.ai.ask`, `plugins.ai.groq_client`, `plugins.ai.summarize`, and `plugins.ai.transcribe`.
+Current verified active-plugin inventory: **56 active, 4 intentionally quarantined**. This count is checked against `PluginManager` discovery by `python tools/docs_check.py`; runtime discovery is the source of truth. The quarantined modules are `plugins.ai.ask`, `plugins.ai.groq_client`, `plugins.ai.summarize`, and `plugins.ai.transcribe`.
 
 ## 1. Purpose
 

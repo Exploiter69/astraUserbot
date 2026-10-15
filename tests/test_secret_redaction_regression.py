@@ -48,12 +48,12 @@ def _filter_message(message: str) -> str:
     ("label", "message", "secret"),
     [
         pytest.param(
-            "telethon_session_string",
-            "session restored: 1AABCD1234syntheticTelethonSessionString",
+            "raw_telethon_session_string",
+            "Telethon client restored: 1AABCD1234syntheticTelethonSessionString",
             "1AABCD1234syntheticTelethonSessionString",
             marks=pytest.mark.xfail(
                 strict=True,
-                reason="SecretFilter only redacts labeled key/value patterns; a raw Telethon session string is not recognized.",
+                reason="SecretFilter redacts labeled values through its session key/value regex, but does not recognize an unlabeled raw Telethon session string.",
             ),
         ),
         (
