@@ -221,6 +221,10 @@ class CapabilityRuntime:
             raise CapabilityPolicyError(
                 f"Invalid capability declaration for plugin {plugin}"
             ) from exc
+        if mode == "LEGACY_UNDECLARED" and declared_set:
+            raise CapabilityPolicyError(
+                f"Legacy policy requires an undeclared plugin: {plugin}"
+            )
         effective = (
             frozenset(CAPABILITIES)
             if mode == "LEGACY_UNDECLARED"
@@ -281,6 +285,14 @@ class CapabilityRuntime:
             raise CapabilityPolicyError(f"Unknown capability: {capability}")
         identity = current_identity()
         correlation_id = uuid.uuid4().hex[:12]
+        if (
+            identity is not None
+            and identity.kind == "plugin"
+            and identity.name != plugin
+        ):
+            raise CapabilityPolicyError(
+                "Capability caller identity does not match the requested plugin"
+            )
         if identity is not None and identity.kind == "trusted_core":
             allowed = True
             mode = "TRUSTED_CORE"
