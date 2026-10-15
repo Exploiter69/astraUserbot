@@ -12,9 +12,10 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from time import time
-from typing import Any, Iterator
+from typing import TYPE_CHECKING, Any, Iterator
 
-from core.services.storage import StorageService
+if TYPE_CHECKING:
+    from core.services.storage import StorageService
 
 logger = logging.getLogger("astra.capabilities")
 
