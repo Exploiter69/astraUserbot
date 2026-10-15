@@ -583,7 +583,7 @@ class PluginManager:
             self._validate_dependency_runtime(name)
             journal = SetupJournal(
                 attempt_id=uuid.uuid4().hex,
-                plugin_name=name,
+                plugin_name=record.name,
             )
             journal_token = self._current_setup_journal.set(journal)
             await asyncio.wait_for(
