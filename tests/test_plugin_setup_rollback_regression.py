@@ -412,8 +412,8 @@ async def test_concurrent_setup_tracking_journals_remain_isolated():
 
 
 @pytest.mark.asyncio
-async def test_failed_setup_freezes_and_reverse_snapshots_journal_without_cleanup():
-    """Step 1 records failure ordering but deliberately does not run cleanup yet."""
+async def test_failed_setup_freezes_and_runs_cleanup_in_reverse_order():
+    """A failed setup freezes the journal and runs tracked cleanup in reverse order."""
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         client = FakeClient()
@@ -452,8 +452,9 @@ async def test_failed_setup_freezes_and_reverse_snapshots_journal_without_cleanu
         assert [entry.identity for entry in journal.failure_entries] == [
             "second", "first"
         ]
-        assert cleanup_calls == []
-        assert all(entry.cleanup_state == "PENDING" for entry in journal.entries)
+        assert cleanup_calls == ["second", "first"]
+        assert all(entry.cleanup_state == "SUCCEEDED" for entry in journal.entries)
+        assert all(entry.cleanup_error is None for entry in journal.entries)
 
 
 @pytest.mark.asyncio
