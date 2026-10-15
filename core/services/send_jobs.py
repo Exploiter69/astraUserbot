@@ -198,6 +198,10 @@ class SendJobAdapter:
 
 
     async def reconcile(self, context: ReconcileContext) -> ReconcileOutcome:
+        # This adapter is intentionally SEND-only; other effect classes remain
+        # UNKNOWN/default-deny even when the enclosing job is a SEND job.
+        if context.effect_class != SEND_EFFECT_CLASS:
+            return ReconcileOutcome.UNKNOWN
         row = await self.storage.fetchone(
             "SELECT authoritative_rejection, external_ref_json, payload_fingerprint, attempt_started_at, target_json "
             "FROM job_effects WHERE effect_id=?",
