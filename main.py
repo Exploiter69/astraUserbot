@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import math
 import os
 import re
 from logging.handlers import RotatingFileHandler
@@ -17,6 +18,26 @@ os.chdir(PROJECT_ROOT)
 LOG_DIR = PROJECT_ROOT / "data" / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 LOG_FILE = LOG_DIR / "astra.log"
+
+
+def _has_high_entropy_and_diversity(value: str, *, min_entropy: float = 4.5, min_unique: int = 20) -> bool:
+    """Reject low-diversity strings before considering them session-shaped secrets.
+
+    Shannon entropy is measured in bits per character. The defaults require
+    broad character diversity and near-random distribution, not just a long
+    alphanumeric value.
+    """
+    if len(value) < min_unique:
+        return False
+    frequencies = {character: value.count(character) for character in set(value)}
+    unique_count = len(frequencies)
+    if unique_count < min_unique:
+        return False
+    entropy = -sum(
+        (count / len(value)) * math.log2(count / len(value))
+        for count in frequencies.values()
+    )
+    return entropy >= min_entropy
 
 
 class SecretFilter(logging.Filter):
