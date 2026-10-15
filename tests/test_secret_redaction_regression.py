@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import logging
+import math
 import random
 import re
 from pathlib import Path
@@ -19,10 +20,10 @@ def _load_secret_filter_namespace():
     nodes = [
         node
         for node in module_ast.body
-        if isinstance(node, ast.ClassDef) and node.name == "SecretFilter"
+        (isinstance(node, ast.ClassDef) and node.name == "SecretFilter") or (isinstance(node, ast.FunctionDef) and node.name == "_has_high_entropy_and_diversity")
     ]
     isolated_module = ast.Module(body=nodes, type_ignores=[])
-    namespace = {"re": re, "logging": logging}
+    namespace = {"re": re, "logging": logging, "math": math}
     exec(compile(isolated_module, str(source_path), "exec"), namespace)
     return namespace
 
@@ -125,3 +126,18 @@ def test_benign_message_is_untouched_end_to_end():
 def test_benign_text_on_second_line_survives():
     message = "worker started successfully\nsecond line contains ordinary status text"
     assert _filter_message(message) == message
+
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("1" + "".join(random.Random(7).choice("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-") for _ in range(349)), True),
+        ("A" * 350, False),
+        ("AB" * 175, False),
+        ("short", False),
+    ],
+)
+def test_entropy_and_diversity_helper(value, expected):
+    helper = _load_secret_filter_namespace()["_has_high_entropy_and_diversity"]
+    assert helper(value) is expected
