@@ -135,6 +135,10 @@ class PluginHarness:
             else (self.project_root / raw_plugin_root).resolve()
         )
         self.service_overrides = dict(service_overrides or {})
+        forbidden_overrides = {"storage", "jobs"} & self.service_overrides.keys()
+        if forbidden_overrides:
+            names = ", ".join(sorted(forbidden_overrides))
+            raise ValueError(f"PluginHarness requires real service(s): {names}")
         self.seed_callback = seed
         self.capability_policy = capability_policy
         self.network_policy = network_policy
@@ -320,7 +324,14 @@ class PluginHarness:
 
             self._started = True
             return self
-        except Exception:
+        except Exception as start_error:
+            try:
+                await self.close()
+            except Exception as cleanup_error:
+                raise ExceptionGroup(
+                    "PluginHarness startup and cleanup failed",
+                    [start_error, cleanup_error],
+                ) from start_error
             raise
 
     async def emit_command(self, text: str, **kwargs: Any) -> Any:
