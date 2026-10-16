@@ -42,4 +42,3 @@ class HarnessApplicationContext(ApplicationContext):
             service = self._service_overrides[name]
             self._installed_service_overrides.add(name)
         return super().register(name, service)
-
