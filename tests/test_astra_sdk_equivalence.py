@@ -235,29 +235,29 @@ def test_sdk_enforced_plugin_uses_existing_event_edit_proxy_boundary(tmp_path: P
                 )
             try:
                 with patch("core.context.get_application_context", return_value=Context()):
-                        # The actual command wrapper is what installs the Phase 4 proxy.
-                        granted_event = Event()
-                        await registration.wrapper(granted_event)
-                        assert granted_event.edits == ["protected edit"]
-                        assert effects == ["handler-completed"]
+                    # The actual command wrapper is what installs the Phase 4 proxy.
+                    granted_event = Event()
+                    await registration.wrapper(granted_event)
+                    assert granted_event.edits == ["protected edit"]
+                    assert effects == ["handler-completed"]
 
-                        # Remove the approved grant and refresh the existing runtime policy.
-                        with trusted_core_context("test.owner-revoke"):
-                            await grants.replace_grants(
-                                plugin_name, (), granted_by="test-owner"
-                            )
-                        denied_event = Event()
-                        # The registry wrapper translates handler exceptions, so assert
-                        # the proxy directly for the denied-before-side-effect boundary.
-                        from core.registry import _CapabilityEventProxy
-                        proxy = _CapabilityEventProxy(denied_event, runtime, plugin_name)
-                        effects.clear()
-                        with pytest.raises(CapabilityDeniedError):
-                            from core.plugins.capabilities import plugin_identity_context
-                            with plugin_identity_context(plugin_name):
-                                await proxy.edit("must not happen")
-                        assert denied_event.edits == []
-                        assert effects == []
+                    # Remove the approved grant and refresh the existing runtime policy.
+                    with trusted_core_context("test.owner-revoke"):
+                        await grants.replace_grants(
+                            plugin_name, (), granted_by="test-owner"
+                        )
+                    denied_event = Event()
+                    # The registry wrapper translates handler exceptions, so assert
+                    # the proxy directly for the denied-before-side-effect boundary.
+                    from core.registry import _CapabilityEventProxy
+                    proxy = _CapabilityEventProxy(denied_event, runtime, plugin_name)
+                    effects.clear()
+                    with pytest.raises(CapabilityDeniedError):
+                        from core.plugins.capabilities import plugin_identity_context
+                        with plugin_identity_context(plugin_name):
+                            await proxy.edit("must not happen")
+                    assert denied_event.edits == []
+                    assert effects == []
 
                 rows = await storage.fetchall(
                     "SELECT payload_json FROM audit_events "
@@ -344,9 +344,8 @@ def test_sdk_does_not_add_enforcement_to_direct_telegram_facade_edit(tmp_path: P
                 )
             try:
                 with patch("core.context.get_application_context", return_value=Context()):
-                    with patch("core.registry.get_application_context", return_value=Context()):
-                        # No SDK denial or interception occurs on this raw facade path.
-                        await registration.wrapper(object())
+                    # No SDK denial or interception occurs on this raw facade path.
+                    await registration.wrapper(object())
                 assert calls == [("chat", "message")]
             finally:
                 registration.unregister(client)
