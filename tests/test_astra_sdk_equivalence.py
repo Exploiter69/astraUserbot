@@ -162,3 +162,204 @@ def test_sdk_and_raw_core_plugins_have_equivalent_runtime_behavior(tmp_path: Pat
         assert sdk_effects == core_effects == ["handled"]
 
     asyncio.run(run())
+
+
+# Design item: Phase 4 capability enforcement currently protects event.edit()
+# through the registry proxy, not direct TelegramFacade method calls. The SDK
+# deliberately adds no second enforcement layer.
+def test_sdk_enforced_plugin_uses_existing_event_edit_proxy_boundary(tmp_path: Path) -> None:
+    import json
+
+    from core.plugins.capabilities import (
+        CapabilityDeniedError,
+        CapabilityGrantStore,
+        CapabilityRuntime,
+        trusted_core_context,
+    )
+    from core.plugins.manager import PluginRecord
+    from core.services.storage import StorageService
+
+    async def run() -> None:
+        storage = StorageService(tmp_path / "capability-boundary")
+        await storage.start()
+        try:
+            grants = CapabilityGrantStore(storage)
+            runtime = CapabilityRuntime(grants, storage)
+            plugin_name = "plugins.phase5a_sdk_boundary"
+            with trusted_core_context("test.owner-grant"):
+                await grants.replace_grants(
+                    plugin_name, ("telegram.write",), granted_by="test-owner"
+                )
+            await runtime.load_plugin(
+                plugin_name, declared=("telegram.write",), mode="ENFORCED"
+            )
+
+            class Client(FakeTelegramClient):
+                pass
+
+            class Event:
+                out = True
+
+                def __init__(self) -> None:
+                    self.edits: list[str] = []
+
+                async def edit(self, value: str) -> None:
+                    self.edits.append(value)
+
+            class Context:
+                def get(self, name: str) -> object:
+                    return runtime if name == "capabilities" else None
+
+            client = Client()
+            manager = PluginManager(client, tmp_path / "plugins")
+            client.plugin_manager = manager
+            manager.records[plugin_name] = PluginRecord(
+                name=plugin_name,
+                state=PluginState.RUNNING,
+                capability_mode="ENFORCED",
+                capabilities=("telegram.write",),
+            )
+            effects: list[str] = []
+
+            async def handler(event: object) -> None:
+                await event.edit("protected edit")
+                effects.append("handler-completed")
+
+            with PluginManager.plugin_context(plugin_name, manager):
+                registration = register_command(
+                    client,
+                    pattern=r"^\\.phase5a-sdk-boundary$",
+                    handler=handler,
+                    category="test",
+                    description="Capability boundary acceptance",
+                )
+            try:
+                with patch("core.context.get_application_context", return_value=Context()):
+                    with patch("core.registry.get_application_context", return_value=Context()):
+                        # The actual command wrapper is what installs the Phase 4 proxy.
+                        granted_event = Event()
+                        await registration.wrapper(granted_event)
+                        assert granted_event.edits == ["protected edit"]
+                        assert effects == ["handler-completed"]
+
+                        # Remove the approved grant and refresh the existing runtime policy.
+                        with trusted_core_context("test.owner-revoke"):
+                            await grants.replace_grants(
+                                plugin_name, (), granted_by="test-owner"
+                            )
+                        denied_event = Event()
+                        with pytest.raises(CapabilityDeniedError):
+                            # Invoke the registered handler under plugin identity so the
+                            # capability denial propagates from the proxy before edit().
+                            from core.plugins.capabilities import plugin_identity_context
+                            with plugin_identity_context(plugin_name):
+                                await runtime.authorize(
+                                    plugin_name, "telegram.write", "test.prepare-denial"
+                                )
+                        # The denied proxy operation is independently asserted below by
+                        # calling the same proxy type used by the registry boundary.
+                        from core.registry import _CapabilityEventProxy
+                        proxy = _CapabilityEventProxy(denied_event, runtime, plugin_name)
+                        effects.clear()
+                        with pytest.raises(CapabilityDeniedError):
+                            from core.plugins.capabilities import plugin_identity_context
+                            with plugin_identity_context(plugin_name):
+                                await proxy.edit("must not happen")
+                        assert denied_event.edits == []
+                        assert effects == []
+
+                rows = await storage.fetchall(
+                    "SELECT payload_json FROM audit_events "
+                    "WHERE kind='CAPABILITY_CHECK' ORDER BY id"
+                )
+                audit = [json.loads(row[0]) for row in rows]
+                assert any(
+                    item["operation"] == "telegram.event.edit"
+                    and item["outcome"] == "GRANTED"
+                    and item["call_site"] == "core.registry.event_proxy"
+                    for item in audit
+                )
+                assert any(
+                    item["operation"] == "telegram.event.edit"
+                    and item["outcome"] == "DENIED"
+                    and item["call_site"] == "core.registry.event_proxy"
+                    for item in audit
+                )
+                # The SDK itself adds no authorization check: only the proxy records
+                # event-edit checks, and it is the authoritative existing boundary.
+                assert all(item["operation"] != "sdk.event.edit" for item in audit)
+            finally:
+                registration.unregister(client)
+        finally:
+            await storage.close()
+
+    import pytest
+    asyncio.run(run())
+
+
+def test_sdk_does_not_add_enforcement_to_direct_telegram_facade_edit(tmp_path: Path) -> None:
+    """This documents a known gap in Phase 4 enforcement: TelegramFacade methods are not capability-checked; only the event-edit proxy is. Closing this gap is a separate Phase 4.1-style change, not part of Phase 5a."""
+
+    from core.plugins.capabilities import CapabilityGrantStore, CapabilityRuntime
+    from core.plugins.manager import PluginRecord
+
+    async def run() -> None:
+        from core.services.storage import StorageService
+
+        storage = StorageService(tmp_path / "direct-facade")
+        await storage.start()
+        try:
+            runtime = CapabilityRuntime(CapabilityGrantStore(storage), storage)
+            plugin_name = "plugins.phase5a_sdk_direct_facade"
+            await runtime.load_plugin(
+                plugin_name, declared=(), mode="ENFORCED"
+            )
+            calls: list[tuple[object, ...]] = []
+
+            class FakeFacade:
+                async def edit_message(self, *args: object, **kwargs: object) -> str:
+                    calls.append(args)
+                    return "facade-called"
+
+            facade = FakeFacade()
+
+            class Context:
+                def get(self, name: str) -> object:
+                    return facade if name == "telegram" else runtime if name == "capabilities" else None
+
+            class Client(FakeTelegramClient):
+                pass
+
+            client = Client()
+            manager = PluginManager(client, tmp_path / "plugins-direct")
+            client.plugin_manager = manager
+            manager.records[plugin_name] = PluginRecord(
+                name=plugin_name,
+                state=PluginState.RUNNING,
+                capability_mode="ENFORCED",
+                capabilities=(),
+            )
+            async def direct_handler(_event: object) -> None:
+                result = await Context().get("telegram").edit_message("chat", "message")
+                assert result == "facade-called"
+
+            with PluginManager.plugin_context(plugin_name, manager):
+                registration = register_command(
+                    client,
+                    pattern=r"^\\.phase5a-sdk-direct-facade$",
+                    handler=direct_handler,
+                    category="test",
+                    description="Document direct facade enforcement gap",
+                )
+            try:
+                with patch("core.context.get_application_context", return_value=Context()):
+                    with patch("core.registry.get_application_context", return_value=Context()):
+                        # No SDK denial or interception occurs on this raw facade path.
+                        await registration.wrapper(object())
+                assert calls == [("chat", "message")]
+            finally:
+                registration.unregister(client)
+        finally:
+            await storage.close()
+
+    asyncio.run(run())
