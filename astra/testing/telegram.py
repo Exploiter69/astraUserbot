@@ -10,7 +10,7 @@ import inspect
 import re
 from dataclasses import dataclass
 from types import SimpleNamespace
-from typing import Any, Awaitable, Callable
+from typing import Any, Callable
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,7 +128,13 @@ class FakeTelegramEvent:
     def effects(self) -> tuple[RecordedEffect, ...]:
         return tuple(self._recorder.effects)
 
-    async def _record(self, operation: str, args: tuple[Any, ...], kwargs: dict[str, Any], action=None) -> Any:
+    async def _record(
+        self,
+        operation: str,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        action: Callable[[], Any] | None = None,
+    ) -> Any:
         return await self._recorder.record(operation, args, kwargs, action)
 
     async def edit(self, *args: Any, **kwargs: Any) -> Any:
