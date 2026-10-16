@@ -1,35 +1,9 @@
-from __future__ import annotations
+"""Compatibility import path for the public plugin SDK.
 
-from dataclasses import dataclass, field
-from typing import Any
+New plugins should import from :mod:`astra.sdk`. The public facade owns the
+validated metadata adapter; this module intentionally defines no duplicate
+metadata schema.
+"""
+from astra.sdk import SDK_API_VERSION, PluginMetadata, metadata
 
-SDK_API_VERSION = "1.0"
-
-
-@dataclass(frozen=True, slots=True)
-class PluginMetadata:
-    name: str
-    version: str = "1.0.0"
-    api_version: str = SDK_API_VERSION
-    dependencies: tuple[str, ...] = ()
-    optional_dependencies: tuple[str, ...] = ()
-    capabilities: tuple[str, ...] = ()
-    description: str = ""
-    extra: dict[str, Any] = field(default_factory=dict)
-
-    def validate(self) -> None:
-        if not self.name or len(self.name) > 120:
-            raise ValueError("Plugin name is required and bounded")
-        if self.api_version.split(".")[0] != SDK_API_VERSION.split(".")[0]:
-            raise ValueError(f"Unsupported plugin API version: {self.api_version}")
-        if any(
-            not item or len(item) > 120
-            for item in self.dependencies + self.optional_dependencies
-        ):
-            raise ValueError("Plugin dependency names must be bounded")
-
-
-def metadata(**kwargs: Any) -> PluginMetadata:
-    value = PluginMetadata(**kwargs)
-    value.validate()
-    return value
+__all__ = ["SDK_API_VERSION", "PluginMetadata", "metadata"]
