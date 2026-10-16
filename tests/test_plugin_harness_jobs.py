@@ -158,6 +158,45 @@ def test_run_next_job_cancellation_marks_only_still_running_job_uncertain(
     asyncio.run(run())
 
 
+def test_cancelled_driver_preserves_cancellation_if_recovery_fails(tmp_path: Path) -> None:
+    plugin_root = _empty_plugins(tmp_path)
+
+    async def run() -> None:
+        async with PluginHarness(plugin_root=plugin_root, project_root=tmp_path) as harness:
+            started = asyncio.Event()
+            finished = asyncio.Event()
+            real_get = harness.jobs.get
+
+            async def handler(_job):
+                started.set()
+                try:
+                    await asyncio.Event().wait()
+                finally:
+                    finished.set()
+
+            harness.jobs.register_handler("HARNESS_CANCEL_RECOVERY_ERROR", handler)
+            job = await harness.jobs.enqueue("HARNESS_CANCEL_RECOVERY_ERROR")
+            driver = asyncio.create_task(harness.run_next_job())
+            await asyncio.wait_for(started.wait(), timeout=1.0)
+
+            async def failing_get(job_id):
+                harness.jobs.get = real_get
+                raise RuntimeError("recovery lookup failed")
+
+            harness.jobs.get = failing_get
+            driver.cancel()
+            with pytest.raises(asyncio.CancelledError) as caught:
+                await driver
+
+            assert finished.is_set()
+            assert any("recovery lookup failed" in note for note in getattr(caught.value, "__notes__", ()))
+            persisted = await real_get(job.id)
+            assert persisted.state == JobState.UNCERTAIN
+            assert harness.jobs._active_tasks == {}
+
+    asyncio.run(run())
+
+
 def test_real_uncertain_job_reconciliation_requeues_only_after_not_happened(
     tmp_path: Path,
 ) -> None:
