@@ -168,7 +168,7 @@ def test_effect_record_captures_exceptions() -> None:
     async def broken_edit():
         async def fail():
             raise ValueError("synthetic edit failure")
-        event._record("event.edit", ("x",), {}, fail)
+        await event._record("event.edit", ("x",), {}, fail)
 
     with pytest.raises(ValueError, match="synthetic edit failure"):
         asyncio.run(broken_edit())
