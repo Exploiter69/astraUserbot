@@ -7,12 +7,12 @@ Current plugin API: `1.0`.
 Plugins may continue using the legacy `setup(client)` contract during migration. New plugins should declare metadata when they need explicit version/capability contracts.
 
 ```python
-from core.sdk import metadata
+from astra.sdk import metadata
 
 PLUGIN = metadata(
     name="plugins.example",
     version="1.0.0",
-    capabilities=("network.request",),
+    capabilities=("network.external",),
     description="Example capability",
 )
 ```
@@ -32,6 +32,6 @@ PLUGIN = metadata(
 
 ## Compatibility
 
-The first semantic-version component of `api_version` must match the runtime SDK major version. A major mismatch is rejected during metadata validation.
+`astra.sdk.SDK_API_VERSION` is `"1.0"`; runtime metadata normalizes this to integer API version `1`. Unknown capabilities are rejected against the existing eleven-name vocabulary.
 
 Legacy compatibility remains intentionally supported until a plugin has been migrated and regression-tested.
