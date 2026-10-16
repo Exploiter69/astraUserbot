@@ -145,6 +145,9 @@ class FakeTelegramEvent:
     async def reply(self, *args: Any, **kwargs: Any) -> Any:
         return await self._record("event.reply", args, kwargs)
 
+    async def respond(self, *args: Any, **kwargs: Any) -> Any:
+        return await self._record("event.respond", args, kwargs)
+
     async def delete(self, *args: Any, **kwargs: Any) -> Any:
         return await self._record("event.delete", args, kwargs)
 
