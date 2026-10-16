@@ -22,7 +22,7 @@ Plugins structurally implement `Plugin`: module metadata attributes and `setup(c
 
 ## 5. Metadata declaration and validation
 
-Use `metadata(...)` to validate metadata values, or declare the equivalent module-level fields: `plugin_name`, `plugin_version`, `plugin_api_version`, `plugin_description`, `dependencies`, `optional_dependencies`, `capabilities`, and `critical`. The runtime contract is authoritative; SDK-accepted values must not be silently dropped.
+Use `metadata(...)` to validate metadata values, or declare the equivalent module-level fields: `plugin_name`, `plugin_version`, `plugin_api_version`, `description`, `dependencies`, `optional_dependencies`, `capabilities`, and `critical`. The runtime contract is authoritative; SDK-accepted values must not be silently dropped.
 
 ## 6. Command registration
 
