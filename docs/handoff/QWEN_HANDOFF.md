@@ -333,6 +333,52 @@ Use shared HTTP/network policies, timeouts, response caps, safe URL validation, 
 
 ### Productivity, notes, utility and security
 
+**Productivity command names verified directly in `plugins/productivity.py`:**
+- `.remind <delay> <text>` (delay forms such as `30s`, `10m`, `2h`, `1d`; bounded to 5 seconds–30 days)
+- `.reminders`
+- `.delremind <id>`
+- `.bookmark [tag]` (reply to message)
+- `.bookmarks`
+- `.unbookmark <id>`
+- `.template <name> <text>`
+- `.tget <name>`
+- `.tlist`
+- `.tdel <name>`
+- `.filter add <term> <response>`
+- `.filter del|delete <id>`
+- `.filter list`  
+The filter watcher has a cooldown and bounded in-memory dedupe; reminders are persisted and delivered by a worker. Verify current task-supervision path because the module has a compatibility fallback if ApplicationContext is unavailable.
+
+**Telegram inspection/utilities verified directly in `plugins/telegram_utils.py`:**
+- `.msg` / `.tginspect` — inspect replied message.
+- `.id` / `.ref` — chat/message identifiers.
+- `.link` — build a Telegram message link when available.
+- `.entity [target]` — inspect Telegram entity.
+- `.chatdiag` — bounded chat diagnostics.
+- `.reply <text>` — bounded reply to a replied message.
+- `.bulkdel [count]` — delete a bounded number of recent messages (default 20, max 100; destructive).
+
+**Quick notes:** `.qnote <tag> <text>`, `.qget <tag>`, `.qlist`, `.qdel <tag>`.
+
+**Text effects:** `.mock`, `.owo`, `.ghost`, `.spam`, `.shrug`.
+
+**Vault/security:**
+- `.savenote <tag> <pass> <content>`
+- `.getnote <tag> <pass>`
+- `.delnote_sec <tag>`
+- `.vault [set|get|rm|list] [key] [value]`
+- `.logger`, `.mirror`, `.setlogger`, `.read`
+- `.savevo`
+- `.block`, `.unblock`
+- `.pmpermit`, `.allow`, `.approve`, `.disallow`, `.disapprove`, `.listallowed`, `.listdisallowed`
+- `.hash <text>`, `.passgen [length]`
+
+**Account archive/tracking:** `.arch status [on|off]`, `.arch stats`, `.arch search <keyword>`, `.track add|remove|list`.
+
+**Utility pack:** `.uuid`, `.sha256`, `.jsonfmt`, `.b64`, `.urlencode`, `.timestamp`, `.head`, `.rss`.
+
+**Additional admin and media commands:** `.purge`, `.purgeme`, `.zombies`, `.promote`, `.demote`, `.slow`, `.kickme`; `.warn`, `.warnings`, `.mute`, `.unmute`, `.ban`, `.unban`, `.pin`, `.unpin`, `.lockdown`, `.modreport`; `.clone`, `.revert`, `.idbackup`; `.mediaflow`, `.aria`, `.autopost`, `.ff`, `.ocr`, `.rclone`, `.tts`, `.toaudio`, `.rip`, `.round`, `.ss`, `.compress`, `.reverse`.
+
 - Quick notes: `.qnote <tag> <text>`, `.qget <tag>`, `.qlist`, `.qdel <tag>`.
 - Text effects: `.mock`, `.owo`, `.ghost`, `.spam`, `.shrug` (inspect rate/scope behavior before using).
 - Secure note/vault families: `.savenote`, `.getnote`, `.delnote_sec`, `.vault [set|get|rm|list] ...`. Keep encrypted vault key/plaintext secret.
