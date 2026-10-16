@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import re
-
 import pytest
 
 from astra.testing.telegram import FakeTelegramClient, FakeTelegramEvent, emit_command
@@ -156,7 +154,7 @@ def test_emit_dispatches_registered_wrapper_not_registration_handler() -> None:
         client, r"^\.step2-wrapper$", handler, category="test"
     )
     try:
-        registration.handler = lambda event: calls.append("raw-handler")
+        object.__setattr__(registration, "handler", lambda event: calls.append("raw-handler"))
         result = asyncio.run(emit_command(client, ".step2-wrapper"))
         assert result.matched is True
         assert calls == ["handler"]
@@ -178,3 +176,23 @@ def test_effect_record_captures_exceptions() -> None:
     assert event.effects[0].exception == "ValueError: synthetic edit failure"
 
 
+
+
+def test_fake_client_is_accepted_by_plugin_manager_and_public_sdk_registration(tmp_path) -> None:
+    from astra.sdk import register_command
+    from core.plugins.manager import PluginManager
+
+    client = FakeTelegramClient()
+    manager = PluginManager(client, tmp_path / "plugins")
+    async def handler(event):
+        return None
+
+    with PluginManager.plugin_context("plugins.step2_public_sdk", manager):
+        registration = register_command(
+            client, pattern=r"^\\.step2-public-sdk$", handler=handler,
+            category="test", description="Fake client SDK contract",
+        )
+    try:
+        assert (registration.wrapper, registration.event_builder) in client.handlers
+    finally:
+        registration.unregister(client)
