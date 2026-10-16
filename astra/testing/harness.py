@@ -390,7 +390,13 @@ class PluginHarness:
         self.jobs._active_tasks[job.id] = task
 
         async def recover_if_still_running(reason: str) -> None:
-            current = await self.jobs.get(job.id)
+            try:
+                current = await self.jobs.get(job.id)
+            except Exception:
+                # A one-shot storage/read failure must not skip cancellation
+                # recovery entirely. Retry the read once before giving up.
+                await asyncio.sleep(0)
+                current = await self.jobs.get(job.id)
             if current.state == JobState.RUNNING:
                 await self.jobs._mark_active_uncertain([job.id], reason=reason)
 
