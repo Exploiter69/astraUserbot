@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import importlib
-import sys
 from pathlib import Path
 from types import ModuleType
 from unittest.mock import patch
@@ -49,7 +48,7 @@ def _plugin_module(module_name: str, *, public_sdk: bool, effects: list[str]) ->
         register = register_command if public_sdk else register_cmd
         register(
             client,
-            pattern=r"^\\.phase5a-equivalence$",
+            pattern=r"^\.phase5a-equivalence$",
             handler=handle,
             category="test",
             description="Equivalent command",
@@ -100,7 +99,7 @@ def _command_signature(registration: object) -> tuple[object, ...]:
 
 async def _load_run_unload(
     tmp_path: Path, module_name: str, module: ModuleType
-) -> tuple[tuple[object, ...], tuple[object, ...], str, list[str]]:
+) -> tuple[tuple[object, ...], tuple[object, ...], str]:
     plugin_root = tmp_path / "plugins"
     plugin_root.mkdir(parents=True, exist_ok=True)
     (plugin_root / f"{module_name.rsplit('.', 1)[-1]}.py").write_text(
@@ -109,8 +108,6 @@ async def _load_run_unload(
     client = FakeTelegramClient()
     manager = PluginManager(client, plugin_root)
     client.plugin_manager = manager
-    effects: list[str] = []
-    module.handle = module.handle
     real_import_module = importlib.import_module
 
     def import_module(name: str, package: str | None = None) -> ModuleType:
@@ -120,7 +117,7 @@ async def _load_run_unload(
 
     try:
         with patch("core.plugins.manager.importlib.import_module", side_effect=import_module):
-            records = await manager.load_all()
+            await manager.load_all()
         record = manager.records[module_name]
         assert record.state is PluginState.RUNNING
         assert len(record.registrations) == 1
@@ -139,11 +136,11 @@ async def _load_run_unload(
         assert not record.registrations
         assert not client.handlers
         assert registration.pattern not in COMMANDS
-        return before[0], before[1], result, effects
+        return before[0], before[1], result
     finally:
         # Ensure a failed assertion cannot leak global registry state.
         for registration in list(__import__("core.registry", fromlist=["list_registrations"]).list_registrations()):
-            if registration.pattern == r"^\\.phase5a-equivalence$":
+            if registration.pattern == r"^\.phase5a-equivalence$":
                 registration.unregister(client)
 
 
