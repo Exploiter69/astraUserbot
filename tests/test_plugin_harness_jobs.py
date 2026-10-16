@@ -158,7 +158,7 @@ def test_run_next_job_cancellation_marks_only_still_running_job_uncertain(
     asyncio.run(run())
 
 
-def test_cancelled_driver_preserves_cancellation_if_recovery_fails(tmp_path: Path) -> None:
+def test_cancelled_driver_retries_transient_recovery_lookup(tmp_path: Path) -> None:
     plugin_root = _empty_plugins(tmp_path)
 
     async def run() -> None:
@@ -166,6 +166,7 @@ def test_cancelled_driver_preserves_cancellation_if_recovery_fails(tmp_path: Pat
             started = asyncio.Event()
             finished = asyncio.Event()
             real_get = harness.jobs.get
+            lookup_attempts = 0
 
             async def handler(_job):
                 started.set()
@@ -179,17 +180,20 @@ def test_cancelled_driver_preserves_cancellation_if_recovery_fails(tmp_path: Pat
             driver = asyncio.create_task(harness.run_next_job())
             await asyncio.wait_for(started.wait(), timeout=1.0)
 
-            async def failing_get(job_id):
-                harness.jobs.get = real_get
-                raise RuntimeError("recovery lookup failed")
+            async def flaky_get(job_id):
+                nonlocal lookup_attempts
+                lookup_attempts += 1
+                if lookup_attempts == 1:
+                    raise RuntimeError("transient recovery lookup failure")
+                return await real_get(job_id)
 
-            harness.jobs.get = failing_get
+            harness.jobs.get = flaky_get
             driver.cancel()
-            with pytest.raises(asyncio.CancelledError) as caught:
+            with pytest.raises(asyncio.CancelledError):
                 await driver
 
             assert finished.is_set()
-            assert any("recovery lookup failed" in note for note in getattr(caught.value, "__notes__", ()))
+            assert lookup_attempts == 2
             persisted = await real_get(job.id)
             assert persisted.state == JobState.UNCERTAIN
             assert harness.jobs._active_tasks == {}
