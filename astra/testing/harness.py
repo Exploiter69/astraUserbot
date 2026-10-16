@@ -49,7 +49,7 @@ class _NetworkPolicyHttpService:
         result = closer()
         return await result if inspect.isawaitable(result) else result
 
-    def _allowed(self, url: str) -> bool:
+    def _allowed(self, url: str) -> Any:
         if self._policy is None:
             return False
         if self._policy == "loopback":
@@ -61,7 +61,7 @@ class _NetworkPolicyHttpService:
                 return ipaddress.ip_address(host.split("%", 1)[0]).is_loopback
             except ValueError:
                 return False
-        return bool(self._policy(url))
+        return self._policy(url)
 
     async def request(self, method: str, url: str, **kwargs: Any) -> Any:
         allowed = self._allowed(url)

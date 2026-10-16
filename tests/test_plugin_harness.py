@@ -121,9 +121,7 @@ def test_harness_restores_globals_and_removes_owned_temp_root(tmp_path: Path) ->
     for name in set(sys.modules) - before_modules:
         module = sys.modules.get(name)
         origin = getattr(getattr(module, "__spec__", None), "origin", None)
-        if origin and Path(origin).exists() and (
-            str(origin).startswith(str(owned_root))
-        ):
+        if origin and Path(origin).resolve().is_relative_to(owned_root.resolve()):
             leaked.append(name)
     assert leaked == []
 
@@ -146,7 +144,7 @@ def test_plugin_setup_failure_unwinds_journal_and_restores_context(tmp_path: Pat
     )
     async def handler(event):
         await event.edit("should never dispatch")
-    register_command(client, r"^\\.harness-failure$", handler, category="test")
+    register_command(client, r"^\.harness-failure$", handler, category="test")
     raise RuntimeError("intentional setup failure")""",
         ),
     )
