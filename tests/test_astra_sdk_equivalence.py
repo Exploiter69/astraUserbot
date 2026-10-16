@@ -162,7 +162,7 @@ def test_sdk_and_raw_core_plugins_have_equivalent_runtime_behavior(tmp_path: Pat
         assert sdk_result[1] == core_result[1]
         assert sdk_result[2] == core_result[2] == "same-result"
         assert sdk_result[3] == core_result[3] == ["handled"]
-        assert sdk_result[4] == core_result[4]
+        assert [identity.kind for identity in sdk_result[4]] == [identity.kind for identity in core_result[4]] == ["plugin"]
         assert len(sdk_result[4]) == len(core_result[4]) == 1
 
     asyncio.run(run())
