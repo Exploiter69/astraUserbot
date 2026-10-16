@@ -3,69 +3,66 @@
 from __future__ import annotations
 
 import asyncio
-import importlib
 from pathlib import Path
 from types import SimpleNamespace
-from types import ModuleType
 from unittest.mock import patch
 
 from astra.sdk import register_command
 from core.plugins.manager import PluginManager, PluginState
 from core.registry import COMMANDS, get_registration, register_cmd
+from astra.testing import FakeTelegramClient, PluginHarness
 
 
-class FakeTelegramClient:
-    def __init__(self) -> None:
-        self.handlers: list[tuple[object, object]] = []
-        self.plugin_manager: PluginManager | None = None
-
-    def add_event_handler(self, handler: object, builder: object) -> None:
-        self.handlers.append((handler, builder))
-
-    def remove_event_handler(self, handler: object, builder: object) -> None:
-        self.handlers = [
-            item for item in self.handlers if item != (handler, builder)
-        ]
-
-
-def _plugin_module(module_name: str, *, public_sdk: bool, effects: list[str]) -> ModuleType:
-    module = ModuleType(module_name)
-    module.plugin_name = module_name
-    module.plugin_version = "2.1.0"
-    module.plugin_api_version = 1
-    module.description = "Equivalent command plugin"
-    module.dependencies = ()
-    module.optional_dependencies = ()
-    module.capabilities = ("telegram.read",)
-    module.critical = False
-
-    async def handle(event: object) -> str:
-        effects.append("handled")
-        return "same-result"
-
-    module.handle = handle
-
-    def setup(client: object) -> None:
-        register = register_command if public_sdk else register_cmd
-        register(
-            client,
-            pattern=r"^\.phase5a-equivalence$",
-            handler=handle,
-            category="test",
-            description="Equivalent command",
-            aliases=["phase5a-equivalence-alias"],
-            permission="owner",
-            operation_class="READ",
-            required_capabilities=["telegram.read"],
-            examples=[".phase5a-equivalence"],
-            compatibility="1.0",
-            priority=100,
-            timeout_seconds=10.0,
-            usage=".phase5a-equivalence",
-        )
-
-    module.setup = setup
-    return module
+def _write_plugin(plugin_root: Path, module_name: str, *, public_sdk: bool) -> None:
+    register_import = (
+        "from astra.sdk import register_command as register\n"
+        if public_sdk
+        else "from core.registry import register_cmd as register\n"
+    )
+    source = (
+        register_import
+        + "from core.plugins.capabilities import current_identity\n"
+        + f"plugin_name = {module_name!r}\n"
+        + "plugin_version = '2.1.0'\n"
+        + "plugin_api_version = 1\n"
+        + "description = 'Equivalent command plugin'\n"
+        + "dependencies = ()\n"
+        + "optional_dependencies = ()\n"
+        + "capabilities = ('telegram.read',)\n"
+        + "critical = False\n"
+        + "effects = []\n"
+        + "results = []\n"
+        + "identities = []\n"
+        + "\n"
+        + "async def handle(event):\n"
+        + "    effects.append('handled')\n"
+        + "    identities.append(current_identity())\n"
+        + "    results.append('same-result')\n"
+        + "    return 'same-result'\n"
+        + "\n"
+        + "def setup(client):\n"
+        + "    register(\n"
+        + "        client,\n"
+        + "        pattern="
+        + repr(r"^\.phase5a-equivalence$")
+        + ",\n"
+        + "        handler=handle,\n"
+        + "        category='test',\n"
+        + "        description='Equivalent command',\n"
+        + "        aliases=['phase5a-equivalence-alias'],\n"
+        + "        permission='owner',\n"
+        + "        operation_class='READ',\n"
+        + "        required_capabilities=['telegram.read'],\n"
+        + "        examples=['.phase5a-equivalence'],\n"
+        + "        compatibility='1.0',\n"
+        + "        priority=100,\n"
+        + "        timeout_seconds=10.0,\n"
+        + "        usage='.phase5a-equivalence',\n"
+        + "    )\n"
+    )
+    (plugin_root / f"{module_name.rsplit('.', 1)[-1]}.py").write_text(
+        source, encoding="utf-8"
+    )
 
 
 def _metadata_signature(record: object) -> tuple[object, ...]:
@@ -99,27 +96,15 @@ def _command_signature(registration: object) -> tuple[object, ...]:
 
 
 async def _load_run_unload(
-    tmp_path: Path, module_name: str, module: ModuleType
-) -> tuple[tuple[object, ...], tuple[object, ...], str]:
-    plugin_root = tmp_path / "plugins"
+    project_root: Path, module_name: str, *, public_sdk: bool
+) -> tuple[tuple[object, ...], tuple[object, ...], str, list[str], list[object]]:
+    plugin_root = project_root / "plugins"
     plugin_root.mkdir(parents=True, exist_ok=True)
-    (plugin_root / f"{module_name.rsplit('.', 1)[-1]}.py").write_text(
-        "# test discovery marker\n", encoding="utf-8"
-    )
-    client = FakeTelegramClient()
-    manager = PluginManager(client, plugin_root)
-    client.plugin_manager = manager
-    real_import_module = importlib.import_module
+    _write_plugin(plugin_root, module_name, public_sdk=public_sdk)
 
-    def import_module(name: str, package: str | None = None) -> ModuleType:
-        if name == module_name:
-            return module
-        return real_import_module(name, package)
-
-    try:
-        with patch("core.plugins.manager.importlib.import_module", side_effect=import_module):
-            await manager.load_all()
-        record = manager.records[module_name]
+    async with PluginHarness(plugin_root, project_root=project_root) as harness:
+        assert harness.manager is not None
+        record = harness.manager.records[module_name]
         assert record.state is PluginState.RUNNING
         assert len(record.registrations) == 1
         registration_id = next(iter(record.registrations))
@@ -129,45 +114,60 @@ async def _load_run_unload(
             _command_signature(registration),
             registration.handler,
         )
-        result = await registration.handler(object())
-        assert result == "same-result"
-        assert len(client.handlers) == 1
-        await manager.unload(module_name)
+
+        dispatch = await harness.emit_command(".phase5a-equivalence")
+        assert dispatch.matched
+        assert dispatch.event is not None
+        assert dispatch.pattern_match is not None
+        assert dispatch.handler is registration.wrapper
+        assert record.module is not None
+        assert record.module.results == ["same-result"]
+        assert record.module.effects == ["handled"]
+
+        from core.plugins.capabilities import ExecutionIdentity
+
+        assert record.module.identities == [
+            ExecutionIdentity(kind="plugin", name=module_name)
+        ]
+        assert len(harness.telegram.handlers) == 1
+
+        await harness.manager.unload(module_name)
         assert record.state is PluginState.UNLOADED
         assert not record.registrations
-        assert not client.handlers
+        assert not harness.telegram.handlers
         assert registration.pattern not in COMMANDS
-        return before[0], before[1], result
-    finally:
-        # Ensure a failed assertion cannot leak global registry state.
-        for registration in list(__import__("core.registry", fromlist=["list_registrations"]).list_registrations()):
-            if registration.pattern == r"^\.phase5a-equivalence$":
-                registration.unregister(client)
+
+        return (
+            before[0],
+            before[1],
+            record.module.results[0],
+            list(record.module.effects),
+            list(record.module.identities),
+        )
 
 
 def test_sdk_and_raw_core_plugins_have_equivalent_runtime_behavior(tmp_path: Path) -> None:
     async def run() -> None:
-        sdk_effects: list[str] = []
-        core_effects: list[str] = []
         sdk_name = "plugins.phase5a_sdk_equivalence"
         core_name = "plugins.phase5a_core_equivalence"
-        sdk_module = _plugin_module(sdk_name, public_sdk=True, effects=sdk_effects)
-        core_module = _plugin_module(core_name, public_sdk=False, effects=core_effects)
 
-        sdk_result = await _load_run_unload(tmp_path / "sdk", sdk_name, sdk_module)
-        core_result = await _load_run_unload(tmp_path / "core", core_name, core_module)
+        sdk_result = await _load_run_unload(
+            tmp_path / "sdk", sdk_name, public_sdk=True
+        )
+        core_result = await _load_run_unload(
+            tmp_path / "core", core_name, public_sdk=False
+        )
 
         assert sdk_result[0] == core_result[0]
         assert sdk_result[1] == core_result[1]
         assert sdk_result[2] == core_result[2] == "same-result"
-        assert sdk_effects == core_effects == ["handled"]
+        assert sdk_result[3] == core_result[3] == ["handled"]
+        assert sdk_result[4] == core_result[4]
+        assert len(sdk_result[4]) == len(core_result[4]) == 1
 
     asyncio.run(run())
 
 
-# Design item: Phase 4 capability enforcement currently protects event.edit()
-# through the registry proxy, not direct TelegramFacade method calls. The SDK
-# deliberately adds no second enforcement layer.
 def test_sdk_enforced_plugin_uses_existing_event_edit_proxy_boundary(tmp_path: Path) -> None:
     import json
 
