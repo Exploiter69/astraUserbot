@@ -12,7 +12,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-_PLUGIN_NAME = re.compile(r"[a-z][a-z0-9_]{0,47}\Z")
+_PLUGIN_NAME = re.compile(r"[a-z][a-z0-9_]{0,47}\\Z")
 _RESERVED_NAMES = frozenset({"__pycache__", "astra", "core", "tests"})
 _TEMPLATE_FILES = {
     "__init__.py": "__init__.py.tmpl",
