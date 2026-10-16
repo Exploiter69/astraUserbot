@@ -156,6 +156,7 @@ class PluginHarness:
         self._previous_context: Any = None
         self._registry_snapshot: set[str] = set()
         self._module_snapshot: set[str] = set()
+        self._snapshots_taken = False
         self._sys_path_entry: str | None = None
         self._plugins_module: Any = None
         self._plugins_original_path: Any = None
@@ -269,8 +270,8 @@ class PluginHarness:
             item.registration_id for item in list_registrations()
         }
         self._module_snapshot = set(sys.modules)
+        self._snapshots_taken = True
         try:
-            self.plugin_root.parent.mkdir(parents=True, exist_ok=True)
             self._prepare_import_path()
 
             # Install the guard before dependent services are constructed.
@@ -389,10 +390,14 @@ class PluginHarness:
                         )
                     )
 
-        set_application_context(self._previous_context)
+        if self._snapshots_taken:
+            set_application_context(self._previous_context)
 
         for registration in list(list_registrations()):
-            if registration.registration_id in self._registry_snapshot:
+            if (
+                not self._snapshots_taken
+                or registration.registration_id in self._registry_snapshot
+            ):
                 continue
             try:
                 registration.unregister(self.telegram)
@@ -404,10 +409,11 @@ class PluginHarness:
                     )
                 )
 
-        for name in sorted(set(sys.modules) - self._module_snapshot, reverse=True):
-            module = sys.modules.get(name)
-            if module is not None and self._module_is_harness_owned(module):
-                sys.modules.pop(name, None)
+        if self._snapshots_taken:
+            for name in sorted(set(sys.modules) - self._module_snapshot, reverse=True):
+                module = sys.modules.get(name)
+                if module is not None and self._module_is_harness_owned(module):
+                    sys.modules.pop(name, None)
 
         self._restore_import_path()
         if self._created_package_init is not None:

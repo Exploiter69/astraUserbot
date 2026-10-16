@@ -82,5 +82,7 @@ def test_generated_plugin_dispatch_and_second_harness_are_isolated(tmp_path: Pat
         asyncio.run(_run_generated_plugin(first_root, first=True))
         asyncio.run(_run_generated_plugin(second_root, first=False))
     finally:
-        shutil.rmtree(first_root, ignore_errors=False)
-        shutil.rmtree(second_root, ignore_errors=False)
+        if first_root.exists():
+            shutil.rmtree(first_root)
+        if second_root.exists():
+            shutil.rmtree(second_root)
