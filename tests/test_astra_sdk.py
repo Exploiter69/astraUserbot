@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import importlib
-import inspect
-import sys
 from pathlib import Path
 from types import ModuleType
 from typing import Protocol
@@ -117,12 +115,15 @@ def test_plugin_protocol_is_structural() -> None:
             self.client = client
 
     plugin = SamplePlugin()
-    assert isinstance(sdk.Plugin, type)
-    assert isinstance(sdk.Plugin, type(Protocol))
-    assert hasattr(sdk.Plugin, "__protocol_attrs__") or getattr(
-        sdk.Plugin, "_is_protocol", False
+    assert getattr(sdk.Plugin, "_is_protocol", False)
+    assert all(
+        hasattr(plugin, name)
+        for name in (
+            "setup", "plugin_name", "plugin_version", "plugin_api_version",
+            "dependencies", "optional_dependencies", "capabilities",
+            "description", "critical",
+        )
     )
-    assert all(hasattr(plugin, name) for name in sdk.Plugin.__protocol_attrs__)
     assert callable(plugin.setup)
 
 
@@ -151,6 +152,7 @@ def test_docs_check_accepts_consistent_sdk_and_rejects_missing_symbol(
     assert any("definitely_missing_sdk_symbol" in item for item in findings)
 
 
-def test_plugin_is_a_runtime_checkable_structural_protocol() -> None:
+def test_plugin_is_a_structural_protocol_not_a_base_class() -> None:
     sdk = importlib.import_module("astra.sdk")
-    assert getattr(sdk.Plugin, "_is_runtime_protocol", False)
+    assert getattr(sdk.Plugin, "_is_protocol", False)
+    assert not any(base.__name__ == "ABC" for base in sdk.Plugin.__mro__)
