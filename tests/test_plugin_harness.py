@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import importlib
 import sys
 from pathlib import Path
 
@@ -136,9 +135,11 @@ def test_plugin_setup_failure_unwinds_journal_and_restores_context(tmp_path: Pat
         "failure_fixture",
         _basic_plugin(
             "failure_fixture",
-            """    from astra.sdk import register_command, tracked_resource
+            """    from pathlib import Path
+    from astra.sdk import register_command, tracked_resource
     def cleanup(resource):
         resource["cleaned"] = True
+        Path(__file__).resolve().parents[2].joinpath("cleanup.txt").write_text("cleaned", encoding="utf-8")
     resource = tracked_resource(
         lambda: {"cleaned": False}, cleanup, kind="fixture",
         identity="failure-fixture-resource",
@@ -151,6 +152,7 @@ def test_plugin_setup_failure_unwinds_journal_and_restores_context(tmp_path: Pat
     )
     before_context = get_application_context()
     before_ids = {item.registration_id for item in list_registrations()}
+    before_modules = set(sys.modules)
 
     async def run() -> None:
         with pytest.raises(Exception, match="intentional setup failure"):
@@ -162,7 +164,14 @@ def test_plugin_setup_failure_unwinds_journal_and_restores_context(tmp_path: Pat
     asyncio.run(run())
     assert get_application_context() is before_context
     assert {item.registration_id for item in list_registrations()} == before_ids
-    assert not (project_root / "data" / "databases" / "platform.db-wal").exists()
+    assert (project_root / "cleanup.txt").read_text(encoding="utf-8") == "cleaned"
+    leaked = []
+    for name in set(sys.modules) - before_modules:
+        module = sys.modules.get(name)
+        origin = getattr(getattr(module, "__spec__", None), "origin", None)
+        if origin and Path(origin).resolve().is_relative_to(project_root.resolve()):
+            leaked.append(name)
+    assert leaked == []
 
 
 def test_network_policy_can_opt_in_to_loopback_only(tmp_path: Path) -> None:
