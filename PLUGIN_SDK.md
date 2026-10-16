@@ -40,11 +40,36 @@ Use `tracked_job` during plugin setup when an enqueued job must be tracked for r
 
 Use `tracked_resource` during plugin setup to register cleanup for resources created by setup. Cleanup remains managed by the existing setup journal.
 
-## 10. Service protocols
+## 10. Generator
+
+Create a deterministic plugin scaffold from the repository root:
+
+```bash
+python -m astra.sdk_generator create-plugin <name>
+```
+
+Use a lowercase Python package-name component (letters, digits, and underscores; it must start with a letter). The generator validates the name before writing, refuses to overwrite `plugins/<name>/` by default, and accepts `--force` only when replacement is intentional.
+
+Generated layout:
+
+```text
+plugins/<name>/
+├── __init__.py
+├── plugin.py
+├── README.md
+└── tests/
+    └── test_plugin.py
+```
+
+No manifest is generated. `plugin.py` declares the runtime-consumed module-level metadata (`plugin_name`, `plugin_version`, `plugin_api_version`, `dependencies`, `optional_dependencies`, `capabilities`, `description`, and `critical`) and implements the unchanged `setup(client)` entry point. The example capability is `telegram.read`, from the existing eleven-name vocabulary.
+
+**A capability declaration is not enforcement.** It is metadata, not an owner grant and not proof that every operation is checked. The generated acceptance test loads the plugin through `PluginManager` without Telegram credentials; run it with `python -m pytest -q plugins/<name>/tests/test_plugin.py`. The runtime discovery path ignores conventional `tests/` directories so generated acceptance tests are not loaded as plugins.
+
+## 11. Service protocols
 
 The SDK exposes typing protocols for existing Telegram, HTTP, job, storage, secret, AI, and subprocess service interfaces. These are typing contracts, not runtime wrappers or a separate service container.
 
-## 11. Capabilities and authorization
+## 12. Capabilities and authorization
 
 Declare only capabilities in the existing eleven-name vocabulary. A declaration is not an owner grant and is not proof that every operation is protected.
 
@@ -54,11 +79,11 @@ The capability check happens at the authoritative service boundary, not in the S
 
 The SDK does not add authorization logic or claim to secure arbitrary in-process Python code.
 
-## 12. Testing and local verification
+## 13. Testing and local verification
 
 Test metadata normalization, command registration and plugin behavior without live Telegram credentials. The documentation check validates this file's public API reference against `astra.sdk`.
 
-## 13. API Reference
+## 14. API Reference
 
 - `AIServiceProtocol`
 - `Capability`
@@ -85,7 +110,7 @@ Test metadata normalization, command registration and plugin behavior without li
 - `tracked_task`
 - `validate_capabilities`
 
-## 14. Security boundaries, support status, and limitations
+## 15. Security boundaries, support status, and limitations
 
 The SDK is an in-process API facade, not a sandbox. Python imports, typing, and documentation do not isolate arbitrary plugin code. Authorization depends on the existing authoritative runtime boundary.
 
