@@ -73,9 +73,12 @@ class HarnessContextAdapterTests(unittest.IsolatedAsyncioTestCase):
     async def test_plain_application_context_constructs_its_own_http_service(self):
         with tempfile.TemporaryDirectory() as root:
             context = ApplicationContext(object(), root)
-            self.assertIsInstance(context.get("http"), HttpService)
-            self.assertIsNotNone(context.get("http"))
+            http = context.get("http")
+            self.assertIsInstance(http, HttpService)
+            await context.start()
+            self.assertIsNotNone(http.session)
             await context.close()
+            self.assertIsNone(http.session)
 
 
 if __name__ == "__main__":
