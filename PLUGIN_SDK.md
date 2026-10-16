@@ -1,6 +1,6 @@
 # AstraUserbot Plugin SDK
 
-**SDK_API_VERSION:** `1.0`  
+SDK_API_VERSION: `1.0`  
 **Public import path:** `astra.sdk`  
 **Status:** Phase 5a SDK facade
 
