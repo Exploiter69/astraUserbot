@@ -23,6 +23,7 @@ from types import ModuleType
 from typing import Any, TypeVar
 
 from core.plugins.contract import PluginMetadata, metadata_for
+from core.plugins.capabilities import plugin_identity_context
 
 logger = logging.getLogger("astra.plugins")
 
@@ -100,6 +101,7 @@ class PluginRecord:
     dependencies: tuple[str, ...] = ()
     optional_dependencies: tuple[str, ...] = ()
     capabilities: tuple[str, ...] = ()
+    capability_mode: str = "LEGACY_UNDECLARED"
     version: str = "legacy"
     api_version: int = 1
     description: str = ""
@@ -172,7 +174,8 @@ class PluginManager:
         token_plugin = cls._current_plugin.set(name)
         token_manager = cls._current_manager.set(manager)
         try:
-            yield
+            with plugin_identity_context(name):
+                yield
         finally:
             cls._current_manager.reset(token_manager)
             cls._current_plugin.reset(token_plugin)
@@ -180,6 +183,32 @@ class PluginManager:
     def _plugin_context(self, name: str) -> Iterator[None]:
         return self.plugin_context(name, self)
 
+    def _invalidate_capability_cache(self, name: str) -> None:
+        """Invalidate effective grants whenever lifecycle reloads a plugin."""
+        from core.context import get_application_context
+
+        context = get_application_context()
+        if context is None:
+            return
+        runtime = context.services.get("capabilities")
+        if runtime is not None:
+            runtime.invalidate(name)
+
+    async def _load_capability_policy(self, record: PluginRecord) -> None:
+        """Resolve explicitly enforced plugin policy before setup or reload."""
+        if record.capability_mode != "ENFORCED":
+            return
+        from core.context import get_application_context
+
+        context = get_application_context()
+        runtime = context.get("capabilities") if context is not None else None
+        if runtime is None:
+            raise PluginLifecycleError(
+                f"ENFORCED plugin {record.name} cannot load without capability runtime"
+            )
+        await runtime.load_plugin(
+            record.name, declared=record.capabilities, mode="ENFORCED"
+        )
 
     def current_setup_journal(self) -> SetupJournal | None:
         """Return this manager's journal only inside its active plugin setup."""
@@ -376,6 +405,10 @@ class PluginManager:
         record.dependencies = metadata.dependencies
         record.optional_dependencies = metadata.optional_dependencies
         record.capabilities = metadata.capabilities
+        mode = str(getattr(record.module, "plugin_capability_mode", "LEGACY_UNDECLARED"))
+        if mode not in {"ENFORCED", "LEGACY_UNDECLARED"}:
+            raise ValueError(f"Unsupported capability mode for {record.name}: {mode}")
+        record.capability_mode = mode
         record.critical = metadata.critical
         return metadata
 
@@ -447,6 +480,14 @@ class PluginManager:
                 record.module = importlib.import_module(name)
                 record.state = PluginState.LOADED
                 self._read_metadata(record)
+                if record.capability_mode == "LEGACY_UNDECLARED":
+                    logger.warning(
+                        "Plugin %s is LEGACY_UNDECLARED; capability enforcement is not active "
+                        "for it. Migration action: declare plugin_capability_mode='ENFORCED' "
+                        "and the required capabilities in the plugin module, then obtain "
+                        "owner-approved grants before enabling enforcement.",
+                        record.name,
+                    )
             except Exception as exc:
                 record.state = PluginState.FAILED_IMPORT
                 record.error = str(exc)
@@ -468,6 +509,8 @@ class PluginManager:
             if record.state != PluginState.LOADED:
                 continue
             try:
+                self._invalidate_capability_cache(name)
+                await self._load_capability_policy(record)
                 self._validate_dependency_runtime(name)
                 await self._run_setup(record)
             except Exception as exc:
@@ -490,9 +533,10 @@ class PluginManager:
             token_plugin = self._current_plugin.set(name)
             token_manager = self._current_manager.set(self)
             try:
-                result = shutdown(self.client)
-                if inspect.isawaitable(result):
-                    await result
+                with plugin_identity_context(name):
+                    result = shutdown(self.client)
+                    if inspect.isawaitable(result):
+                        await result
             finally:
                 self._current_manager.reset(token_manager)
                 self._current_plugin.reset(token_plugin)
@@ -506,6 +550,7 @@ class PluginManager:
                     continue
                 registration.unregister(self.client)
             record.registrations.clear()
+        self._invalidate_capability_cache(name)
         record.state = PluginState.UNLOADED
         return record
 
@@ -617,6 +662,7 @@ class PluginManager:
             raise PluginLifecycleError(
                 f"Plugin {name} is not enableable from {record.state.value}"
             )
+        self._invalidate_capability_cache(name)
         self._validate_dependency_runtime(name)
         old_registration_ids = set(record.registrations)
         self._disabled.discard(name)
@@ -627,6 +673,7 @@ class PluginManager:
                 record.module = importlib.import_module(name)
             record.state = PluginState.LOADED
             self._read_metadata(record)
+            await self._load_capability_policy(record)
             self._validate_dependency_runtime(name)
             journal = SetupJournal(
                 attempt_id=uuid.uuid4().hex,

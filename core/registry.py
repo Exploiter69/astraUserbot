@@ -22,6 +22,7 @@ from telethon import events
 from config import config
 from core.errors import AstraError, CommandError, as_astra_error, user_message
 from core.plugins.manager import PluginManager
+from core.plugins.capabilities import plugin_identity_context, trusted_core_context
 from helpers.hud import render
 
 logger = logging.getLogger("astra.registry")
@@ -118,6 +119,29 @@ def _new_correlation_id() -> str:
     return uuid.uuid4().hex[:12]
 
 
+class _CapabilityEventProxy:
+    """Narrow event facade enforcing Telegram writes used by an enforced plugin."""
+
+    __slots__ = ("_event", "_runtime", "_plugin")
+
+    def __init__(self, event: Any, runtime: Any, plugin: str) -> None:
+        self._event = event
+        self._runtime = runtime
+        self._plugin = plugin
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._event, name)
+
+    async def edit(self, *args: Any, **kwargs: Any) -> Any:
+        await self._runtime.authorize(
+            self._plugin,
+            "telegram.write",
+            "telegram.event.edit",
+            call_site="core.registry.event_proxy",
+        )
+        return await self._event.edit(*args, **kwargs)
+
+
 def register_cmd(
     client: Any,
     pattern: str,
@@ -207,22 +231,49 @@ def register_cmd(
             # Runtime import avoids a core.registry <-> core.context import cycle.
             from core.context import get_application_context
 
-            context = get_application_context()
-            if context is not None:
-                metrics = context.get("metrics")
-                metrics.increment("commands.total")
+            with trusted_core_context("command.registry"):
+                context = get_application_context()
+                if context is not None:
+                    metrics = context.get("metrics")
+                    metrics.increment("commands.total")
         except Exception:  # noqa: BLE001 - metrics are optional and must never block command dispatch
             metrics = None
         try:
-            if metrics is not None:
-                with metrics.timer(f"command.{category}"):
-                    result = handler(event)
+            # Framework instrumentation is core-owned; plugin callbacks retain
+            # their recorded identity and never inherit unrestricted core authority.
+            handler_event = event
+            if owner is not None and owner_record is not None:
+                if owner_record.capability_mode == "ENFORCED":
+                    from core.context import get_application_context
+
+                    capability_context = get_application_context()
+                    capability_runtime = (
+                        capability_context.get("capabilities")
+                        if capability_context is not None
+                        else None
+                    )
+                    if capability_runtime is None:
+                        raise RuntimeError(
+                            f"Capability runtime unavailable for enforced plugin {owner}"
+                        )
+                    handler_event = _CapabilityEventProxy(
+                        event, capability_runtime, owner
+                    )
+            identity_scope = (
+                plugin_identity_context(owner)
+                if owner is not None
+                else trusted_core_context("command.handler")
+            )
+            with identity_scope:
+                if metrics is not None:
+                    with metrics.timer(f"command.{category}"):
+                        result = handler(handler_event)
+                        if inspect.isawaitable(result):
+                            await result
+                else:
+                    result = handler(handler_event)
                     if inspect.isawaitable(result):
                         await result
-            else:
-                result = handler(event)
-                if inspect.isawaitable(result):
-                    await result
         except Exception as exc:
             elapsed = time.perf_counter() - start_time
             if metrics is not None:

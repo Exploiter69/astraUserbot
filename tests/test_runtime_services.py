@@ -64,6 +64,8 @@ class RuntimeServiceTests(unittest.IsolatedAsyncioTestCase):
                 set(context.services),
                 {
                     "storage",
+                    "capability_grants",
+                    "capabilities",
                     "cache",
                     "http",
                     "subprocess",

@@ -1,0 +1,742 @@
+"""Phase 4 capability-core contract tests (tests-first)."""
+
+import asyncio
+import hashlib
+import json
+import sqlite3
+import tempfile
+import time
+import unittest
+from contextlib import nullcontext
+from pathlib import Path
+from unittest.mock import patch
+
+from core.plugins.manager import PluginManager, PluginRecord, PluginState
+from core.services.jobs import JobEngine
+from core.tasks import TaskSupervisor
+
+from core.plugins.capabilities import (
+    CAPABILITIES,
+    CapabilityDeniedError,
+    CapabilityRuntime,
+    CapabilityGrantStore,
+    current_identity,
+    plugin_identity_context,
+    trusted_core_context,
+    validate_capabilities,
+)
+from core.services.storage import MIGRATIONS, StorageService
+
+
+class CapabilityVocabularyTests(unittest.TestCase):
+    def test_vocabulary_contains_exactly_the_approved_eleven(self):
+        self.assertEqual(
+            CAPABILITIES,
+            frozenset(
+                {
+                    "telegram.read",
+                    "telegram.write",
+                    "network.external",
+                    "fs.read",
+                    "fs.write",
+                    "subprocess",
+                    "jobs.enqueue",
+                    "ai.remote",
+                    "ai.local",
+                    "vault.read",
+                    "vault.write",
+                }
+            ),
+        )
+
+    def test_vocabulary_validation_rejects_unknown_names(self):
+        self.assertEqual(
+            validate_capabilities(("telegram.read", "jobs.enqueue")),
+            ("telegram.read", "jobs.enqueue"),
+        )
+        with self.assertRaises(ValueError):
+            validate_capabilities(("intel.write",))
+        with self.assertRaises(ValueError):
+            validate_capabilities(("telegram.read", "telegram.read"))
+
+
+class CapabilityCoreTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.storage = StorageService(self.root)
+        await self.storage.start()
+        self.grants = CapabilityGrantStore(self.storage)
+        self.runtime = CapabilityRuntime(self.grants, self.storage)
+
+    async def asyncTearDown(self):
+        await self.storage.close()
+        self.tmp.cleanup()
+
+    async def _replace_grants(self, *args, **kwargs):
+        with trusted_core_context("test.owner-grant"):
+            return await self.grants.replace_grants(*args, **kwargs)
+
+    async def test_grant_store_persists_and_migration_is_additive_idempotent(self):
+        original = await self.storage.fetchone(
+            "SELECT COUNT(*) FROM jobs"
+        )
+        await self._replace_grants(
+            "plugins.readonly", ("telegram.read",), granted_by="owner"
+        )
+        await self.storage.close()
+        await self.storage.start()
+        self.grants = CapabilityGrantStore(self.storage)
+        self.assertEqual(
+            await self.grants.get_grants("plugins.readonly"),
+            frozenset({"telegram.read"}),
+        )
+        await self.storage.close()
+        await self.storage.start()
+        migrations = await self.storage.fetchall(
+            "SELECT version FROM schema_migrations ORDER BY version"
+        )
+        self.assertEqual([row[0] for row in migrations], list(range(1, 15)))
+        self.assertEqual(
+            (await self.storage.fetchone("SELECT COUNT(*) FROM jobs"))[0],
+            original[0],
+        )
+
+    async def test_effective_grants_are_declared_intersect_approved(self):
+        await self._replace_grants(
+            "plugins.example",
+            ("telegram.read", "jobs.enqueue"),
+            granted_by="owner",
+        )
+        effective = await self.runtime.load_plugin(
+            "plugins.example",
+            declared=("telegram.read",),
+            mode="ENFORCED",
+        )
+        self.assertEqual(effective, frozenset({"telegram.read"}))
+        await self.runtime.load_plugin(
+            "plugins.declared_only",
+            declared=("telegram.read",),
+            mode="ENFORCED",
+        )
+        with self.assertRaises(CapabilityDeniedError):
+            await self.runtime.authorize(
+                "plugins.declared_only", "telegram.read", "test.read"
+            )
+        await self._replace_grants(
+            "plugins.approved_only", ("telegram.read",), granted_by="owner"
+        )
+        await self.runtime.load_plugin(
+            "plugins.approved_only", declared=(), mode="ENFORCED"
+        )
+        with self.assertRaises(CapabilityDeniedError):
+            await self.runtime.authorize(
+                "plugins.approved_only", "telegram.read", "test.read"
+            )
+
+    async def test_grant_mutation_invalidates_cache_before_next_call(self):
+        await self._replace_grants(
+            "plugins.cache", ("telegram.read",), granted_by="owner"
+        )
+        await self.runtime.load_plugin(
+            "plugins.cache", declared=("telegram.read",), mode="ENFORCED"
+        )
+        await self.runtime.authorize("plugins.cache", "telegram.read", "first")
+        await self._replace_grants(
+            "plugins.cache", (), granted_by="owner"
+        )
+        with patch.object(self.storage, "fetchall", side_effect=AssertionError("hot path read")):
+            with self.assertRaises(CapabilityDeniedError):
+                await self.runtime.authorize(
+                    "plugins.cache", "telegram.read", "after-revoke"
+                )
+
+    async def test_protected_call_does_not_read_grants_from_storage(self):
+        await self._replace_grants(
+            "plugins.hotpath", ("telegram.read",), granted_by="owner"
+        )
+        await self.runtime.load_plugin(
+            "plugins.hotpath", declared=("telegram.read",), mode="ENFORCED"
+        )
+        with patch.object(self.storage, "fetchall", side_effect=AssertionError("hot path read")):
+            await self.runtime.authorize(
+                "plugins.hotpath", "telegram.read", "hotpath.read"
+            )
+
+    async def test_plugin_identity_cannot_mutate_grant_store(self):
+        with plugin_identity_context("plugins.attacker"):
+            with self.assertRaises(PermissionError):
+                await self.grants.replace_grants(
+                    "plugins.attacker", ("fs.write",), granted_by="owner"
+                )
+
+
+    async def test_fake_plugin_denial_happens_before_side_effect(self):
+        await self.runtime.load_plugin(
+            "plugins.no_grants", declared=(), mode="ENFORCED"
+        )
+        effects = []
+
+        async def protected_operation():
+            await self.runtime.authorize(
+                "plugins.no_grants", "jobs.enqueue", "jobs.enqueue"
+            )
+            effects.append("created")
+
+        with self.assertRaises(CapabilityDeniedError):
+            await protected_operation()
+        self.assertEqual(effects, [])
+
+    async def test_audit_records_granted_and_denied_without_secrets(self):
+        await self._replace_grants(
+            "plugins.audit", ("telegram.read",), granted_by="owner"
+        )
+        await self.runtime.load_plugin(
+            "plugins.audit", declared=("telegram.read",), mode="ENFORCED"
+        )
+        await self.runtime.authorize(
+            "plugins.audit", "telegram.read", "test.read"
+        )
+        with self.assertRaises(CapabilityDeniedError):
+            await self.runtime.authorize(
+                "plugins.audit", "jobs.enqueue", "test.enqueue",
+                details={"token": "must-not-be-stored", "payload": "private"},
+            )
+        rows = await self.storage.fetchall(
+            "SELECT kind, subject_id, payload_json FROM audit_events "
+            "WHERE kind='CAPABILITY_CHECK' ORDER BY id"
+        )
+        self.assertEqual(len(rows), 2)
+        records = [json.loads(row[2]) for row in rows]
+        self.assertEqual([item["outcome"] for item in records], ["GRANTED", "DENIED"])
+        self.assertTrue(all(item["plugin"] == "plugins.audit" for item in records))
+        self.assertEqual(records[0]["capability"], "telegram.read")
+        self.assertEqual(records[0]["operation"], "test.read")
+        self.assertEqual(records[1]["capability"], "jobs.enqueue")
+        self.assertEqual(records[1]["operation"], "test.enqueue")
+        self.assertTrue(all(records_item["correlation_id"] for records_item in records))
+        self.assertTrue(all(records_item["enforcement_mode"] == "ENFORCED" for records_item in records))
+        self.assertTrue(all("must-not-be-stored" not in row[2] for row in rows))
+        self.assertTrue(all("private" not in row[2] for row in rows))
+
+    async def test_trusted_core_identity_is_explicit_and_plugin_identity_is_not_core(self):
+        self.assertIsNone(current_identity())
+        with trusted_core_context("test.framework"):
+            identity = current_identity()
+            self.assertEqual(identity.kind, "trusted_core")
+            self.assertEqual(identity.name, "test.framework")
+        self.assertIsNone(current_identity())
+
+    async def test_helper_denies_plugin_and_allows_core_without_service_enforcement(self):
+        await self.runtime.load_plugin(
+            "plugins.empty", declared=(), mode="ENFORCED"
+        )
+        with self.assertRaises(CapabilityDeniedError):
+            await self.runtime.authorize("plugins.empty", "fs.write", "fs.write")
+        with trusted_core_context("test.framework"):
+            result = await self.runtime.authorize(
+                "core", "fs.write", "framework.fs.write"
+            )
+        self.assertIsNone(result)
+
+
+
+
+    async def test_ping_enforced_acceptance_grant_deny_audit_and_reload(self):
+        from importlib import import_module
+
+        plugin_name = "plugins.system.ping"
+        module = import_module(plugin_name)
+        self.assertEqual(module.plugin_capability_mode, "ENFORCED")
+        self.assertEqual(tuple(module.capabilities), ("telegram.write",))
+        self.assertEqual(
+            await self.grants.get_grants(plugin_name),
+            frozenset({"telegram.write"}),
+        )
+
+        class FakeClient:
+            def __init__(self):
+                self.handlers = []
+            def add_event_handler(self, handler, builder):
+                self.handlers.append((handler, builder))
+            def remove_event_handler(self, handler, builder):
+                self.handlers = [
+                    item for item in self.handlers
+                    if item != (handler, builder)
+                ]
+
+        class FakeEvent:
+            out = True
+            def __init__(self):
+                self.edits = []
+            async def edit(self, value):
+                self.edits.append(value)
+
+        class FakeContext:
+            def __init__(self, runtime):
+                self.services = {"capabilities": runtime}
+            def get(self, name):
+                return self.services.get(name)
+
+        client = FakeClient()
+        manager = PluginManager(client, self.root / "plugins")
+        client.plugin_manager = manager
+        manager.records[plugin_name] = PluginRecord(
+            name=plugin_name, state=PluginState.DISABLED
+        )
+        context = FakeContext(self.runtime)
+        with patch("core.context.get_application_context", return_value=context):
+            record = await manager.enable_plugin(plugin_name)
+            self.assertEqual(record.capability_mode, "ENFORCED")
+            self.assertEqual(
+                await self.runtime.authorize(
+                    plugin_name, "telegram.write", "acceptance.granted"
+                ),
+                None,
+            )
+
+            # Exercise the real registered .ping handler under the loaded policy.
+            registration = next(
+                item for item in client.handlers
+                if getattr(item[0], "__name__", "") == "wrapper"
+            )
+            event = FakeEvent()
+            await registration[0](event)
+            self.assertEqual(len(event.edits), 2)
+
+            # A denied operation is stopped before its side effect.
+            effects = []
+            with plugin_identity_context(plugin_name):
+                with self.assertRaises(CapabilityDeniedError):
+                    await self.runtime.authorize(
+                        plugin_name, "fs.write", "acceptance.denied-write"
+                    )
+                    effects.append("must-not-happen")
+            self.assertEqual(effects, [])
+
+            # Persisted grant mutation + controlled reload changes the live policy.
+            with trusted_core_context("acceptance.owner-revoke"):
+                await self.grants.replace_grants(
+                    plugin_name, (), granted_by="owner-test"
+                )
+            await manager.unload(plugin_name)
+            await manager.enable_plugin(plugin_name)
+            with plugin_identity_context(plugin_name):
+                with self.assertRaises(CapabilityDeniedError):
+                    await self.runtime.authorize(
+                        plugin_name, "telegram.write", "acceptance.after-revoke"
+                    )
+            denied_registration = next(
+                item for item in client.handlers
+                if getattr(item[0], "__name__", "") == "wrapper"
+            )
+            denied_event = FakeEvent()
+            await denied_registration[0](denied_event)
+            # The framework may render an error reply, but the plugin's
+            # protected Telegram edit ("..." / PING output) never executes.
+            self.assertFalse(any(value == "..." for value in denied_event.edits))
+            self.assertFalse(any("Latency:" in value for value in denied_event.edits))
+
+            with trusted_core_context("acceptance.owner-regrant"):
+                await self.grants.replace_grants(
+                    plugin_name, ("telegram.write",), granted_by="owner-test"
+                )
+            await manager.unload(plugin_name)
+            await manager.enable_plugin(plugin_name)
+            with plugin_identity_context(plugin_name):
+                await self.runtime.authorize(
+                    plugin_name, "telegram.write", "acceptance.after-regrant"
+                )
+            granted_registration = next(
+                item for item in client.handlers
+                if getattr(item[0], "__name__", "") == "wrapper"
+            )
+            reloaded_event = FakeEvent()
+            await granted_registration[0](reloaded_event)
+            self.assertEqual(len(reloaded_event.edits), 2)
+
+            # A non-migrated plugin remains on its existing compatibility path.
+            legacy_name = "plugins.system.help"
+            manager.records[legacy_name] = PluginRecord(
+                name=legacy_name, state=PluginState.RUNNING
+            )
+            legacy_event = FakeEvent()
+            async def legacy_handler(event):
+                await event.edit("legacy behavior unchanged")
+            from core.registry import register_cmd
+            with PluginManager.plugin_context(legacy_name, manager):
+                legacy_registration = register_cmd(
+                    client,
+                    r"\\.phase4legacyacceptance",
+                    legacy_handler,
+                    description="Legacy compatibility acceptance test",
+                )
+            try:
+                await legacy_registration.wrapper(legacy_event)
+            finally:
+                legacy_registration.unregister(client)
+            self.assertEqual(legacy_event.edits, ["legacy behavior unchanged"])
+            self.assertEqual(manager.records[legacy_name].capability_mode, "LEGACY_UNDECLARED")
+
+            audit_rows = await self.storage.fetchall(
+                "SELECT subject_id,payload_json FROM audit_events "
+                "WHERE kind='CAPABILITY_CHECK' ORDER BY id"
+            )
+            records = [json.loads(row[1]) for row in audit_rows]
+            ping_records = [item for item in records if item["plugin"] == plugin_name]
+            self.assertTrue(any(
+                item["outcome"] == "GRANTED"
+                and item["operation"] == "telegram.event.edit"
+                for item in ping_records
+            ))
+            self.assertTrue(any(
+                item["outcome"] == "DENIED"
+                and item["operation"] == "acceptance.denied-write"
+                and item["capability"] == "fs.write"
+                for item in ping_records
+            ))
+            self.assertTrue(any(
+                item["outcome"] == "DENIED"
+                and item["operation"] == "telegram.event.edit"
+                and item["capability"] == "telegram.write"
+                for item in ping_records
+            ))
+            self.assertTrue(all(item["plugin"] == plugin_name for item in ping_records))
+            self.assertFalse(any(item["plugin"] == legacy_name for item in records))
+            await manager.unload(plugin_name)
+            await manager.shutdown()
+
+    async def test_background_task_runs_under_explicit_trusted_core_identity(self):
+        seen = asyncio.Event()
+        identities = []
+
+        async def background():
+            identities.append(current_identity())
+            await self.runtime.authorize("core", "fs.write", "background.internal")
+            seen.set()
+
+        supervisor = TaskSupervisor()
+        supervisor.create_task(background(), name="phase4.core.background")
+        await asyncio.wait_for(seen.wait(), timeout=1)
+        await supervisor.shutdown()
+        self.assertEqual(identities[0].kind, "trusted_core")
+        self.assertEqual(identities[0].name, "phase4.core.background")
+
+    async def test_job_worker_preserves_core_and_plugin_handler_identity(self):
+        engine = JobEngine(self.storage, poll_seconds=0.01)
+        core_seen = asyncio.Event()
+        plugin_seen = asyncio.Event()
+        identities = {}
+
+        await self._replace_grants(
+            "plugins.phase4", ("telegram.read",), granted_by="owner"
+        )
+        await self.runtime.load_plugin(
+            "plugins.phase4", declared=("telegram.read",), mode="ENFORCED"
+        )
+
+        async def core_handler(_job):
+            identities["core"] = current_identity()
+            await self.runtime.authorize("core", "fs.write", "job.worker.internal")
+            core_seen.set()
+            return {"ok": True}
+
+        async def plugin_handler(_job):
+            identities["plugin"] = current_identity()
+            await self.runtime.authorize(
+                "plugins.phase4", "telegram.read", "plugin.handler"
+            )
+            plugin_seen.set()
+            return {"ok": True}
+
+        with trusted_core_context("job.registration"):
+            engine.register_handler("PHASE4_CORE", core_handler)
+        with plugin_identity_context("plugins.phase4"):
+            engine.register_handler("PHASE4_PLUGIN", plugin_handler)
+        core_job = await engine.enqueue("PHASE4_CORE")
+        plugin_job = await engine.enqueue("PHASE4_PLUGIN")
+        await engine.start()
+        try:
+            await asyncio.wait_for(core_seen.wait(), timeout=1)
+            await asyncio.wait_for(plugin_seen.wait(), timeout=1)
+            async def wait_completed(job_id):
+                for _ in range(100):
+                    if (await engine.get(job_id)).state.value == "COMPLETED":
+                        return
+                    await asyncio.sleep(0.01)
+                raise AssertionError(f"job did not complete: {job_id}")
+            await wait_completed(core_job.id)
+            await wait_completed(plugin_job.id)
+        finally:
+            await engine.close()
+        self.assertEqual(identities["core"].kind, "trusted_core")
+        self.assertEqual(identities["plugin"].kind, "plugin")
+        self.assertEqual(identities["plugin"].name, "plugins.phase4")
+        self.assertEqual((await engine.get(core_job.id)).state.value, "COMPLETED")
+        self.assertEqual((await engine.get(plugin_job.id)).state.value, "COMPLETED")
+
+    async def test_command_registry_uses_core_identity_for_framework_and_plugin_for_handler(self):
+        from core import registry
+        from core.plugins.manager import PluginManager
+        from core.context import ApplicationContext
+
+        observations = []
+        class Metrics:
+            def increment(self, _name):
+                observations.append(("framework", current_identity()))
+            def timer(self, _name):
+                return nullcontext()
+
+        class Context:
+            def get(self, name):
+                return Metrics() if name == "metrics" else None
+
+        class Client:
+            def add_event_handler(self, *_args, **_kwargs):
+                return None
+            def remove_event_handler(self, *_args, **_kwargs):
+                return None
+
+        class Event:
+            out = True
+            async def edit(self, *_args, **_kwargs):
+                return None
+
+        client = Client()
+        manager = PluginManager(client, Path(self.tmp.name) / "plugins")
+        await self._replace_grants(
+            "plugins.phase4-command", ("telegram.read",), granted_by="owner"
+        )
+        await self.runtime.load_plugin(
+            "plugins.phase4-command",
+            declared=("telegram.read",),
+            mode="ENFORCED",
+        )
+        async def handler(_event):
+            await self.runtime.authorize(
+                "plugins.phase4-command", "telegram.read", "command.handler"
+            )
+            observations.append(("handler", current_identity()))
+
+        with PluginManager.plugin_context("plugins.phase4-command", manager):
+            registration = registry.register_cmd(
+                client,
+                r"\\.phase4capability",
+                handler,
+                description="Phase 4 test command",
+            )
+        try:
+            with patch("core.context.get_application_context", return_value=Context()):
+                await registration.wrapper(Event())
+        finally:
+            registration.unregister(client)
+        framework_identity = next(value for kind, value in observations if kind == "framework")
+        handler_identity = next(value for kind, value in observations if kind == "handler")
+        self.assertEqual(framework_identity.kind, "trusted_core")
+        self.assertEqual(handler_identity.kind, "plugin")
+        self.assertEqual(handler_identity.name, "plugins.phase4-command")
+
+
+
+class CapabilityMigrationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_plugin_capability_grants_migration_is_additive_and_idempotent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = root / "data" / "databases" / "platform.db"
+            db_path.parent.mkdir(parents=True)
+            conn = sqlite3.connect(db_path)
+            try:
+                conn.execute(
+                    "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, checksum TEXT NOT NULL, applied_at REAL NOT NULL)"
+                )
+                for version, sql in MIGRATIONS[:-1]:
+                    for statement in (part.strip() for part in sql.split(";") if part.strip()):
+                        conn.execute(statement)
+                    conn.execute(
+                        "INSERT INTO schema_migrations(version, checksum, applied_at) VALUES (?,?,?)",
+                        (version, hashlib.sha256(sql.encode()).hexdigest(), time.time()),
+                    )
+                conn.execute(
+                    "INSERT INTO audit_events(kind,subject_id,payload_json,created_at) VALUES (?,?,?,?)",
+                    ("pre-phase4", "preserve-me", '{"existing":true}', 1.0),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            storage = StorageService(root)
+            await storage.start()
+            row = await storage.fetchone(
+                "SELECT payload_json FROM audit_events WHERE kind='pre-phase4' AND subject_id='preserve-me'"
+            )
+            self.assertEqual(row[0], '{"existing":true}')
+            self.assertIsNotNone(
+                await storage.fetchone(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='plugin_capability_grants'"
+                )
+            )
+            await storage.close()
+            await storage.start()
+            versions = await storage.fetchall(
+                "SELECT version FROM schema_migrations ORDER BY version"
+            )
+            current_max = max(version for version, _sql in MIGRATIONS)
+            self.assertEqual(
+                [row[0] for row in versions], list(range(1, current_max + 1))
+            )
+            row = await storage.fetchone(
+                "SELECT payload_json FROM audit_events WHERE kind='pre-phase4' AND subject_id='preserve-me'"
+            )
+            self.assertEqual(row[0], '{"existing":true}')
+            await storage.close()
+
+
+class CapabilityIsolationHonestyTests(unittest.TestCase):
+    def test_capability_handles_do_not_sandbox_direct_python_access(self):
+        # Capability checks govern the supported API only; direct Python access
+        # to imported modules remains possible in this shared process.
+        import os
+
+        self.assertTrue(callable(os.getcwd))
+
+
+class LegacyCapabilityCompatibilityTests(unittest.IsolatedAsyncioTestCase):
+    async def test_sysinfo_runs_legacy_warns_and_ping_remains_enforced(self):
+        from types import SimpleNamespace
+
+        from core.registry import get_registration, list_registrations
+        from plugins.system import ping, sysinfo
+
+        plugin_name = "plugins.system.sysinfo"
+
+        class Client:
+            def __init__(self):
+                self.handlers = []
+
+            def add_event_handler(self, callback, event_builder):
+                self.handlers.append((callback, event_builder))
+
+            def remove_event_handler(self, callback, event_builder):
+                self.handlers = [
+                    item for item in self.handlers if item[0] is not callback
+                ]
+
+        class SubprocessService:
+            async def run(self, command, **_kwargs):
+                output = {
+                    "uname": "6.1.0-test\\n",
+                    "uptime": "up 2 hours\\n",
+                    "free": "Mem: 1024 512 512 0 0 512\\n",
+                }[command[0]]
+                return SimpleNamespace(returncode=0, stdout=output)
+
+        class Context:
+            def get(self, name):
+                return SubprocessService() if name == "subprocess" else None
+
+        class Event:
+            out = True
+
+            def __init__(self):
+                self.edits = []
+
+            async def edit(self, value):
+                self.edits.append(value)
+
+        client = Client()
+        client.plugin_manager = None
+        plugin_root = Path(__file__).resolve().parents[1] / "plugins"
+        manager = PluginManager(client, plugin_root)
+        client.plugin_manager = manager
+        preexisting_registration_ids = {
+            item.registration_id for item in list_registrations()
+        }
+        manager.records = {plugin_name: PluginRecord(name=plugin_name)}
+        try:
+            with self.assertLogs("astra.plugins", level="WARNING") as captured:
+                await manager.load_all()
+
+            record = manager.get(plugin_name)
+            self.assertEqual(record.state, PluginState.RUNNING)
+            self.assertEqual(record.capability_mode, "LEGACY_UNDECLARED")
+            self.assertEqual(record.capabilities, ())
+            self.assertFalse(hasattr(sysinfo, "plugin_capability_mode"))
+            self.assertFalse(hasattr(sysinfo, "capabilities"))
+
+            warning = "\\n".join(captured.output).lower()
+            self.assertIn(plugin_name, warning)
+            self.assertIn("capability enforcement is not active", warning)
+            self.assertIn("migration action", warning)
+            self.assertIn("plugin_capability_mode='enforced'", warning)
+            self.assertIn("owner-approved grants", warning)
+
+            self.assertEqual(ping.plugin_capability_mode, "ENFORCED")
+            self.assertEqual(tuple(ping.capabilities), ("telegram.write",))
+
+            registrations = [
+                get_registration(registration_id)
+                for registration_id in record.registrations
+            ]
+            registration = next(
+                item for item in registrations if item.pattern == sysinfo.PATTERN
+            )
+            event = Event()
+            with patch(
+                "plugins.system.sysinfo.get_application_context",
+                return_value=Context(),
+            ):
+                await registration.wrapper(event)
+
+            self.assertEqual(len(event.edits), 2)
+            self.assertIn("Kernel: 6.1.0-test", event.edits[-1])
+            self.assertIn("Uptime: up 2 hours", event.edits[-1])
+            self.assertIn("Memory: 512MB / 1024MB", event.edits[-1])
+        finally:
+            record = manager.records.get(plugin_name)
+            if record is not None and record.state in {
+                PluginState.RUNNING,
+                PluginState.FAILED_SETUP,
+            }:
+                await manager.unload(plugin_name)
+            # Restore process-wide registry state even if an assertion or handler
+            # invocation fails before the normal unload path completes.
+            for registration in list_registrations():
+                if registration.registration_id not in preexisting_registration_ids:
+                    registration.unregister(client)
+            manager.records.clear()
+            manager._load_order.clear()
+
+    async def test_invalid_capability_mode_fails_import_instead_of_running_legacy(self):
+        from types import ModuleType
+
+        plugin_name = "plugins.system.invalid_capability_policy"
+        module = ModuleType(plugin_name)
+        module.plugin_name = plugin_name
+        module.plugin_capability_mode = "ENFORCE_MAYBE"
+        setup_calls = []
+
+        async def setup(_client):
+            setup_calls.append("ran")
+
+        module.setup = setup
+
+        class Client:
+            def add_event_handler(self, *_args, **_kwargs):
+                raise AssertionError("invalid-policy plugin must not register handlers")
+
+            def remove_event_handler(self, *_args, **_kwargs):
+                return None
+
+        manager = PluginManager(Client(), Path(__file__).resolve().parents[1] / "plugins")
+        manager.records = {plugin_name: PluginRecord(name=plugin_name)}
+        with patch("core.plugins.manager.importlib.import_module", return_value=module):
+            await manager.load_all()
+
+        record = manager.get(plugin_name)
+        self.assertEqual(record.state, PluginState.FAILED_IMPORT)
+        self.assertNotEqual(record.state, PluginState.RUNNING)
+        self.assertEqual(setup_calls, [])
+
+
+if __name__ == "__main__":
+    unittest.main()

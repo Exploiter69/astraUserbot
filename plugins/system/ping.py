@@ -1,3 +1,8 @@
+plugin_name = "plugins.system.ping"
+plugin_version = "1.0"
+plugin_capability_mode = "ENFORCED"
+capabilities = ("telegram.write",)
+
 import re
 import time
 
@@ -15,6 +20,7 @@ async def setup(client):
         handler=handle_ping,
         category="system",
         description="Check userbot latency and responsiveness.",
+        required_capabilities=["telegram.write"],
     )
 
 

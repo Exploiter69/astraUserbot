@@ -15,6 +15,12 @@ from enum import StrEnum
 from typing import Any, Protocol
 
 from core.services.storage import StorageService
+from core.plugins.capabilities import (
+    ExecutionIdentity,
+    current_identity,
+    identity_context,
+    trusted_core_context,
+)
 
 logger = logging.getLogger("astra.jobs")
 
@@ -128,6 +134,8 @@ class JobEngine:
         self.handlers: dict[str, Handler] = {}
         self.effect_classes: dict[str, str | None] = {}
         self.reconcilers: dict[str, Any] = {}
+        self.handler_identities: dict[str, ExecutionIdentity] = {}
+        self.reconciler_identities: dict[str, ExecutionIdentity] = {}
         self._reconcile_leases: dict[str, tuple[str, float]] = {}
         self._worker_task: asyncio.Task[None] | None = None
         self._active_tasks: dict[str, asyncio.Task[Any]] = {}
@@ -141,8 +149,12 @@ class JobEngine:
         await self.recover_expired()
         await self.cleanup()
         self._stop.clear()
+        async def run_worker() -> None:
+            with trusted_core_context(f"jobs.worker.{self.worker_id}"):
+                await self._worker_loop()
+
         self._worker_task = asyncio.create_task(
-            self._worker_loop(), name=f"jobs.worker.{self.worker_id}"
+            run_worker(), name=f"jobs.worker.{self.worker_id}"
         )
         self._started = True
 
@@ -187,10 +199,15 @@ class JobEngine:
             raise ValueError("A reconciler requires an explicit effect_class")
         if effect_class is not None and (not isinstance(effect_class, str) or not effect_class.strip()):
             raise ValueError("effect_class must be a non-empty string")
+        identity = current_identity() or ExecutionIdentity(
+            "trusted_core", f"jobs.handler-registration.{job_type}"
+        )
         self.handlers[job_type] = handler
+        self.handler_identities[job_type] = identity
         self.effect_classes[job_type] = effect_class.upper() if effect_class else None
         if reconciler is not None:
             self.reconcilers[job_type] = reconciler
+            self.reconciler_identities[job_type] = identity
 
     async def enqueue(
         self,
@@ -646,7 +663,15 @@ class JobEngine:
             attempt_started_at=float(attempt_started_at) if attempt_started_at is not None else None,
             content_fingerprint=effect_row["payload_fingerprint"],
         )
-        task = asyncio.create_task(reconciler(context))
+        reconciler_identity = self.reconciler_identities.get(job.type) or ExecutionIdentity(
+            "trusted_core", f"jobs.reconciler.{job.type}"
+        )
+
+        async def invoke_reconciler() -> ReconcileOutcome:
+            with identity_context(reconciler_identity):
+                return await reconciler(context)
+
+        task = asyncio.create_task(invoke_reconciler())
         try:
             done, _ = await asyncio.wait({task}, timeout=self.RECONCILER_TIMEOUT_SECONDS)
             if not done:
@@ -808,17 +833,22 @@ class JobEngine:
 
     async def _execute_handler(self, job: Job, handler: Handler) -> Any:
         async def lease_loop() -> None:
-            interval = max(1.0, self.lease_seconds / 3.0)
-            while True:
-                await asyncio.sleep(interval)
-                if not await self.heartbeat(job.id):
-                    return
+            with trusted_core_context(f"jobs.heartbeat.{job.id}"):
+                interval = max(1.0, self.lease_seconds / 3.0)
+                while True:
+                    await asyncio.sleep(interval)
+                    if not await self.heartbeat(job.id):
+                        return
 
         heartbeat_task = asyncio.create_task(
             lease_loop(), name=f"jobs.heartbeat.{job.id}"
         )
+        identity = self.handler_identities.get(job.type) or ExecutionIdentity(
+            "trusted_core", f"jobs.handler.{job.type}"
+        )
         try:
-            return await handler(job)
+            with identity_context(identity):
+                return await handler(job)
         finally:
             heartbeat_task.cancel()
             try:

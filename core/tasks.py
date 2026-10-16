@@ -13,6 +13,11 @@ from enum import StrEnum
 from typing import Any
 
 from core.errors import ErrorCode, as_astra_error
+from core.plugins.capabilities import (
+    ExecutionIdentity,
+    current_identity,
+    identity_context,
+)
 
 logger = logging.getLogger("astra.tasks")
 
@@ -78,7 +83,16 @@ class TaskSupervisor:
                 close()
             raise ValueError("task name is required")
 
-        task = asyncio.create_task(awaitable, name=name)
+        # Capture the creator's identity. Framework-created tasks with no
+        # active plugin identity are explicitly trusted-core tasks; tasks
+        # created by plugin callbacks retain that plugin identity.
+        identity = current_identity() or ExecutionIdentity("trusted_core", name)
+
+        async def run_with_identity() -> Any:
+            with identity_context(identity):
+                return await awaitable
+
+        task = asyncio.create_task(run_with_identity(), name=name)
         record = TaskRecord(
             task_id=uuid.uuid4().hex[:12],
             name=name,
