@@ -72,7 +72,7 @@ class PluginMetadata:
         """Map every accepted field to a runtime-consumed module attribute."""
         return {
             "plugin_name": self.name, "plugin_version": self.version,
-            "plugin_api_version": self.api_version, "plugin_description": self.description,
+            "plugin_api_version": self.api_version, "description": self.description,
             "dependencies": self.dependencies, "optional_dependencies": self.optional_dependencies,
             "capabilities": self.capabilities, "critical": self.critical,
         }
