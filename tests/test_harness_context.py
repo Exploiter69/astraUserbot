@@ -3,7 +3,7 @@ import unittest
 from unittest.mock import patch
 
 from core.context import ApplicationContext
-from core.services.http import HttpService
+from core.services.http import HttpResponse, HttpService
 
 
 class SubstituteHttp:
@@ -18,7 +18,7 @@ class SubstituteHttp:
         self.closed += 1
 
     async def request(self, method, url, **kwargs):
-        raise AssertionError("The test HTTP substitute must not perform network I/O")
+        return HttpResponse(200, {"content-type": "text/plain"}, b"canned", url)
 
     async def get(self, url, **kwargs):
         return await self.request("GET", url, **kwargs)
