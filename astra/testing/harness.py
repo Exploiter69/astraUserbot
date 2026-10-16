@@ -6,6 +6,7 @@ ApplicationContext, PluginManager, JobEngine, StorageService, or the registry.
 
 from __future__ import annotations
 
+import asyncio
 import importlib
 import inspect
 import ipaddress
@@ -23,6 +24,7 @@ from core.plugins.capabilities import trusted_core_context
 from core.plugins.manager import PluginManager, PluginState
 from core.registry import list_registrations
 from core.services.http import HttpService
+from core.services.jobs import JobState
 
 
 class _NetworkPolicyHttpService:
@@ -154,6 +156,7 @@ class PluginHarness:
         self._started = False
         self._closing = False
         self._closed = False
+        self._job_driver_lock = asyncio.Lock()
         self._previous_context: Any = None
         self._registry_snapshot: set[str] = set()
         self._module_snapshot: set[str] = set()
@@ -335,6 +338,83 @@ class PluginHarness:
                     [start_error, cleanup_error],
                 ) from start_error
             raise
+
+    async def run_next_job(self) -> Any:
+        """Claim and execute one registered durable job without starting a worker.
+
+        Concurrent driver calls are rejected rather than consuming multiple jobs.
+        """
+        if self._job_driver_lock.locked():
+            raise RuntimeError("run_next_job is already driving a job")
+        async with self._job_driver_lock:
+            return await self._run_next_job_locked()
+
+    async def _run_next_job_locked(self) -> Any:
+        """Run one job while holding the deterministic-driver ownership lock."""
+        if not self._started or self._closing or self._closed:
+            raise RuntimeError("PluginHarness must be started and open to drive jobs")
+
+        worker_task = self.jobs._worker_task
+        if (
+            self.start_job_worker
+            or self.jobs._started
+            or (worker_task is not None and not worker_task.done())
+        ):
+            raise RuntimeError("run_next_job cannot run while the job worker is enabled")
+        if self.jobs._active_tasks:
+            raise RuntimeError("run_next_job requires no other active job tasks")
+
+        handler_types = tuple(self.jobs.handlers)
+        job = await self.jobs.claim(handler_types)
+        if job is None:
+            return None
+        handler = self.jobs.handlers.get(job.type)
+        if handler is None:
+            # The claim is restricted to registered types, so this can only occur
+            # if handler registration is mutated concurrently during the claim.
+            await self.jobs._fail_claimed(
+                job, "NO_HANDLER", f"No handler registered for {job.type}",
+                retryable=False,
+            )
+            return await self.jobs.get(job.id)
+
+        started = asyncio.Event()
+
+        async def execute_claimed_job() -> None:
+            started.set()
+            await self.jobs._run_job(job, handler)
+
+        task = asyncio.create_task(
+            execute_claimed_job(), name=f"jobs.execute.{job.id}"
+        )
+        self.jobs._active_tasks[job.id] = task
+
+        async def recover_if_still_running(reason: str) -> None:
+            current = await self.jobs.get(job.id)
+            if current.state == JobState.RUNNING:
+                await self.jobs._mark_active_uncertain([job.id], reason=reason)
+
+        try:
+            # Shield the child so caller cancellation is handled explicitly below.
+            await asyncio.shield(started.wait())
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            # Ensure the wrapper has started before cancelling it; otherwise an
+            # unstarted task could leave its coroutine unawaited.
+            if not started.is_set():
+                await asyncio.shield(started.wait())
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            await recover_if_still_running("harness_driver_cancelled")
+            raise
+        except BaseException:
+            await recover_if_still_running("harness_driver_failed")
+            raise
+        finally:
+            if self.jobs._active_tasks.get(job.id) is task:
+                self.jobs._active_tasks.pop(job.id, None)
+
+        return await self.jobs.get(job.id)
 
     async def emit_command(self, text: str, **kwargs: Any) -> Any:
         if not self._started or self._closed:
