@@ -398,14 +398,22 @@ class PluginHarness:
             # Shield the child so caller cancellation is handled explicitly below.
             await asyncio.shield(started.wait())
             await asyncio.shield(task)
-        except asyncio.CancelledError:
+        except asyncio.CancelledError as cancellation:
             # Ensure the wrapper has started before cancelling it; otherwise an
             # unstarted task could leave its coroutine unawaited.
             if not started.is_set():
                 await asyncio.shield(started.wait())
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
-            await recover_if_still_running("harness_driver_cancelled")
+            try:
+                await recover_if_still_running("harness_driver_cancelled")
+            except BaseException as recovery_error:
+                # Preserve the caller's cancellation even if persistence/recovery
+                # itself fails. Keep the secondary failure visible for diagnosis.
+                cancellation.add_note(
+                    "Job cancellation recovery failed: "
+                    f"{type(recovery_error).__name__}: {recovery_error}"
+                )
             raise
         except BaseException:
             await recover_if_still_running("harness_driver_failed")
