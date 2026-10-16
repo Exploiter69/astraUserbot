@@ -3,7 +3,7 @@ from __future__ import annotations
 import importlib
 from pathlib import Path
 from types import ModuleType
-from typing import Protocol
+from typing import get_args
 
 import pytest
 
@@ -95,7 +95,7 @@ def test_capability_types_are_the_existing_vocabulary_only() -> None:
     )
     with pytest.raises(ValueError, match="Unknown capabilities"):
         sdk.validate_capabilities(("made.up.capability",))
-    assert set(sdk.CapabilityMode) == {"ENFORCED", "LEGACY_UNDECLARED"}
+    assert set(get_args(sdk.CapabilityMode)) == {"ENFORCED", "LEGACY_UNDECLARED"}
 
 
 def test_plugin_protocol_is_structural() -> None:
