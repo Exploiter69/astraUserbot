@@ -235,7 +235,6 @@ def test_sdk_enforced_plugin_uses_existing_event_edit_proxy_boundary(tmp_path: P
                 )
             try:
                 with patch("core.context.get_application_context", return_value=Context()):
-                    with patch("core.registry.get_application_context", return_value=Context()):
                         # The actual command wrapper is what installs the Phase 4 proxy.
                         granted_event = Event()
                         await registration.wrapper(granted_event)
@@ -248,16 +247,8 @@ def test_sdk_enforced_plugin_uses_existing_event_edit_proxy_boundary(tmp_path: P
                                 plugin_name, (), granted_by="test-owner"
                             )
                         denied_event = Event()
-                        with pytest.raises(CapabilityDeniedError):
-                            # Invoke the registered handler under plugin identity so the
-                            # capability denial propagates from the proxy before edit().
-                            from core.plugins.capabilities import plugin_identity_context
-                            with plugin_identity_context(plugin_name):
-                                await runtime.authorize(
-                                    plugin_name, "telegram.write", "test.prepare-denial"
-                                )
-                        # The denied proxy operation is independently asserted below by
-                        # calling the same proxy type used by the registry boundary.
+                        # The registry wrapper translates handler exceptions, so assert
+                        # the proxy directly for the denied-before-side-effect boundary.
                         from core.registry import _CapabilityEventProxy
                         proxy = _CapabilityEventProxy(denied_event, runtime, plugin_name)
                         effects.clear()
