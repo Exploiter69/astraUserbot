@@ -83,12 +83,13 @@ def test_collision_refuses_overwrite_and_force_replaces_output(tmp_path: Path) -
 
     (output / "README.md").write_text("modified by test", encoding="utf-8")
     create_plugin("collision_case", project_root=tmp_path, force=True)
-    assert (output / "README.md").read_bytes() == before["README.md"]
-    assert {
-        path.relative_to(output).as_posix()
+    regenerated = {
+        path.relative_to(output).as_posix(): path.read_bytes()
         for path in output.rglob("*")
         if path.is_file()
-    } == REQUIRED_FILES
+    }
+    assert regenerated == before
+    assert set(regenerated) == REQUIRED_FILES
 
 
 def test_generated_layout_import_and_runtime_normalized_metadata(
