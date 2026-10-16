@@ -40,7 +40,7 @@ def test_generated_plugin_loads_registers_and_unloads(tmp_path: Path) -> None:
             ignore=shutil.ignore_patterns("__pycache__", ".pytest_cache"),
         )
         module_name = "plugins.{{PLUGIN_NAME}}.plugin"
-        command_pattern = r"^\\.{{COMMAND_NAME}}-info$"
+        command_pattern = r"^\.{{COMMAND_NAME}}-info$"
         client = FakeClient()
         manager = PluginManager(client, plugin_root)
         client.plugin_manager = manager

@@ -12,7 +12,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-_PLUGIN_NAME = re.compile(r"[a-z][a-z0-9_]{0,47}\\Z")
+_PLUGIN_NAME = re.compile(r"[a-z][a-z0-9_]{0,47}\Z")
 _RESERVED_NAMES = frozenset({"__pycache__", "astra", "core", "tests"})
 _TEMPLATE_FILES = {
     "__init__.py": "__init__.py.tmpl",
@@ -70,7 +70,7 @@ def create_plugin(
         for relative, content in rendered.items():
             target = stage / relative
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(content, encoding="utf-8", newline="\\n")
+            target.write_text(content, encoding="utf-8", newline="\n")
         if output.exists():
             if not force:
                 raise FileExistsError(

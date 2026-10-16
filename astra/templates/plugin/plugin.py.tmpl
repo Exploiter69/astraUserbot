@@ -24,7 +24,7 @@ def setup(client: object) -> None:
     """Register the scaffold's informational command using the public SDK."""
     register_command(
         client,
-        pattern=r"^\\.{{COMMAND_NAME}}-info$",
+        pattern=r"^\.{{COMMAND_NAME}}-info$",
         handler=_show_info,
         category="generated",
         description="Show the generated plugin scaffold status.",
