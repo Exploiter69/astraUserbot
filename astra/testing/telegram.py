@@ -66,6 +66,8 @@ class FakeTelegramClient:
 
     def __init__(self) -> None:
         self.handlers: list[tuple[Callable[..., Any], Any]] = []
+        # The registry treats this integration as optional via getattr(..., None).
+        self.plugin_manager: Any | None = None
         self._recorder = _EffectRecorder()
 
     @property
@@ -92,7 +94,7 @@ class FakeTelegramClient:
     def __getattr__(self, name: str) -> Any:
         if name.startswith("_"):
             raise AttributeError(name)
-        raise NotImplementedError(f"unsupported fake Telegram client method: {name}")
+        raise AttributeError(f"unsupported fake Telegram client attribute: {name}")
 
 
 class FakeTelegramEvent:
@@ -149,7 +151,7 @@ class FakeTelegramEvent:
     def __getattr__(self, name: str) -> Any:
         if name.startswith("_"):
             raise AttributeError(name)
-        raise NotImplementedError(f"unsupported event method: {name}")
+        raise AttributeError(f"unsupported fake Telegram event attribute: {name}")
 
 
 @dataclass(frozen=True, slots=True)
