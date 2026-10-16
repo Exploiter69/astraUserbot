@@ -93,3 +93,4 @@ The SDK is an in-process API facade, not a sandbox. Python imports, typing, and 
 - **Compatibility path:** works for existing plugins but is not the preferred new API.
 - **Deferred:** not part of Phase 5a and must not be presented as available.
 - **Not a security boundary:** typing, documentation and in-process handles do not isolate arbitrary Python code.
+- Direct `TelegramFacade` method access is not currently capability-checked; enforcement currently applies to the event-edit proxy boundary.
