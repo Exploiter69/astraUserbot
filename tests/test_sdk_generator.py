@@ -5,7 +5,6 @@ import asyncio
 import importlib
 import importlib.util
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -58,9 +57,12 @@ class FakeClient:
 def test_invalid_name_is_rejected_before_any_file_is_written(
     tmp_path: Path, name: str
 ) -> None:
+    project_root = tmp_path / "must-not-be-created"
+    before_ids = {item.registration_id for item in list_registrations()}
     with pytest.raises(ValueError):
-        create_plugin(name, project_root=tmp_path)
-    assert not tmp_path.exists()
+        create_plugin(name, project_root=project_root)
+    assert not project_root.exists()
+    assert {item.registration_id for item in list_registrations()} == before_ids
 
 
 def test_collision_refuses_overwrite_and_force_replaces_output(tmp_path: Path) -> None:
@@ -183,6 +185,9 @@ def test_generated_acceptance_test_passes_without_telegram_credentials(
     output = create_plugin("subprocess_case", project_root=tmp_path)
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT) + os.pathsep + env.get("PYTHONPATH", "")
+    for key in list(env):
+        if key.upper() in {"API_ID", "API_HASH", "BOT_TOKEN", "SESSION_STRING"} or key.upper().startswith("TELEGRAM_"):
+            env.pop(key)
     result = subprocess.run(
         [
             sys.executable,
