@@ -139,7 +139,7 @@ def test_client_level_operations_are_recorded_in_order() -> None:
 
 def test_unsupported_event_method_fails_clearly() -> None:
     event = FakeTelegramEvent(".step2-unsupported")
-    with pytest.raises(NotImplementedError, match="unsupported event method"):
+    with pytest.raises(AttributeError, match="unsupported fake Telegram event attribute"):
         asyncio.run(event.forward_to("somewhere"))
 
 
