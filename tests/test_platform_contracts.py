@@ -167,9 +167,9 @@ class Phase10To15Tests(unittest.IsolatedAsyncioTestCase):
 
     def test_sdk_metadata_contract(self):
         item = metadata(
-            name="example", version="1.2.3", capabilities=("network.request",)
+            name="example", version="1.2.3", capabilities=("network.external",)
         )
-        self.assertEqual(item.api_version, SDK_API_VERSION)
+        self.assertEqual(item.api_version, 1)
         with self.assertRaises(ValueError):
             metadata(name="bad", api_version="99.0")
 
