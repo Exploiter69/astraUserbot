@@ -371,6 +371,12 @@ class PluginManager:
             logger.warning("Plugin directory %s not found.", self.plugin_root)
             return []
         for path in sorted(self.plugin_root.rglob("*.py")):
+            # Generated plugin tests live beside the plugin and must never be
+            # imported as runtime plugins. Keep ordinary nested plugin modules
+            # discoverable; only conventional tests directories are excluded.
+            relative_parts = path.relative_to(self.plugin_root).parts
+            if "tests" in relative_parts[:-1]:
+                continue
             if path.name == "__init__.py" or path.name.startswith("_"):
                 continue
             name = self._module_name(path)

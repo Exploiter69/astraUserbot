@@ -46,11 +46,11 @@ class Phase16Gate(unittest.TestCase):
             version="1.0.0",
             api_version="1.0",
             dependencies=(),
-            capabilities=("test",),
+            capabilities=("telegram.read",),
         )
         self.assertEqual(metadata.name, "phase16-test")
-        self.assertEqual(metadata.api_version, "1.0")
-        self.assertEqual(metadata.capabilities, ("test",))
+        self.assertEqual(metadata.api_version, 1)
+        self.assertEqual(metadata.capabilities, ("telegram.read",))
 
     def test_application_context_runtime_lifecycle(self):
         async def run():

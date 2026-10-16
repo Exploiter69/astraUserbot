@@ -1,0 +1,37 @@
+"""Generated AstraUserbot plugin scaffold for {{PLUGIN_NAME}}."""
+
+from astra.sdk import register_command
+
+plugin_name = "plugins.{{PLUGIN_NAME}}.plugin"
+plugin_version = "1.0.0"
+plugin_api_version = 1
+dependencies = ()
+optional_dependencies = ()
+capabilities = ("telegram.read",)
+description = "Generated plugin scaffold for {{PLUGIN_NAME}}."
+critical = False
+
+
+async def _show_info(event: object) -> None:
+    """Explain that this generated command is a scaffold, not a completed feature."""
+    await event.respond(
+        "{{PLUGIN_NAME}} is a generated plugin scaffold. Replace this command "
+        "with your plugin's real behavior."
+    )
+
+
+def setup(client: object) -> None:
+    """Register the scaffold's informational command using the public SDK."""
+    register_command(
+        client,
+        pattern=r"^\.{{COMMAND_NAME}}-info$",
+        handler=_show_info,
+        category="generated",
+        description="Show the generated plugin scaffold status.",
+        permission="owner",
+        operation_class="READ",
+        required_capabilities=["telegram.read"],
+        examples=[".{{COMMAND_NAME}}-info"],
+        compatibility="1.0",
+        usage=".{{COMMAND_NAME}}-info",
+    )

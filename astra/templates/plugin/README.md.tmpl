@@ -1,0 +1,33 @@
+# {{PLUGIN_NAME}}
+
+A generated AstraUserbot plugin scaffold. The included informational command is a starting point; replace it with a real feature before relying on it.
+
+## Runtime metadata
+
+- `plugin_name`: `plugins.{{PLUGIN_NAME}}.plugin`
+- `plugin_version`: `1.0.0`
+- `plugin_api_version`: `1`
+- `dependencies` and `optional_dependencies`: empty tuples
+- `capabilities`: `("telegram.read",)`
+- `description`: generated scaffold description
+- `critical`: `False`
+
+These module-level fields are consumed and normalized by the existing `PluginManager`. The `setup(client)` entry point remains unchanged.
+
+## Capability declaration
+
+This scaffold declares the existing `telegram.read` capability. **A declaration is not enforcement**: it is metadata, not an owner grant and not proof that every operation is capability-checked. Follow the existing runtime boundary and review `PLUGIN_SDK.md` before adding behavior.
+
+## Command
+
+The generated `.{{COMMAND_NAME}}-info` command explains that this is a scaffold. Replace its handler with real behavior; do not treat the scaffold response as evidence that a feature has completed work.
+
+## Tests
+
+Run from the repository root:
+
+```bash
+python -m pytest -q plugins/{{PLUGIN_NAME}}/tests/test_plugin.py
+```
+
+The generated test uses the actual `PluginManager` discovery/load/unload path with a local fake client only as a test harness. It needs no Telegram credentials and performs no network calls. No manifest is used.
