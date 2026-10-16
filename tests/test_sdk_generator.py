@@ -15,7 +15,7 @@ import pytest
 
 from astra.sdk_generator import create_plugin
 from core.plugins.contract import metadata_for
-from core.plugins.manager import PluginManager, PluginState
+from core.plugins.manager import PluginLifecycleError, PluginManager, PluginState
 from core.registry import COMMANDS, list_registrations
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -230,3 +230,55 @@ def test_cli_entry_point_creates_plugin_from_working_directory(
     assert result.returncode == 0, result.stdout + "\n" + result.stderr
     assert (tmp_path / "plugins" / "cli_case" / "plugin.py").is_file()
     assert "plugins/cli_case" in result.stdout.replace("\\", "/")
+
+
+def test_failed_generated_setup_rolls_back_global_registration_state(
+    tmp_path: Path,
+) -> None:
+    async def run() -> None:
+        output = create_plugin("failure_case", project_root=tmp_path)
+        module_name = "plugins.failure_case.plugin"
+        command_pattern = r"^\.failure-case-info$"
+        client = FakeClient()
+        manager = PluginManager(client, tmp_path / "plugins")
+        client.plugin_manager = manager
+        before_ids = {item.registration_id for item in list_registrations()}
+        real_import_module = importlib.import_module
+
+        def import_module(name: str, package: str | None = None) -> ModuleType:
+            if name == module_name:
+                spec = importlib.util.spec_from_file_location(
+                    name, output / "plugin.py"
+                )
+                assert spec is not None and spec.loader is not None
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                real_setup = module.setup
+
+                def failing_setup(runtime_client: object) -> None:
+                    real_setup(runtime_client)
+                    raise RuntimeError("intentional setup failure for rollback test")
+
+                module.setup = failing_setup
+                return module
+            return real_import_module(name, package)
+
+        try:
+            assert [item.name for item in manager.discover()] == [module_name]
+            with patch(
+                "core.plugins.manager.importlib.import_module",
+                side_effect=import_module,
+            ):
+                with pytest.raises(PluginLifecycleError, match="intentional setup failure"):
+                    await manager.enable_plugin(module_name)
+            assert manager.records[module_name].state is PluginState.FAILED_SETUP
+            assert not manager.records[module_name].registrations
+            assert not client.handlers
+            assert command_pattern not in COMMANDS
+            assert {item.registration_id for item in list_registrations()} == before_ids
+        finally:
+            for registration in list_registrations():
+                if registration.registration_id not in before_ids:
+                    registration.unregister(client)
+
+    asyncio.run(run())
