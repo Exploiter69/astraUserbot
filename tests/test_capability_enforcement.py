@@ -604,7 +604,7 @@ class LegacyCapabilityCompatibilityTests(unittest.IsolatedAsyncioTestCase):
     async def test_sysinfo_runs_legacy_warns_and_ping_remains_enforced(self):
         from types import SimpleNamespace
 
-        from core.registry import get_registration
+        from core.registry import get_registration, list_registrations
         from plugins.system import ping, sysinfo
 
         plugin_name = "plugins.system.sysinfo"
@@ -644,8 +644,13 @@ class LegacyCapabilityCompatibilityTests(unittest.IsolatedAsyncioTestCase):
                 self.edits.append(value)
 
         client = Client()
+        client.plugin_manager = None
         plugin_root = Path(__file__).resolve().parents[1] / "plugins"
         manager = PluginManager(client, plugin_root)
+        client.plugin_manager = manager
+        preexisting_registration_ids = {
+            item.registration_id for item in list_registrations()
+        }
         manager.records = {plugin_name: PluginRecord(name=plugin_name)}
         try:
             with self.assertLogs("astra.plugins", level="WARNING") as captured:
@@ -687,11 +692,19 @@ class LegacyCapabilityCompatibilityTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("Uptime: up 2 hours", event.edits[-1])
             self.assertIn("Memory: 512MB / 1024MB", event.edits[-1])
         finally:
-            if manager.get(plugin_name).state in {
+            record = manager.records.get(plugin_name)
+            if record is not None and record.state in {
                 PluginState.RUNNING,
                 PluginState.FAILED_SETUP,
             }:
                 await manager.unload(plugin_name)
+            # Restore process-wide registry state even if an assertion or handler
+            # invocation fails before the normal unload path completes.
+            for registration in list_registrations():
+                if registration.registration_id not in preexisting_registration_ids:
+                    registration.unregister(client)
+            manager.records.clear()
+            manager._load_order.clear()
 
     async def test_invalid_capability_mode_fails_import_instead_of_running_legacy(self):
         from types import ModuleType
