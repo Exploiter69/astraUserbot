@@ -12,7 +12,7 @@ from core.plugins.capabilities import CAPABILITIES as CAPABILITY_NAMES, validate
 from core.plugins.contract import PLUGIN_API_VERSION, PluginMetadata as RuntimePluginMetadata
 from core.plugins.manager import PluginManager
 from core.registry import register_cmd as register_command
-from core.services.jobs import JobEngine, ReconcileContext, ReconcileOutcome, Reconciler
+from core.services.jobs import ReconcileContext, ReconcileOutcome, Reconciler
 from core.services.http import HttpResponse
 from core.tasks import TaskSupervisor
 
@@ -131,11 +131,11 @@ class StorageServiceProtocol(Protocol):
 
 
 class SecretStoreService(Protocol):
-    def get(self, name: str, default: Any = None) -> Any: ...
+    async def get(self, name: str) -> str | None: ...
 
 
 class AIServiceProtocol(Protocol):
-    async def complete(self, *args: Any, **kwargs: Any) -> Any: ...
+    async def chat(self, messages: Any, *, model: str | None = None, provider: str | None = None, temperature: float = 0.7) -> Any: ...
 
 
 class SubprocessServiceProtocol(Protocol):
@@ -153,7 +153,7 @@ def tracked_task(supervisor: TaskSupervisor, awaitable: Any, *, name: str) -> An
     return _active_manager().tracked_task(supervisor, awaitable, name=name)
 
 
-async def tracked_job(jobs: JobEngine, job_type: str, payload: dict[str, Any] | None = None,
+async def tracked_job(jobs: Any, job_type: str, payload: dict[str, Any] | None = None,
                       *, owner: str | None = None, **enqueue_options: Any) -> Any:
     return await _active_manager().tracked_job(
         jobs, job_type, payload, owner=owner, **enqueue_options
