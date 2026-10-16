@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 from pathlib import Path
+from types import SimpleNamespace
 from types import ModuleType
 from unittest.mock import patch
 
@@ -345,7 +346,7 @@ def test_sdk_does_not_add_enforcement_to_direct_telegram_facade_edit(tmp_path: P
             try:
                 with patch("core.context.get_application_context", return_value=Context()):
                     # No SDK denial or interception occurs on this raw facade path.
-                    await registration.wrapper(object())
+                    await registration.wrapper(SimpleNamespace(out=True))
                 assert calls == [("chat", "message")]
             finally:
                 registration.unregister(client)
