@@ -189,7 +189,7 @@ def test_fake_client_is_accepted_by_plugin_manager_and_public_sdk_registration(t
 
     with PluginManager.plugin_context("plugins.step2_public_sdk", manager):
         registration = register_command(
-            client, pattern=r"^\\.step2-public-sdk$", handler=handler,
+            client, pattern=r"^\.step2-public-sdk$", handler=handler,
             category="test", description="Fake client SDK contract",
         )
     try:
