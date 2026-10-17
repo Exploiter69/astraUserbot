@@ -2,32 +2,15 @@
 from __future__ import annotations
 
 import asyncio
-import importlib
-import importlib.util
 import shutil
 from pathlib import Path
-from types import ModuleType
-from unittest.mock import patch
 
-from core.plugins.manager import PluginManager, PluginState
+from astra.testing import PluginHarness
+from core.plugins.manager import PluginState
 from core.registry import COMMANDS, list_registrations
 
 
-class FakeClient:
-    """Test harness only; never used as the generated plugin's runtime client."""
-
-    def __init__(self) -> None:
-        self.handlers: list[tuple[object, object]] = []
-        self.plugin_manager: PluginManager | None = None
-
-    def add_event_handler(self, handler: object, builder: object) -> None:
-        self.handlers.append((handler, builder))
-
-    def remove_event_handler(self, handler: object, builder: object) -> None:
-        self.handlers = [item for item in self.handlers if item != (handler, builder)]
-
-
-def test_generated_plugin_loads_registers_and_unloads(tmp_path: Path) -> None:
+def test_generated_plugin_loads_dispatches_and_unloads(tmp_path: Path) -> None:
     async def run() -> None:
         project_root = tmp_path / "project"
         plugin_root = project_root / "plugins"
@@ -39,34 +22,20 @@ def test_generated_plugin_loads_registers_and_unloads(tmp_path: Path) -> None:
             generated_target,
             ignore=shutil.ignore_patterns("__pycache__", ".pytest_cache"),
         )
+
         module_name = "plugins.{{PLUGIN_NAME}}.plugin"
-        command_pattern = r"^\.{{COMMAND_NAME}}-info$"
-        client = FakeClient()
-        manager = PluginManager(client, plugin_root)
-        client.plugin_manager = manager
+        command_pattern = r"^\\.{{COMMAND_NAME}}-info$"
         before_ids = {item.registration_id for item in list_registrations()}
-        real_import_module = importlib.import_module
 
-        def import_module(name: str, package: str | None = None) -> ModuleType:
-            if name == module_name:
-                spec = importlib.util.spec_from_file_location(
-                    name, generated_target / "plugin.py"
-                )
-                assert spec is not None and spec.loader is not None
-                module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(module)
-                return module
-            return real_import_module(name, package)
+        async with PluginHarness(
+            plugin_root=plugin_root,
+            project_root=project_root,
+        ) as harness:
+            assert harness.manager is not None
+            discovered = [record.name for record in harness.manager.records.values()]
+            assert discovered == [module_name]
 
-        try:
-            with patch(
-                "core.plugins.manager.importlib.import_module",
-                side_effect=import_module,
-            ):
-                discovered = manager.discover()
-                assert [record.name for record in discovered] == [module_name]
-                await manager.load_all()
-            record = manager.records[module_name]
+            record = harness.manager.records[module_name]
             assert record.state is PluginState.RUNNING
             assert record.version == "1.0.0"
             assert record.api_version == 1
@@ -76,21 +45,29 @@ def test_generated_plugin_loads_registers_and_unloads(tmp_path: Path) -> None:
             assert record.capabilities == ("telegram.read",)
             assert record.critical is False
             assert len(record.registrations) == 1
+
             registrations = [
                 item for item in list_registrations()
                 if item.pattern == command_pattern
             ]
             assert len(registrations) == 1
             assert registrations[0].registration_id in record.registrations
-            assert sum(1 for _, _ in client.handlers) == 1
-            await manager.unload(module_name)
+            assert len(harness.telegram.handlers) == 1
+
+            dispatch = await harness.emit_command(".{{COMMAND_NAME}}-info")
+            assert dispatch.matched is True
+            assert len(dispatch.effects) == 1
+            effect = dispatch.effects[0]
+            assert effect.operation == "event.respond"
+            assert "{{PLUGIN_NAME}} is a generated plugin scaffold." in effect.args[0]
+            assert len(harness.effects) == 1
+
+            await harness.manager.unload(module_name)
             assert record.state is PluginState.UNLOADED
             assert not record.registrations
-            assert not client.handlers
+            assert not harness.telegram.handlers
             assert command_pattern not in COMMANDS
-        finally:
-            for registration in list_registrations():
-                if registration.registration_id not in before_ids:
-                    registration.unregister(client)
+
+        assert {item.registration_id for item in list_registrations()} == before_ids
 
     asyncio.run(run())
