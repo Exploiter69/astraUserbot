@@ -78,9 +78,24 @@ The existing observatory exposes live plugin state through `.plugins`, including
 
 The ecosystem audit is read-only and AST-based so auditing never requires importing arbitrary plugin code.
 
+## Plugin authoring and tests
+
+Create a starter plugin from the repository root:
+
+```bash
+python -m astra.sdk_generator create-plugin example_plugin
+python -m pytest -q plugins/example_plugin/tests/test_plugin.py
+```
+
+The generated acceptance test uses the test-only `PluginHarness` and the real plugin manager lifecycle. It verifies discovery, normalized metadata, command registration, dispatch through the registered wrapper, the expected recorded response, and registration/handler cleanup on unload. It requires no Telegram session or credentials, performs no external HTTP requests, and is not a substitute for feature-specific tests.
+
+The generator's `capabilities` field is metadata. A declaration is not an owner grant and is not proof that every operation is capability-checked. Review [PLUGIN_SDK.md](PLUGIN_SDK.md) before extending the scaffold.
+
 ## Testing gate
 
 `tools/plugin_ecosystem_audit.py` verifies the discovered active ecosystem structurally. `tests/test_plugin_ecosystem.py` covers metadata normalization, API compatibility, dependency protection, quarantine, safe lifecycle mutation, rollback, and operator metadata exposure.
+
+The generated per-plugin acceptance test complements, but does not replace, these ecosystem-wide checks.
 
 A green ecosystem gate is:
 
