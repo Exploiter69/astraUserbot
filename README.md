@@ -76,6 +76,7 @@ Quarantine is intentional. Do not remove it merely because an AI command is unav
 | [ROADMAP.md](docs/roadmap/ROADMAP.md) | Active Astra 2.x feature and implementation roadmap |
 | [ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md) | Canonical architecture and production invariants |
 | [PLUGIN_ECOSYSTEM.md](docs/plugins/PLUGIN_ECOSYSTEM.md) | Plugin lifecycle and metadata contract |
+| [PLUGIN_SDK.md](docs/plugins/PLUGIN_SDK.md) | Public plugin SDK, scaffold generation, and test workflow |
 | [OPERATIONS_RUNBOOK.md](docs/operations/OPERATIONS_RUNBOOK.md) | Day-to-day operator procedures |
 | [DISASTER_RECOVERY.md](docs/operations/DISASTER_RECOVERY.md) | Backup, restore and recovery procedure |
 | [FAILURE_MODE_MATRIX.md](docs/operations/FAILURE_MODE_MATRIX.md) | Failure detection and response |
