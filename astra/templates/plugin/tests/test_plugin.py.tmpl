@@ -24,7 +24,7 @@ def test_generated_plugin_loads_dispatches_and_unloads(tmp_path: Path) -> None:
         )
 
         module_name = "plugins.{{PLUGIN_NAME}}.plugin"
-        command_pattern = r"^\\.{{COMMAND_NAME}}-info$"
+        command_pattern = r"^\.{{COMMAND_NAME}}-info$"
         before_ids = {item.registration_id for item in list_registrations()}
 
         async with PluginHarness(
