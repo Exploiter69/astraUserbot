@@ -88,7 +88,15 @@ class TaskSupervisor:
         # created by plugin callbacks retain that plugin identity.
         identity = current_identity() or ExecutionIdentity("trusted_core", name)
 
+        # A task can be cancelled before its wrapper gets its first event-loop
+        # turn. In that case the wrapper never awaits the supplied coroutine,
+        # so explicitly close it from the done callback to avoid an
+        # "was never awaited" warning and release any coroutine-owned state.
+        started = False
+
         async def run_with_identity() -> Any:
+            nonlocal started
+            started = True
             with identity_context(identity):
                 return await awaitable
 
@@ -102,7 +110,15 @@ class TaskSupervisor:
             task=task,
         )
         self._active[record.task_id] = record
-        task.add_done_callback(lambda finished: self._finish(record, finished))
+
+        def finish(finished: asyncio.Task[Any]) -> None:
+            if not started:
+                close = getattr(awaitable, "close", None)
+                if close is not None:
+                    close()
+            self._finish(record, finished)
+
+        task.add_done_callback(finish)
         return task
 
     def _finish(self, record: TaskRecord, task: asyncio.Task[Any]) -> None:
