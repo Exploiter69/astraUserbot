@@ -30,6 +30,26 @@ PLUGIN = metadata(
 9. Long-lived process-local tasks use `ctx.tasks` and are never advertised as durable.
 10. All user input and resource consumption remain bounded.
 
+## Generate and test a plugin
+
+Create a scaffold from the repository root:
+
+```bash
+python -m astra.sdk_generator create-plugin example_plugin
+```
+
+The generator creates `plugins/example_plugin/` with the plugin module, package initializer, README, and an acceptance test at `tests/test_plugin.py`. The generated `.example-plugin-info` command is an informational placeholder, not a completed feature.
+
+Run the generated acceptance test:
+
+```bash
+python -m pytest -q plugins/example_plugin/tests/test_plugin.py
+```
+
+The generated test uses the test-only `PluginHarness` to exercise real plugin discovery, metadata loading, setup/registration, registered-wrapper command dispatch, and unload cleanup. It uses a local fake Telegram surface, requires no Telegram credentials, and denies HTTP networking by default. It does not connect to Telegram or prove that a plugin's declared capabilities are enforced. The harness is test infrastructure, not part of the public plugin runtime API.
+
+Review the generated README and replace the placeholder handler with bounded, tested behavior before treating the plugin as feature-complete. For the full lifecycle and ecosystem contract, see [PLUGIN_ECOSYSTEM.md](PLUGIN_ECOSYSTEM.md).
+
 ## Compatibility
 
 `astra.sdk.SDK_API_VERSION` is `"1.0"`; runtime metadata normalizes this to integer API version `1`. Unknown capabilities are rejected against the existing eleven-name vocabulary.
